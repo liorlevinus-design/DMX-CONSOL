@@ -2,8 +2,10 @@ using System.Collections.ObjectModel;
 using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DmxConsole.Application;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Selection;
 using DmxConsole.Fixtures;
 using DmxConsole.Protocols;
 using DmxConsole.Protocols.ArtNet;
@@ -25,6 +27,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public CueListViewModel CueListVm { get; }
     public EffectsViewModel EffectsVm { get; }
     public SelectionViewModel SelectionVm { get; }
+
+    private readonly UndoRedoService _undoRedo;
 
     public ObservableCollection<ChannelFaderViewModel> Faders { get; } = new();
     public IReadOnlyList<FixtureProfile> AvailableProfiles { get; } = GenericFixtureLibrary.All;
@@ -67,7 +71,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         CueListVm = new CueListViewModel(Patch, Programmer, cueList);
         EffectsVm = new EffectsViewModel(Patch, effectsEngine);
-        SelectionVm = new SelectionViewModel(Patch);
+
+        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager());
+        _undoRedo = new UndoRedoService(consoleContext);
+        var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
+        SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();
@@ -129,6 +137,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Programmer.ClearAll();
         foreach (var fader in Faders) fader.Value = fader.Channel.DefaultValue;
         StatusMessage = "Programmer cleared.";
+    }
+
+    [RelayCommand]
+    private void Undo()
+    {
+        _undoRedo.Undo();
+        StatusMessage = "Undo.";
+    }
+
+    [RelayCommand]
+    private void Redo()
+    {
+        _undoRedo.Redo();
+        StatusMessage = "Redo.";
     }
 
     [RelayCommand]

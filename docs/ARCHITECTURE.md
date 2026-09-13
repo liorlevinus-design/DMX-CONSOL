@@ -64,6 +64,21 @@
 - App: **`SelectionViewModel`** (טופס Thru דו-שלבי - "Thru" חמוש על הפריט האחרון שנבחר, הקלקה הבאה על מספר משלימה את הטווח), **`SelectionBar.razor`** (כפתורי מספר + Thru/Odd/Even/Next/Previous/Clear + צ'יפים של קבוצות + שמירה כקבוצה) בין ה-main-grid לטאבים. `FaderCard.razor` מקבל `Selection` כפרמטר ומדגיש (`.fader.selected`) פיקסצ'רים נבחרים - עדיין מציג את כל הערוצים, לא מסנן (זה Step C).
 - נבדק ידנית מקצה לקצה בדפדפן: toggle, Thru range, Odd/Even, Next, Save/Recall Group - כולם עובדים ומסונכרנים חזותית בין ה-Selection Bar ל-Fader Bank.
 
+## Command/Service Layer — DmxConsole.Application (Step C0)
+
+**המניע:** כל מוטציה עתידית (Programmer, Presets, Cues, Playback) צריכה לעבור דרך שכבה אחת מסודרת - כדי ש-Undo/Redo יעבדו באמת, וכדי ששכבת Natural-Language Programmer עתידית (voice/text → Commands) תוכל להיות **client** נוסף של אותה שכבה בדיוק כמו ה-UI, בלי לגעת ב-`DmxConsole.Core` ישירות. זו הסיבה שהוכנס **עכשיו**, לפני שדרוג ה-Programmer.
+
+- פרויקט חדש **`DmxConsole.Application`** (לא `DmxConsole.Console` - שם שמתנגש מושגית עם `System.Console`). מפנה אך ורק ל-`DmxConsole.Core`.
+- **`ConsoleContext`** - state תפעולי אמיתי בלבד (`Patch`, `Programmer`, `FixtureSelection`, `GroupManager`; בעתיד: CueLists, PresetLibrary). **לא** מכיל "זיכרון שיחה" (כמו "עוד 10%") - זה נשאר בלעדית בשכבת ה-NL העתידית, שתמיר משפט טבעי ל-Commands מפורשים לפני שהיא בכלל נוגעת ב-`ConsoleContext`.
+- **`CommandResult`** - structured data קודם כל (`ActionType` enum, `AffectedFixtures`, `Group`, `Success`/`Error`/`Warning`); `Message` הוא convenience בלבד ל-UI/דיבוג - שכבת NL עתידית תקרא את השדות המובנים, לא תפרש את ה-`Message`.
+- **`IConsoleCommand`** - `Execute(context)` + `Undo(context)`. **`SelectionCommandBase`** (ב-`Commands/Selection/`) מיישם Undo אחיד לכל פקודות הבחירה: תופס snapshot מלא של הבחירה לפני המוטציה, `Undo` משחזר אותו במלואו - נכון-מבנייה, בלי לנמק היפוך ספציפי לכל פעולה (Toggle/Range/Odd/Even/Next/Previous/AddGroup).
+- **`CreateGroupCommand`**/**`RemoveGroupCommand`** (ב-`Commands/Groups/`) - `RemoveGroupCommand` שומר את ה-index המקורי ומחזיר אליו ב-Undo; נכשל בעדינות (`CommandResult.Failed`) אם הקבוצה כבר לא קיימת.
+- **`CommandDispatcher.Dispatch`** - מפעיל ודוחף ל-Undo stack אם הצליח. **`DispatchBatch`** עוטף רשימת פקודות ב-**`CompositeCommand`** (`Commands/CompositeCommand.cs`) ומפעיל דרך אותו `Dispatch` - כך שכמה מוטציות ממשפט אחד ("תוריד את הווש הקר ותעלה את הפרונטים") נהפכות ב-`Undo()` **אחד**.
+- **`UndoRedoService`** - שני `Stack<IConsoleCommand>`; `Redo()` קורא שוב ל-`Execute` (לא שומר את התוצאה הישנה) כדי שהפקודה תתפוס snapshot טרי להיפוך הבא שלה; `Push` חדש מנקה את ה-redo stack.
+- **`SelectionViewModel.cs`** (Web) עודכן: כל `[RelayCommand]` בונה `IConsoleCommand` ומעביר ל-`CommandDispatcher` במקום לגעת ב-`FixtureSelection`/`GroupManager` ישירות. `Selection`/`Groups` נשארו properties ציבוריים (עכשיו proxy ל-`ConsoleContext`) - **אפס שינוי** נדרש ב-`SelectionBar.razor`/`FaderCard.razor`. `ArmThru` (מצב "Thru חמוש") נשאר UI-בלבד - זו זרימת מגע רגילה, לא state קונסולאי או NL.
+- `MainViewModel` בונה את ה-`ConsoleContext`/`UndoRedoService`/`CommandDispatcher`, וטולבר קיבל שני כפתורי Undo/Redo גלובליים.
+- פרויקט בדיקות חדש `tests/DmxConsole.Application.Tests` - כולל בדיקת batch-transaction ייעודית שמוודאת ש-`Undo()` אחד הופך שתי פקודות שהופעלו יחד.
+
 ## הרחבה עתידית (שלבים הבאים)
 
 כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

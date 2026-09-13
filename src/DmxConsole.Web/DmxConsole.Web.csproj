@@ -4,6 +4,7 @@
     <ProjectReference Include="..\DmxConsole.Core\DmxConsole.Core.csproj" />
     <ProjectReference Include="..\DmxConsole.Protocols\DmxConsole.Protocols.csproj" />
     <ProjectReference Include="..\DmxConsole.Fixtures\DmxConsole.Fixtures.csproj" />
+    <ProjectReference Include="..\DmxConsole.Application\DmxConsole.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
