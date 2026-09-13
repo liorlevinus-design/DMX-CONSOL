@@ -38,6 +38,9 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
     /// </summary>
     protected abstract bool ApplyToChannel(ConsoleContext context, PatchedFixture fixture, FixtureChannel channel);
 
+    /// <summary>Hook for a subclass to add its own fields to the result (e.g. ApplyPresetCommand attaching the Preset it applied) via a `with` expression.</summary>
+    protected virtual CommandResult DecorateResult(CommandResult result) => result;
+
     public CommandResult Execute(ConsoleContext context)
     {
         var snapshots = new List<ChannelSnapshot>();
@@ -71,14 +74,14 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
 
         _previous = snapshots;
 
-        return new CommandResult
+        return DecorateResult(new CommandResult
         {
             ActionType = ActionType,
             AffectedFixtures = affected,
             AffectedAttributes = AttributeFilter is { } filterClass ? new[] { filterClass } : Array.Empty<AttributeClass>(),
             PreviousValues = previousValues,
             NewValues = newValues,
-        };
+        });
     }
 
     public void Undo(ConsoleContext context)

@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
 using DmxConsole.Fixtures;
 using DmxConsole.Protocols;
@@ -28,6 +29,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public EffectsViewModel EffectsVm { get; }
     public SelectionViewModel SelectionVm { get; }
     public ProgrammerViewModel ProgrammerVm { get; }
+    public PresetViewModel PresetVm { get; }
 
     private readonly UndoRedoService _undoRedo;
 
@@ -73,11 +75,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CueListVm = new CueListViewModel(Patch, Programmer, cueList);
         EffectsVm = new EffectsViewModel(Patch, effectsEngine);
 
-        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine);
+        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, new PresetLibrary());
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
         ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
+        PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();

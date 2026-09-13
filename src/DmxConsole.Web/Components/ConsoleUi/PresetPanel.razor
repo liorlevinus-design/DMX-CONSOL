@@ -1,0 +1,58 @@
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div style="display:contents">
+    <div class="scroll-y">
+        <div class="field">
+            <label>Class</label>
+            <select @bind="Pv.SelectedClass" style="min-height:40px">
+                @foreach (var cls in Pv.AttributeClassOptions)
+                {
+                    <option value="@cls">@cls</option>
+                }
+            </select>
+        </div>
+        <div class="field">
+            <label>Name</label>
+            <input type="text" @bind="Pv.NewPresetName" style="flex:1" />
+        </div>
+        <button class="btn btn-go" style="font-size:15px; min-width:auto; width:100%" @onclick="() => Pv.RecordNewCommand.Execute(null)">● Record New (from Programmer)</button>
+        <button class="btn" style="width:100%; margin-top:6px" @onclick="() => Pv.UpdateSelectedCommand.Execute(null)">Update Selected</button>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:6px">@Pv.StatusMessage</div>
+    </div>
+
+    <div class="scroll-y">
+        <table class="data-list">
+            <thead><tr><th>#</th><th>Name</th><th></th><th></th></tr></thead>
+            <tbody>
+                @foreach (var preset in Pv.PresetsForSelectedClass)
+                {
+                    <tr class="@(ReferenceEquals(preset, Pv.SelectedPreset) ? "active-row" : "")" @onclick="() => Pv.SelectedPreset = preset">
+                        <td>@preset.Number</td>
+                        <td>@preset.Name</td>
+                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Pv.ApplyCommand.Execute(preset)" @onclick:stopPropagation="true">Apply</button></td>
+                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Pv.RemoveCommand.Execute(preset)" @onclick:stopPropagation="true">✕</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private PresetViewModel Pv => Vm.PresetVm;
+
+    protected override void OnInitialized()
+    {
+        Pv.PropertyChanged += OnChanged;
+        Pv.Library.Presets.CollectionChanged += OnChanged;
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Pv.PropertyChanged -= OnChanged;
+        Pv.Library.Presets.CollectionChanged -= OnChanged;
+    }
+}

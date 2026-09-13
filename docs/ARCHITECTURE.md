@@ -101,6 +101,19 @@
 - נבדק ידנית מקצה לקצה בתרחיש אמיתי: הקלטת Cue ב-50% → Clear Programmer → GO → "+Raise 10%" → הפאדר הציג **154** (≈60%, לא ≈26 שהיה קורה עם הבאג) - מאשר שההתאמה היחסית קוראת נכון את הפלט הממוזג האמיתי מה-Cue, לא Programmer ריק.
 - Position/Color/Beam relative adjustment **עדיין לא בשלב הזה** - נותר Intensity בלבד, כפי שאושר.
 
+## Presets/Palettes (Step D)
+
+לפני התכנון נקרא מדריך MagicQ המלא (285 עמ') ועמוד ה-Presets של grandMA3 - שניהם אישרו ש-4 ה-`AttributeClass` שלנו (Intensity/Position/Color/Beam) הם בדיוק 4 ה-pools הנפרדים שכל קונסולה מקצועית משתמשת בהם, ושה-Cue-by-reference (Step E הבא) הוא בדיוק מה ש-grandMA3 עושה ("store a labeled reference, rather than the actual value itself").
+
+- **`Preset`** / **`PresetLibrary`** (`DmxConsole.Core.Presets`, namespace מקביל ל-`Selection`) - `Preset.Values` הוא `Dictionary<ChannelType, byte>`, **לא** לפי כתובת גולמית - זה מה שמאפשר לאותו preset לחול על סוגי פיקסצ'רים שונים (מקביל ל-"Universal mode" הפשוט של grandMA3). מספור עצמאי **פר-`AttributeClass`** (בדיוק כמו 4 ה-pools הנפרדים ב-MagicQ) - `PresetLibrary.NextFreeNumber(cls)`.
+- **`ApplyPresetCommand : ProgrammerChannelCommandBase`** - `AttributeFilter = preset.Class`, כך שכל תשתית ה-Undo/PreviousValues/NewValues מ-Step C1 מגיעה בחינם. `ApplyToChannel` כותב רק אם `preset.Values` מכיל את ה-`ChannelType` של הערוץ - פיקסצ'ר שחסר לו ערוץ מסוים בפרסט פשוט לא נוגע בו, בלי שגיאה.
+- **`StorePresetCommand`** - `IConsoleCommand` ישיר (לא דרך ה-base, כי הוא כותב ל-Preset, לא ל-Programmer). קורא מה-Programmer כמו `CueList.RecordCue` הקיים (`HasStoredValue ?? DefaultValue`) - **לא** מ-`EffectiveOutput` (זה "מה שאני רוצה לשמור", לא "מה שרואים כרגע" - סמנטיקה שונה מה-Relative Adjustment). **ממזג** בהקלטה חוזרת: רק `ChannelType`-ים שבאמת קיימים בין ה-targets מתעדכנים; אחרים שכבר שמורים ב-Preset נשארים (בדיוק כמו MagicQ). נכשל בעדינות (`CommandResult.Failed`) אם אף target לא תואם ל-Class.
+- **`RemovePresetCommand`** - כמו `RemoveGroupCommand` (index capture, Undo מכניס בחזרה).
+- **`CommandResult` הפך ל-`record`** (מ-`class`) כדי לאפשר `with` expressions - `ProgrammerChannelCommandBase` מקבל hook וירטואלי חדש `DecorateResult(result)` כדי ש-`ApplyPresetCommand` יוכל לצרף `Preset = preset` לתוצאה בלי לשכפל את כל לוגיקת ה-Execute.
+- **`ConsoleContext`** מקבל `PresetLibrary Presets` (פרמטר קונסטרוקטור נוסף).
+- UI: טאב שלישי **"Presets"** (`PresetPanel.razor`) ליד Cues/Effects - בורר Class, טבלת presets (Apply/Remove), טופס Record New/Update Selected. `PresetViewModel` מקבל `ProgrammerViewModel` כדי לקרוא `RefreshAllFaders()` אחרי Apply - **אותו באג בדיוק מ-Step C1**, לא חזרנו עליו.
+- **נבדק ידנית בדפדפן**: הקלטת Color preset מ-RGBW Par (Red=255,Blue=128) → Apply על Moving Head (רק Color Wheel, אין ChannelType תואם) → "Applied Color preset 1 to **0** fixture(s)" נכון; הקלטת Position preset ממאבר-הד אחד (Pan=200,Tilt=100) → Apply על מאבר-הד שני → "Applied... to **1** fixture(s)" והפאדרים מציגים בדיוק 200/100 מיד.
+
 ## הרחבה עתידית (שלבים הבאים)
 
 כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

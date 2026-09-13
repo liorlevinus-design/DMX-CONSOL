@@ -1,5 +1,6 @@
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
 
 namespace DmxConsole.Application;
@@ -26,14 +27,17 @@ public sealed class ConsoleContext
     /// </summary>
     public IEffectiveOutputReader EffectiveOutput { get; }
 
-    // Future steps add: CueLists, PresetLibrary - not part of Step C0/C1.
+    public PresetLibrary Presets { get; }
 
-    public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups, IEffectiveOutputReader effectiveOutput)
+    // Future steps add: CueLists - not part of Step C0/C1/D.
+
+    public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups, IEffectiveOutputReader effectiveOutput, PresetLibrary presets)
     {
         Patch = patch;
         Programmer = programmer;
         Selection = selection;
         Groups = groups;
         EffectiveOutput = effectiveOutput;
+        Presets = presets;
     }
 }

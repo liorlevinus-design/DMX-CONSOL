@@ -1,5 +1,6 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
 
 namespace DmxConsole.Application;
@@ -30,6 +31,10 @@ public enum ConsoleActionType
     Knockout,
     Restore,
     AdjustIntensity,
+
+    StorePreset,
+    ApplyPreset,
+    RemovePreset,
 }
 
 /// <summary>
@@ -38,7 +43,7 @@ public enum ConsoleActionType
 /// fields below rather than parse <see cref="Message"/>. Message exists purely as a
 /// ready-made human-readable summary for UI status bars and logs/debugging.
 /// </summary>
-public class CommandResult
+public record CommandResult
 {
     public required ConsoleActionType ActionType { get; init; }
     public bool Success { get; init; } = true;
@@ -50,6 +55,9 @@ public class CommandResult
 
     /// <summary>Populated only by Create/RemoveGroup.</summary>
     public FixtureGroup? Group { get; init; }
+
+    /// <summary>Populated only by Store/RemovePreset.</summary>
+    public Preset? Preset { get; init; }
 
     /// <summary>Attribute classes this action touched - e.g. [Intensity] for AdjustIntensity, [Color] for a "clear color" ClearAttribute.</summary>
     public IReadOnlyList<AttributeClass> AffectedAttributes { get; init; } = Array.Empty<AttributeClass>();

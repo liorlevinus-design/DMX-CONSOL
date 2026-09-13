@@ -19,6 +19,7 @@
     <div class="tab-strip">
         <button class="tab-button @(ActiveTab == "cues" ? "active" : "")" @onclick='() => ActiveTab = "cues"'>Cues</button>
         <button class="tab-button @(ActiveTab == "effects" ? "active" : "")" @onclick='() => ActiveTab = "effects"'>Effects</button>
+        <button class="tab-button @(ActiveTab == "presets" ? "active" : "")" @onclick='() => ActiveTab = "presets"'>Presets</button>
     </div>
 
     @if (ActiveTab == "cues")
@@ -27,10 +28,16 @@
             <CueListPanel />
         </div>
     }
-    else
+    else if (ActiveTab == "effects")
     {
         <div class="tab-content effects">
             <EffectsPanel />
+        </div>
+    }
+    else
+    {
+        <div class="tab-content">
+            <PresetPanel />
         </div>
     }
 
