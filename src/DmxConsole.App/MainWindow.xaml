@@ -50,6 +50,16 @@
                 <Separator Margin="12,0" Width="1" Background="#FF444444"/>
 
                 <CheckBox Content="sACN / E1.31" IsChecked="{Binding SacnEnabled}"/>
+
+                <Separator Margin="12,0" Width="1" Background="#FF444444"/>
+
+                <CheckBox Content="USB-DMX" IsChecked="{Binding UsbEnabled}"/>
+                <ComboBox Width="150" ItemsSource="{Binding UsbModeOptions}" SelectedItem="{Binding UsbMode}"/>
+                <ComboBox Width="90" ItemsSource="{Binding AvailableComPorts}" SelectedItem="{Binding SelectedComPort}"/>
+                <Button Content="⟳" ToolTip="Refresh COM ports" Command="{Binding RefreshComPortsCommand}" Width="28"/>
+                <Label Content="Uni:" Foreground="#FFE0E0E0"/>
+                <TextBox Text="{Binding UsbUniverseId, UpdateSourceTrigger=PropertyChanged}" Width="40" VerticalContentAlignment="Center"/>
+                <Button Content="Apply" Command="{Binding ApplyUsbTargetCommand}"/>
             </StackPanel>
         </Border>
 

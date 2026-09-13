@@ -30,6 +30,14 @@
 - **`ITickable`** — ממשק חדש ב-`Engine`; `DmxOutputEngine.Tick()` קורא ל-`Tick(elapsed)` (לפי `Stopwatch` פנימי) על כל שכבה שמממשת אותו, לפני שלב המיזוג.
 - App: `EffectsViewModel` (בחירת פיקסצ'רים מרובה, טופס "אפקט חדש" עם שדות שמתחלפים לפי סוג האפקט דרך `EffectTypeVisibilityConverter`) + טאב "Effects" חדש ב-`MainWindow.xaml` (לצד טאב "Cues").
 
+## USB-DMX (שלב 3)
+
+- **`EnttecProSender`** (`DmxConsole.Protocols.Usb`) — עוטף Enttec DMX USB PRO: פרוטוקול framed מעל `SerialPort` (250000 baud, 8N2) - `0x7E` + label 6 ("Output Only Send DMX") + אורך + start code + נתונים + `0xE7`. הווידג'ט עצמו מטפל בכל תזמון קו ה-DMX (break/MAB), ולכן זו הדרך האמינה יותר. בניית ה-frame חשופה כ-`BuildFrame` סטטי טהור (נבדק ב-unit tests בלי לפתוח פורט אמיתי).
+- **`EnttecOpenDmxSender`** — עבור וידג'טים "גולמיים" (Open DMX): מייצר את ה-break/MAB בעצמו דרך `SerialPort.BreakState`. תזמון ה-break תלוי בתזמון thread של Windows (לא מדויק לרמת מיקרו-שנייה), אך עובד בפועל עם רוב הפיקסצ'רים; ה-PRO אמין יותר לתשתיות תובעניות.
+- שני ה-senders מממשים `IDmxSender` (כמו Art-Net/sACN) ומשויכים ליוניברס בודד (`UniverseId` שנבחר ב-UI) - וידג'ט USB פיזי אחד = פלט של יוניברס אחד.
+- App: `MainViewModel` מנהל `_usbSender` יחיד (Enttec Pro/Open DMX, נבחר ב-toolbar), עם רשימת COM ports (`SerialPort.GetPortNames()` דרך `EnttecProSender.ListAvailablePorts()`) וכפתור רענון.
+- פרויקט בדיקות חדש: `tests/DmxConsole.Protocols.Tests` (ל-`DmxConsole.Protocols`, שאין לו תלות ב-Core-only tests).
+
 ## הרחבה עתידית (שלבים הבאים)
 
-כל שלב עתידי (USB-DMX, Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.
+כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

@@ -5,8 +5,10 @@ using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Fixtures;
+using DmxConsole.Protocols;
 using DmxConsole.Protocols.ArtNet;
 using DmxConsole.Protocols.Sacn;
+using DmxConsole.Protocols.Usb;
 
 namespace DmxConsole.App.ViewModels;
 
@@ -23,6 +25,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private ArtNetSender? _artNetSender;
     private SacnSender? _sacnSender;
+    private IDmxSender? _usbSender;
 
     [ObservableProperty] private FixtureProfile? _selectedProfile;
     [ObservableProperty] private FixtureMode? _selectedMode;
@@ -37,6 +40,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _sacnEnabled;
     [ObservableProperty] private string _artNetTargetIp = "255.255.255.255";
     [ObservableProperty] private string _statusMessage = "Ready.";
+
+    public string[] UsbModeOptions { get; } = { "Enttec DMX USB PRO", "Enttec Open DMX USB" };
+    public ObservableCollection<string> AvailableComPorts { get; } = new();
+
+    [ObservableProperty] private bool _usbEnabled;
+    [ObservableProperty] private string _usbMode = "Enttec DMX USB PRO";
+    [ObservableProperty] private string? _selectedComPort;
+    [ObservableProperty] private int _usbUniverseId;
 
     public MainViewModel()
     {
@@ -55,6 +66,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _sacnSender = new SacnSender();
 
         SelectedProfile = AvailableProfiles.FirstOrDefault();
+        RefreshComPorts();
     }
 
     partial void OnSelectedProfileChanged(FixtureProfile? value)
@@ -144,9 +156,48 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    [RelayCommand]
+    private void RefreshComPorts()
+    {
+        var current = SelectedComPort;
+        AvailableComPorts.Clear();
+        foreach (var port in EnttecProSender.ListAvailablePorts().OrderBy(p => p)) AvailableComPorts.Add(port);
+        SelectedComPort = current is not null && AvailableComPorts.Contains(current) ? current : AvailableComPorts.FirstOrDefault();
+    }
+
+    [RelayCommand]
+    private void ApplyUsbTarget()
+    {
+        _usbSender?.Dispose();
+        _usbSender = null;
+
+        if (!UsbEnabled) { StatusMessage = "USB-DMX disabled."; return; }
+
+        if (string.IsNullOrEmpty(SelectedComPort))
+        {
+            StatusMessage = "Select a COM port for the USB-DMX widget first.";
+            UsbEnabled = false;
+            return;
+        }
+
+        try
+        {
+            _usbSender = UsbMode == "Enttec Open DMX USB"
+                ? new EnttecOpenDmxSender(SelectedComPort, UsbUniverseId)
+                : new EnttecProSender(SelectedComPort, UsbUniverseId);
+            StatusMessage = $"{UsbMode} connected on {SelectedComPort}, carrying Universe {UsbUniverseId}.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not open {SelectedComPort}: {ex.Message}";
+            UsbEnabled = false;
+            _usbSender = null;
+        }
+    }
+
     private void OnUniverseOutputReady(int universeId, byte[] data)
     {
-        // Runs on the engine's own background thread - senders are just UDP writes, no UI access here.
+        // Runs on the engine's own background thread - senders are just UDP/serial writes, no UI access here.
         if (ArtNetEnabled)
         {
             try { _artNetSender?.Send(universeId, data); } catch { /* best-effort network I/O */ }
@@ -155,6 +206,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (SacnEnabled)
         {
             try { _sacnSender?.Send(universeId, data); } catch { /* best-effort network I/O */ }
+        }
+
+        if (UsbEnabled)
+        {
+            try { _usbSender?.Send(universeId, data); } catch { /* best-effort serial I/O */ }
         }
     }
 
@@ -165,6 +221,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Engine.Dispose();
         _artNetSender?.Dispose();
         _sacnSender?.Dispose();
+        _usbSender?.Dispose();
         CueListVm.Dispose();
     }
 }
