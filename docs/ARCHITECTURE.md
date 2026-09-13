@@ -16,6 +16,12 @@
 4. כיול Pan/Tilt (`PanTiltCalibration`) מוחל אחרי המיזוג הגנרי, per-fixture.
 5. `DmxOutputEngine.UniverseOutputReady` מפרסם snapshot per-universe; ה-App מעביר אותו ל-`ArtNetSender`/`SacnSender` בהתאם לצ'קבוקסים שהמשתמש הפעיל.
 
+## Cues / Cue List (שלב 1)
+
+- **`Cue`** — snapshot מלא של כל ערוצי הפאץ' בזמן ההקלטה + `FadeInTime`/`FadeOutTime` נפרדים (עולה/יורד).
+- **`CueList`** — `IOutputLayer` בעדיפות 150 (בין ברירת המחדל ל-Programmer). `RecordCue` קורא מה-`Programmer` (עם נפילה לברירת המחדל של הפיקסצ'ר). `Go`/`Back`/`GoToCue` מתחילים fade מהפלט הנוכחי (נשמר ב-`_currentOutput`) אל היעד; לכל ערוץ נבחר `FadeInTime` או `FadeOutTime` בהתאם לכיוון. `Stop` משחרר את השכבה לגמרי.
+- ב-App: `CueListViewModel` עוטף את זה, כולל `DispatcherTimer` שסוקר כל 100ms כדי לעדכן progress bar/זמן נותר (כי `CueList.Changed` נורה רק בפעולות בדידות, לא ברציפות תוך כדי fade).
+
 ## הרחבה עתידית (שלבים הבאים)
 
-כל שלב עתידי (Cues, Effects, USB-DMX, Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer` נוסף ל-`DmxOutputEngine` (עדיפות נמוכה מ-Programmer), או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת.
+כל שלב עתידי (Effects, USB-DMX, Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer` נוסף ל-`DmxOutputEngine` (Effects בעדיפות גבוהה מ-CueList אך נמוכה מ-Programmer), או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת.
