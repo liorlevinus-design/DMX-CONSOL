@@ -9,7 +9,13 @@ namespace DmxConsole.Application;
 /// </summary>
 public interface IConsoleCommand
 {
-    /// <summary>Applies the action and returns what happened. Must capture whatever it needs internally to Undo.</summary>
+    /// <summary>
+    /// Applies the action and returns what happened. Must capture whatever it needs
+    /// internally to Undo. A command must either fully apply and return Success, or leave
+    /// state completely untouched and return a failed CommandResult (e.g. via
+    /// <see cref="CommandResult.Failed"/>) - never partially mutate and then fail, since
+    /// <see cref="Commands.CompositeCommand"/> only rolls back commands that reported success.
+    /// </summary>
     CommandResult Execute(ConsoleContext context);
 
     /// <summary>Reverts exactly what the most recent Execute did.</summary>

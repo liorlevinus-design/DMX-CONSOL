@@ -40,6 +40,15 @@ public class CommandResult
     /// <summary>Populated only by Create/RemoveGroup.</summary>
     public FixtureGroup? Group { get; init; }
 
+    /// <summary>
+    /// Populated only when <see cref="ActionType"/> is <see cref="ConsoleActionType.Batch"/> -
+    /// the individual result of every command in the transaction, in dispatch order, so a
+    /// caller (a future Natural Language layer especially) can report on each sub-action
+    /// instead of only seeing the last one. Includes the failing command's result too when
+    /// the batch as a whole failed and rolled back.
+    /// </summary>
+    public IReadOnlyList<CommandResult> ChildResults { get; init; } = Array.Empty<CommandResult>();
+
     /// <summary>Convenience for UI/logs/debugging only - never the source of truth for a natural-language layer.</summary>
     public string? Message { get; init; }
 
