@@ -18,6 +18,7 @@ public sealed class CueList : IOutputLayer
     private Cue? _currentCue;
     private bool _isReleased = true;
     private DateTime _fadeStartUtc;
+    private readonly IPresetResolver? _presetResolver;
 
     public string Name { get; }
     public int Priority { get; }
@@ -27,10 +28,15 @@ public sealed class CueList : IOutputLayer
     /// <summary>Raised after any playback or list change the UI should refresh for.</summary>
     public event Action? Changed;
 
-    public CueList(string name = "Cue List", int priority = 150)
+    /// <summary>presetResolver resolves CueValue.PresetRef entries at playback time (never cached - a
+    /// Preset update or deletion is reflected on the very next tick). Optional and defaults to null so
+    /// existing callers (and every current test) are unaffected; without one, PresetRef entries simply
+    /// never contribute, same as any other unresolvable channel.</summary>
+    public CueList(string name = "Cue List", int priority = 150, IPresetResolver? presetResolver = null)
     {
         Name = name;
         Priority = priority;
+        _presetResolver = presetResolver;
     }
 
     public bool IsActive
@@ -52,19 +58,45 @@ public sealed class CueList : IOutputLayer
         }
     }
 
-    /// <summary>Records the console's current live state (Programmer, falling back to fixture defaults) as a new cue.</summary>
+    /// <summary>Records the console's current live state (Programmer, falling back to fixture defaults) as
+    /// a new cue. Every channel is stored as an Absolute CueValue - the Programmer has no concept of "this
+    /// value came from a Preset" (by design, see Step C1), so a plain recording can never produce a
+    /// PresetRef; use <see cref="RecordCueWithPresetRefs"/> for that.</summary>
     public Cue RecordCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime, TimeSpan fadeOutTime)
+        => RecordCue(patch, programmer, name, number, fadeInTime, fadeOutTime, presetOverrides: null);
+
+    /// <summary>Like <see cref="RecordCue"/>, but for fixtures whose AttributeClass appears in
+    /// <paramref name="presetOverrides"/> and whose channel ChannelType is present in that Preset's
+    /// Values, stores a live PresetRef instead of an Absolute byte. Channels not covered by an override
+    /// (or whose ChannelType the override preset doesn't contain) are recorded as Absolute exactly as
+    /// before - so one Cue can freely mix Absolute and PresetRef entries.</summary>
+    public Cue RecordCueWithPresetRefs(Patch patch, Programmer programmer, string name, double number,
+        TimeSpan fadeInTime, TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset> presetOverrides)
+        => RecordCue(patch, programmer, name, number, fadeInTime, fadeOutTime, presetOverrides);
+
+    private Cue RecordCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime,
+        TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
     {
-        var levels = new Dictionary<(int, int), byte>();
+        var levels = new Dictionary<(int, int), CueValue>();
         foreach (var fixture in patch.Fixtures)
         {
             foreach (var channel in fixture.Mode.Channels)
             {
                 int idx = fixture.AbsoluteIndex(channel);
+                var key = (fixture.UniverseId, idx);
+
+                if (presetOverrides is not null
+                    && presetOverrides.TryGetValue(channel.Type.ToAttributeClass(), out var preset)
+                    && preset.Values.ContainsKey(channel.Type))
+                {
+                    levels[key] = CueValue.FromPreset(channel.Type, preset.Id);
+                    continue;
+                }
+
                 byte value = programmer.TryGetChannelValue(fixture.UniverseId, idx, out var live)
                     ? live
                     : channel.DefaultValue;
-                levels[(fixture.UniverseId, idx)] = value;
+                levels[key] = CueValue.Absolute(channel.Type, value);
             }
         }
 
@@ -72,8 +104,7 @@ public sealed class CueList : IOutputLayer
         {
             Number = number,
             Name = name,
-            FadeInTime = fadeInTime,
-            FadeOutTime = fadeOutTime,
+            GeneralTiming = new CueTiming(fadeInTime, fadeOutTime),
             Levels = levels,
         };
 
@@ -163,7 +194,10 @@ public sealed class CueList : IOutputLayer
         lock (_lock)
         {
             if (_currentCue is null) return (1.0, TimeSpan.Zero);
-            var maxDuration = _currentCue.FadeInTime > _currentCue.FadeOutTime ? _currentCue.FadeInTime : _currentCue.FadeOutTime;
+            // Approximate using the cue's General timing - a per-channel-accurate progress bar would need
+            // to consider every channel's own resolved timing; General is a reasonable overall estimate.
+            var general = _currentCue.GeneralTiming;
+            var maxDuration = general.FadeInTime > general.FadeOutTime ? general.FadeInTime : general.FadeOutTime;
             double elapsed = (DateTime.UtcNow - _fadeStartUtc).TotalSeconds;
             double progress = maxDuration.TotalSeconds <= 0
                 ? 1.0
@@ -184,7 +218,17 @@ public sealed class CueList : IOutputLayer
             }
 
             var key = (universeId, channelIndex);
-            if (!_currentCue.Levels.TryGetValue(key, out var target))
+            if (!_currentCue.Levels.TryGetValue(key, out var cueValue))
+            {
+                value = 0;
+                return false;
+            }
+
+            // Resolved fresh every tick (never cached): a PresetRef that no longer resolves (Preset
+            // deleted, or it doesn't contain this ChannelType) means this channel simply doesn't
+            // contribute this tick - same as the key-not-found branch above, never a thrown exception
+            // or a stale fabricated value.
+            if (!cueValue.TryResolve(_presetResolver, out var target))
             {
                 value = 0;
                 return false;
@@ -192,7 +236,8 @@ public sealed class CueList : IOutputLayer
 
             byte from = _fadeFrom.TryGetValue(key, out var f) ? f : (byte)0;
             double elapsedSeconds = (DateTime.UtcNow - _fadeStartUtc).TotalSeconds;
-            var duration = target >= from ? _currentCue.FadeInTime : _currentCue.FadeOutTime;
+            var timing = _currentCue.TimingFor(key, cueValue);
+            var duration = target >= from ? timing.FadeInTime : timing.FadeOutTime;
             double t = duration.TotalSeconds <= 0
                 ? 1.0
                 : Math.Clamp(elapsedSeconds / duration.TotalSeconds, 0.0, 1.0);

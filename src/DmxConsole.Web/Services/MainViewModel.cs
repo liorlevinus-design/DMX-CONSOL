@@ -65,7 +65,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         Engine = new DmxOutputEngine(Patch);
-        var cueList = new CueList();
+        var presets = new PresetLibrary();
+        var cueList = new CueList(presetResolver: presets); // resolves CueValue.PresetRef entries at playback
         var effectsEngine = new EffectsEngine();
         Engine.AddLayer(cueList);      // priority 150
         Engine.AddLayer(effectsEngine); // priority 300 - above cues, below the live Programmer
@@ -75,7 +76,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CueListVm = new CueListViewModel(Patch, Programmer, cueList);
         EffectsVm = new EffectsViewModel(Patch, effectsEngine);
 
-        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, new PresetLibrary());
+        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, presets);
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);

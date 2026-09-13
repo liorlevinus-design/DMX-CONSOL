@@ -43,7 +43,7 @@ public class CueListTests
         var cueList = new CueList();
         var cue = cueList.RecordCue(patch, programmer, "Test", 1, TimeSpan.Zero, TimeSpan.Zero);
 
-        Assert.Equal(200, cue.Levels[(0, 0)]);
+        Assert.Equal(200, cue.Levels[(0, 0)].AbsoluteValue);
     }
 
     [Fact]
@@ -55,7 +55,7 @@ public class CueListTests
         var cueList = new CueList();
         var cue = cueList.RecordCue(patch, programmer, "Test", 1, TimeSpan.Zero, TimeSpan.Zero);
 
-        Assert.Equal(20, cue.Levels[(0, 0)]); // fixture DefaultValue
+        Assert.Equal(20, cue.Levels[(0, 0)].AbsoluteValue); // fixture DefaultValue
     }
 
     [Fact]
