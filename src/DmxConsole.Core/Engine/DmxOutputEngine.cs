@@ -1,13 +1,14 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using DmxConsole.Core.Fixtures;
 
 namespace DmxConsole.Core.Engine;
 
 /// <summary>
 /// The heart of the console: on a fixed-rate background loop, merges every active
-/// <see cref="IOutputLayer"/> (Programmer today; cues/effects in later phases) into
-/// one buffer per universe, applies per-fixture pan/tilt calibration, and publishes
-/// the result via <see cref="UniverseOutputReady"/> for protocol senders to transmit.
+/// <see cref="IOutputLayer"/> (Programmer, CueList, Effects, ...) into one buffer per
+/// universe, applies per-fixture pan/tilt calibration, and publishes the result via
+/// <see cref="UniverseOutputReady"/> for protocol senders to transmit.
 /// </summary>
 public sealed class DmxOutputEngine : IDisposable
 {
@@ -15,6 +16,7 @@ public sealed class DmxOutputEngine : IDisposable
     private readonly ConcurrentDictionary<int, Universe> _universes = new();
     private readonly List<IOutputLayer> _layers = new();
     private readonly object _layersLock = new();
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     private PatchChannelMap _channelMap;
     private readonly byte[] _scratch = new byte[Core.Universe.ChannelCount];
@@ -96,6 +98,13 @@ public sealed class DmxOutputEngine : IDisposable
     {
         List<IOutputLayer> layersSnapshot;
         lock (_layersLock) { layersSnapshot = new List<IOutputLayer>(_layers); }
+
+        var elapsed = _clock.Elapsed;
+        foreach (var layer in layersSnapshot)
+        {
+            if (layer is ITickable tickable) tickable.Tick(elapsed);
+        }
+
         var activeLayers = layersSnapshot.Where(l => l.IsActive).ToList();
 
         foreach (var universe in _universes.Values)

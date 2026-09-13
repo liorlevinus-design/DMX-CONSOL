@@ -16,6 +16,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public Programmer Programmer { get; } = new();
     public DmxOutputEngine Engine { get; }
     public CueListViewModel CueListVm { get; }
+    public EffectsViewModel EffectsVm { get; }
 
     public ObservableCollection<ChannelFaderViewModel> Faders { get; } = new();
     public IReadOnlyList<FixtureProfile> AvailableProfiles { get; } = GenericFixtureLibrary.All;
@@ -41,11 +42,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         Engine = new DmxOutputEngine(Patch);
         var cueList = new CueList();
-        Engine.AddLayer(cueList); // below the Programmer, so live fader grabs still win
+        var effectsEngine = new EffectsEngine();
+        Engine.AddLayer(cueList);      // priority 150
+        Engine.AddLayer(effectsEngine); // priority 300 - above cues, below the live Programmer
         Engine.AddLayer(Programmer);
         Engine.UniverseOutputReady += OnUniverseOutputReady;
 
         CueListVm = new CueListViewModel(Patch, Programmer, cueList);
+        EffectsVm = new EffectsViewModel(Patch, effectsEngine);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();

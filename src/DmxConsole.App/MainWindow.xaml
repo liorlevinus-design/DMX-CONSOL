@@ -138,67 +138,170 @@
             </DockPanel>
         </Grid>
 
-        <!-- Cue list -->
-        <Border Grid.Row="2" Background="#FF232323" Margin="8,0,8,8" Padding="8" BorderBrush="#FF3A3A3A" BorderThickness="1">
-            <Grid DataContext="{Binding CueListVm}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="260"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+        <!-- Cue list / Effects -->
+        <Border Grid.Row="2" Background="#FF232323" Margin="8,0,8,8" Padding="4" BorderBrush="#FF3A3A3A" BorderThickness="1">
+            <TabControl Background="Transparent" BorderThickness="0">
+                <TabItem Header="Cues">
+                    <Grid DataContext="{Binding CueListVm}" Margin="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                <!-- Record form + transport -->
-                <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                    <TextBlock Text="Cue List" FontSize="14" FontWeight="Bold" Margin="0,0,0,6"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Label Content="#" Width="50"/>
-                        <TextBox Width="70" Text="{Binding NewCueNumber, UpdateSourceTrigger=PropertyChanged}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Label Content="Name" Width="50"/>
-                        <TextBox Width="150" Text="{Binding NewCueName, UpdateSourceTrigger=PropertyChanged}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Label Content="Fade In" Width="50"/>
-                        <TextBox Width="70" Text="{Binding NewFadeInSeconds, UpdateSourceTrigger=PropertyChanged}"/>
-                        <Label Content="Out" Width="30"/>
-                        <TextBox Width="70" Text="{Binding NewFadeOutSeconds, UpdateSourceTrigger=PropertyChanged}"/>
-                    </StackPanel>
-                    <Button Content="Record Cue (from Programmer)" Command="{Binding RecordCueCommand}" HorizontalAlignment="Left" Margin="0,4,0,10"/>
+                        <!-- Record form + transport -->
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="#" Width="50"/>
+                                <TextBox Width="70" Text="{Binding NewCueNumber, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="Name" Width="50"/>
+                                <TextBox Width="150" Text="{Binding NewCueName, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="Fade In" Width="50"/>
+                                <TextBox Width="70" Text="{Binding NewFadeInSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Label Content="Out" Width="30"/>
+                                <TextBox Width="70" Text="{Binding NewFadeOutSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <Button Content="Record Cue (from Programmer)" Command="{Binding RecordCueCommand}" HorizontalAlignment="Left" Margin="0,4,0,10"/>
 
-                    <StackPanel Orientation="Horizontal">
-                        <Button Content="◀ Back" Command="{Binding BackCommand}" FontSize="14"/>
-                        <Button Content="GO" Command="{Binding GoCommand}" FontSize="14" FontWeight="Bold" Background="#FF2E7D32" Foreground="White" Width="60"/>
-                        <Button Content="Stop" Command="{Binding StopCommand}" FontSize="14"/>
-                    </StackPanel>
-                    <TextBlock Margin="0,8,0,0" Text="{Binding CurrentCueLabel, StringFormat='Active: {0}'}"/>
-                    <ProgressBar Height="14" Margin="0,4,0,2" Minimum="0" Maximum="1" Value="{Binding TransitionProgress, Mode=OneWay}"/>
-                    <TextBlock Text="{Binding RemainingTimeText}" FontSize="11" Foreground="#FFAAAAAA"/>
-                </StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="◀ Back" Command="{Binding BackCommand}" FontSize="14"/>
+                                <Button Content="GO" Command="{Binding GoCommand}" FontSize="14" FontWeight="Bold" Background="#FF2E7D32" Foreground="White" Width="60"/>
+                                <Button Content="Stop" Command="{Binding StopCommand}" FontSize="14"/>
+                            </StackPanel>
+                            <TextBlock Margin="0,8,0,0" Text="{Binding CurrentCueLabel, StringFormat='Active: {0}'}"/>
+                            <ProgressBar Height="14" Margin="0,4,0,2" Minimum="0" Maximum="1" Value="{Binding TransitionProgress, Mode=OneWay}"/>
+                            <TextBlock Text="{Binding RemainingTimeText}" FontSize="11" Foreground="#FFAAAAAA"/>
+                        </StackPanel>
 
-                <!-- Cue table -->
-                <DataGrid Grid.Column="1" ItemsSource="{Binding CueList.Cues}" SelectedItem="{Binding SelectedCue}"
-                          AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column"
-                          Background="#FF252525" Foreground="White" RowBackground="#FF252525" AlternatingRowBackground="#FF2C2C2C">
-                    <DataGrid.InputBindings>
-                        <MouseBinding MouseAction="LeftDoubleClick" Command="{Binding GoToCueCommand}" CommandParameter="{Binding SelectedCue}"/>
-                    </DataGrid.InputBindings>
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="50"/>
-                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150"/>
-                        <DataGridTextColumn Header="Fade In" Binding="{Binding FadeInTime}" Width="90"/>
-                        <DataGridTextColumn Header="Fade Out" Binding="{Binding FadeOutTime}" Width="90"/>
-                        <DataGridTemplateColumn Header="">
-                            <DataGridTemplateColumn.CellTemplate>
-                                <DataTemplate>
-                                    <Button Content="Remove"
-                                            Command="{Binding DataContext.RemoveCueCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
-                                            CommandParameter="{Binding}"/>
-                                </DataTemplate>
-                            </DataGridTemplateColumn.CellTemplate>
-                        </DataGridTemplateColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
-            </Grid>
+                        <!-- Cue table -->
+                        <DataGrid Grid.Column="1" ItemsSource="{Binding CueList.Cues}" SelectedItem="{Binding SelectedCue}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column"
+                                  Background="#FF252525" Foreground="White" RowBackground="#FF252525" AlternatingRowBackground="#FF2C2C2C">
+                            <DataGrid.InputBindings>
+                                <MouseBinding MouseAction="LeftDoubleClick" Command="{Binding GoToCueCommand}" CommandParameter="{Binding SelectedCue}"/>
+                            </DataGrid.InputBindings>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="50"/>
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="150"/>
+                                <DataGridTextColumn Header="Fade In" Binding="{Binding FadeInTime}" Width="90"/>
+                                <DataGridTextColumn Header="Fade Out" Binding="{Binding FadeOutTime}" Width="90"/>
+                                <DataGridTemplateColumn Header="">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Remove"
+                                                    Command="{Binding DataContext.RemoveCueCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Effects">
+                    <Grid DataContext="{Binding EffectsVm}" Margin="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Target fixture picker -->
+                        <DockPanel Grid.Column="0" Margin="0,0,8,0">
+                            <TextBlock DockPanel.Dock="Top" Text="Target Fixtures" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding AvailableFixtures}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <CheckBox Content="{Binding Label}" IsChecked="{Binding IsSelected}"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </DockPanel>
+
+                        <!-- New effect form -->
+                        <StackPanel Grid.Column="1" Margin="0,0,8,0">
+                            <TextBlock Text="New Effect" FontWeight="Bold" Margin="0,0,0,4"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="Type" Width="65"/>
+                                <ComboBox Width="150" ItemsSource="{Binding EffectTypeOptions}" SelectedItem="{Binding SelectedEffectType}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="Name" Width="65"/>
+                                <TextBox Width="150" Text="{Binding NewEffectName, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="Speed Hz" Width="65"/>
+                                <TextBox Width="150" Text="{Binding SpeedHz, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                <Label Content="Spread" Width="65"/>
+                                <TextBox Width="150" Text="{Binding Spread, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                        Visibility="{Binding SelectedEffectType, Converter={x:Static local:EffectTypeVisibilityConverter.Instance}, ConverterParameter='Chase,Strobe,Sine'}">
+                                <Label Content="Channel" Width="65"/>
+                                <ComboBox Width="150" ItemsSource="{Binding TargetChannelOptions}" SelectedItem="{Binding TargetChannel}"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                        Visibility="{Binding SelectedEffectType, Converter={x:Static local:EffectTypeVisibilityConverter.Instance}, ConverterParameter='Chase,Strobe,Sine'}">
+                                <Label Content="Min/Off" Width="65"/>
+                                <TextBox Width="60" Text="{Binding Min, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Label Content="Max/On" Width="60"/>
+                                <TextBox Width="60" Text="{Binding Max, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                        Visibility="{Binding SelectedEffectType, Converter={x:Static local:EffectTypeVisibilityConverter.Instance}, ConverterParameter=Chase}">
+                                <Label Content="Width" Width="65"/>
+                                <TextBox Width="150" Text="{Binding Width, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                        Visibility="{Binding SelectedEffectType, Converter={x:Static local:EffectTypeVisibilityConverter.Instance}, ConverterParameter=Strobe}">
+                                <Label Content="Duty" Width="65"/>
+                                <TextBox Width="150" Text="{Binding DutyCycle, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4"
+                                        Visibility="{Binding SelectedEffectType, Converter={x:Static local:EffectTypeVisibilityConverter.Instance}, ConverterParameter=Rainbow}">
+                                <Label Content="Brightness" Width="65"/>
+                                <TextBox Width="150" Text="{Binding Brightness, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+
+                            <Button Content="Add Effect" Command="{Binding AddEffectCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"/>
+                            <TextBlock Text="{Binding StatusMessage}" Margin="0,6,0,0" FontSize="11" Foreground="#FFAAAAAA" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- Running effects -->
+                        <DataGrid Grid.Column="2" ItemsSource="{Binding Effects}" AutoGenerateColumns="False" CanUserAddRows="False"
+                                  HeadersVisibility="Column" Background="#FF252525" Foreground="White" RowBackground="#FF252525" AlternatingRowBackground="#FF2C2C2C">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="120"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding EffectType}" Width="65" IsReadOnly="True"/>
+                                <DataGridTextColumn Header="Speed Hz" Binding="{Binding SpeedHz}" Width="70"/>
+                                <DataGridCheckBoxColumn Header="On" Binding="{Binding Enabled}" Width="40"/>
+                                <DataGridTemplateColumn Header="">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Remove"
+                                                    Command="{Binding DataContext.RemoveEffectCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+            </TabControl>
         </Border>
 
         <!-- Status bar -->

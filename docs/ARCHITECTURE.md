@@ -22,6 +22,14 @@
 - **`CueList`** — `IOutputLayer` בעדיפות 150 (בין ברירת המחדל ל-Programmer). `RecordCue` קורא מה-`Programmer` (עם נפילה לברירת המחדל של הפיקסצ'ר). `Go`/`Back`/`GoToCue` מתחילים fade מהפלט הנוכחי (נשמר ב-`_currentOutput`) אל היעד; לכל ערוץ נבחר `FadeInTime` או `FadeOutTime` בהתאם לכיוון. `Stop` משחרר את השכבה לגמרי.
 - ב-App: `CueListViewModel` עוטף את זה, כולל `DispatcherTimer` שסוקר כל 100ms כדי לעדכן progress bar/זמן נותר (כי `CueList.Changed` נורה רק בפעולות בדידות, לא ברציפות תוך כדי fade).
 
+## Effects (שלב 2)
+
+- **`Effect`** (מחלקת בסיס, `DmxConsole.Core.Effects`) — קבוצת פיקסצ'רים + `SpeedHz` + `Spread` (היסט פאזה בין פיקסצ'ר לפיקסצ'ר, ליצירת "גל"). `Evaluate(elapsedSeconds)` מחזיר את כל הערוצים שהאפקט נוגע בהם לרגע נתון בבת אחת (לא per-channel, כדי לא לחשב לוגיקה כבדה 512 פעמים בטיק).
+- מימושים: **`ChaseEffect`** (צעד בדיד, `Width` פיקסצ'רים דלוקים בו-זמנית), **`StrobeEffect`** (גל ריבועי לפי `DutyCycle`), **`SineEffect`** (תנודה חלקה בין `Min`-`Max`), **`RainbowEffect`** (סבב על גלגל הצבעים דרך `HsvColor.ToRgb`, דורש ערוצי Red/Green/Blue מלאים).
+- **`EffectsEngine`** — `IOutputLayer` בעדיפות 300 (מעל CueList=150, מתחת ל-Programmer). גם `ITickable`: מחשב את כל האפקטים הפעילים פעם אחת בכל טיק (`Tick`) ושומר תוצאה ב-cache; `TryGetChannelValue` רק קורא מה-cache.
+- **`ITickable`** — ממשק חדש ב-`Engine`; `DmxOutputEngine.Tick()` קורא ל-`Tick(elapsed)` (לפי `Stopwatch` פנימי) על כל שכבה שמממשת אותו, לפני שלב המיזוג.
+- App: `EffectsViewModel` (בחירת פיקסצ'רים מרובה, טופס "אפקט חדש" עם שדות שמתחלפים לפי סוג האפקט דרך `EffectTypeVisibilityConverter`) + טאב "Effects" חדש ב-`MainWindow.xaml` (לצד טאב "Cues").
+
 ## הרחבה עתידית (שלבים הבאים)
 
-כל שלב עתידי (Effects, USB-DMX, Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer` נוסף ל-`DmxOutputEngine` (Effects בעדיפות גבוהה מ-CueList אך נמוכה מ-Programmer), או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת.
+כל שלב עתידי (USB-DMX, Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.
