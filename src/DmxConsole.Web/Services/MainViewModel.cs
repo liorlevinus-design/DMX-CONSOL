@@ -27,6 +27,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public CueListViewModel CueListVm { get; }
     public EffectsViewModel EffectsVm { get; }
     public SelectionViewModel SelectionVm { get; }
+    public ProgrammerViewModel ProgrammerVm { get; }
 
     private readonly UndoRedoService _undoRedo;
 
@@ -76,6 +77,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
+        ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();
@@ -143,6 +145,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void Undo()
     {
         _undoRedo.Undo();
+        ProgrammerVm.RefreshAllFaders();
         StatusMessage = "Undo.";
     }
 
@@ -150,6 +153,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void Redo()
     {
         _undoRedo.Redo();
+        ProgrammerVm.RefreshAllFaders();
         StatusMessage = "Redo.";
     }
 

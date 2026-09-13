@@ -1,3 +1,4 @@
+using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
 
@@ -19,6 +20,16 @@ public enum ConsoleActionType
 
     /// <summary>Several commands dispatched and undone together as one transaction.</summary>
     Batch,
+
+    /// <summary>Released every Programmer value for the targeted fixtures (all attributes).</summary>
+    Release,
+
+    /// <summary>Released Programmer values for one attribute class only.</summary>
+    ClearAttribute,
+
+    Knockout,
+    Restore,
+    AdjustIntensity,
 }
 
 /// <summary>
@@ -39,6 +50,21 @@ public class CommandResult
 
     /// <summary>Populated only by Create/RemoveGroup.</summary>
     public FixtureGroup? Group { get; init; }
+
+    /// <summary>Attribute classes this action touched - e.g. [Intensity] for AdjustIntensity, [Color] for a "clear color" ClearAttribute.</summary>
+    public IReadOnlyList<AttributeClass> AffectedAttributes { get; init; } = Array.Empty<AttributeClass>();
+
+    /// <summary>
+    /// Per-channel values before/after the action, keyed by fixture identity and channel
+    /// role rather than raw universe/address - so a caller (a future Natural Language layer
+    /// especially) can report "Fixture 12's Dimmer went from 180 to 230" without knowing
+    /// anything about DMX addressing.
+    /// </summary>
+    public IReadOnlyDictionary<(Guid FixtureId, ChannelType Channel), byte> PreviousValues { get; init; } =
+        new Dictionary<(Guid, ChannelType), byte>();
+
+    public IReadOnlyDictionary<(Guid FixtureId, ChannelType Channel), byte> NewValues { get; init; } =
+        new Dictionary<(Guid, ChannelType), byte>();
 
     /// <summary>
     /// Populated only when <see cref="ActionType"/> is <see cref="ConsoleActionType.Batch"/> -

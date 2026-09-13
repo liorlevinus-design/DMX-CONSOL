@@ -1,20 +1,56 @@
 @implements IDisposable
 @inject MainViewModel Vm
+@using DmxConsole.Core
 
 <div class="panel scroll-y" style="height:100%">
     <h3 style="margin-top:0">Faders (Programmer)</h3>
-    <div class="fader-bank">
-        @foreach (var fader in Vm.Faders)
+
+    @if (Vm.SelectionVm.Selection.Items.Count == 0)
+    {
+        <p style="color:var(--text-dim)">Select fixtures above to see their faders.</p>
+    }
+    else
+    {
+        @foreach (var group in GroupedFaders())
         {
-            <FaderCard Fader="fader" Selection="Vm.SelectionVm.Selection" />
+            <h4 style="margin:10px 0 4px 0; color:var(--text-dim); font-size:13px; text-transform:uppercase; letter-spacing:0.05em">@group.Key</h4>
+            <div class="fader-bank">
+                @foreach (var fader in group)
+                {
+                    <FaderCard Fader="fader" Selection="Vm.SelectionVm.Selection" />
+                }
+            </div>
         }
-    </div>
+    }
 </div>
 
 @code {
-    protected override void OnInitialized() => Vm.Faders.CollectionChanged += OnChanged;
+    // Display order: the four operator-facing groups first, "Other" (macro/control channels) last.
+    private static readonly AttributeClass[] AttributeOrder =
+    {
+        AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color, AttributeClass.Beam, AttributeClass.Other,
+    };
+
+    private IEnumerable<IGrouping<AttributeClass, ChannelFaderViewModel>> GroupedFaders()
+    {
+        var selected = Vm.Faders.Where(f => Vm.SelectionVm.Selection.Contains(f.Fixture));
+        var grouped = selected.GroupBy(f => f.Channel.Type.ToAttributeClass()).ToList();
+        return AttributeOrder
+            .Select(cls => grouped.FirstOrDefault(g => g.Key == cls))
+            .Where(g => g is not null)!;
+    }
+
+    protected override void OnInitialized()
+    {
+        Vm.Faders.CollectionChanged += OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged += OnChanged;
+    }
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Vm.Faders.CollectionChanged -= OnChanged;
+    public void Dispose()
+    {
+        Vm.Faders.CollectionChanged -= OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged -= OnChanged;
+    }
 }

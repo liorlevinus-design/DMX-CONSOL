@@ -79,6 +79,17 @@
 - `MainViewModel` בונה את ה-`ConsoleContext`/`UndoRedoService`/`CommandDispatcher`, וטולבר קיבל שני כפתורי Undo/Redo גלובליים.
 - פרויקט בדיקות חדש `tests/DmxConsole.Application.Tests` - כולל בדיקת batch-transaction ייעודית שמוודאת ש-`Undo()` אחד הופך שתי פקודות שהופעלו יחד.
 
+## שדרוג Programmer: Release/ClearAttribute/Knockout/AdjustIntensity (Step C1)
+
+- **`Programmer.cs`** ([Programmer.cs](src/DmxConsole.Core/Engine/Programmer.cs)) - tri-state Knockout, בלי תלות ב-Patch (נשאר address-level): `Knockout`/`Restore`/`IsKnockedOut` + `HasStoredValue` (שאילתת-אדמין שמתעלמת מ-knockout, בניגוד ל-`TryGetChannelValue` שמשמש את המיזוג ומחזיר `false` כשה-knocked-out גם אם יש ערך שמור). `ClearChannel`/`ClearAll` מנקים גם knockout.
+- **`PatchedFixture.ChannelsForAttribute(AttributeClass)`** - עטיפה סביב Step A.
+- **`ProgrammerChannelCommandBase`** (`DmxConsole.Application.Commands.Programmer`) - אותו דפוס כמו `SelectionCommandBase`: snapshot (`HadValue`, `Value`, `WasKnockedOut`) לכל ערוץ נוגע *לפני* המוטציה, `Undo` משחזר במלואו. גם ממלא את `CommandResult.PreviousValues`/`NewValues`/`AffectedAttributes` (הרחבות חדשות ל-`CommandResult`, keyed לפי `(FixtureId, ChannelType)` ולא כתובת גולמית) - גנרי לכל 4 הפקודות.
+- **`ReleaseCommand(targets, AttributeClass? attribute = null)`** - `null`→Release מלא, מוגדר→`ClearAttribute` (nullable filter הוא כל ההבדל, אין שתי מחלקות). **`KnockoutCommand`/`RestoreCommand`** - no-op (לא "משפיע") אם אין ערך שמור / כבר במצב המבוקש.
+- **`AdjustIntensityCommand(targets, AdjustOperation, percent)`** - מוגבל ל-`AttributeClass.Intensity` **בקומפילציה** (מועבר קבוע ל-base, לא בדיקת runtime) - Position/Color/Beam נדחים לצעד עתידי. `Relative` = תוספת נקודות אחוז (קליפ 0-100), `Absolute` = קביעה מדויקת. **מגבלה מודעת:** "הערך הנוכחי" הוא מה שה-Programmer עצמו מחזיק (או `DefaultValue`) - לא הפלט הממוזג בפועל (יכול לנבוע מ-Cue/Effect); זה ידרוש חשיפת snapshot מ-`DmxOutputEngine` שעדיין לא קיימת.
+- **באג שהתגלה ותוקן באימות הידני:** `ChannelFaderViewModel.Value` לא התעדכן כשפקודת Programmer (לא גרירת פאדר) שינתה ערך - כי שני מסלולי הכתיבה (גרירה, Command) לא היו מסונכרנים בחזרה ל-UI. **`ProgrammerViewModel.RefreshAllFaders()`** קורא מ-`Programmer.HasStoredValue` (fallback ל-`DefaultValue`) ומעדכן את כל הפאדרים - נקרא אחרי כל Dispatch מוצלח ב-`ProgrammerViewModel`, וגם אחרי Undo/Redo גלובליים ב-`MainViewModel` (כי אלה יכולים להפוך כל פקודת Programmer, לא רק כאלה שנשלחו מ-`ProgrammerViewModel`).
+- UI: **`ProgrammerPanel.razor`** (Release/Clear×4/Knockout/Restore/±% Intensity) מתחת ל-`SelectionBar`. **`FaderBank.razor`** משודרג: מסנן ל-`Selection.Items` בלבד, מקבץ לפי `AttributeClass` (כותרת per קבוצה, סדר Intensity→Position→Color→Beam→Other); בחירה ריקה → הודעה במקום רשימה שקטה.
+- נבדק ידנית מקצה לקצה: Raise/Lower/Undo/Redo, Knockout (פאדר עדיין מציג את הערך, `TryGetChannelValue` false), Release (פאדר חוזר ל-DefaultValue), קיבוץ Attribute עם 2 פיקסצ'רים שונים (RGBW + Moving Head) מציג ארבע קבוצות נכון.
+
 ## הרחבה עתידית (שלבים הבאים)
 
 כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

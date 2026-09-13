@@ -1,0 +1,33 @@
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div class="panel selection-bar">
+    <div class="selection-row">
+        <strong style="margin-right:4px">Programmer:</strong>
+        <button class="btn" @onclick="() => Prog.ReleaseCommand.Execute(null)">Release</button>
+        <button class="btn" @onclick="() => Prog.ClearIntensityCommand.Execute(null)">Clear Intensity</button>
+        <button class="btn" @onclick="() => Prog.ClearPositionCommand.Execute(null)">Clear Position</button>
+        <button class="btn" @onclick="() => Prog.ClearColorCommand.Execute(null)">Clear Color</button>
+        <button class="btn" @onclick="() => Prog.ClearBeamCommand.Execute(null)">Clear Beam</button>
+        <button class="btn" @onclick="() => Prog.KnockoutCommand.Execute(null)">Knockout</button>
+        <button class="btn" @onclick="() => Prog.RestoreCommand.Execute(null)">Restore</button>
+    </div>
+    <div class="selection-row">
+        <label>Intensity ±</label>
+        <input type="number" min="1" max="100" @bind="Prog.AdjustPercent" style="width:60px" />
+        <label style="min-width:auto">%</label>
+        <button class="btn" @onclick="() => Prog.LowerIntensityCommand.Execute(null)">− Lower</button>
+        <button class="btn" @onclick="() => Prog.RaiseIntensityCommand.Execute(null)">+ Raise</button>
+        <span class="selection-summary">@Prog.StatusMessage</span>
+    </div>
+</div>
+
+@code {
+    private ProgrammerViewModel Prog => Vm.ProgrammerVm;
+
+    protected override void OnInitialized() => Prog.PropertyChanged += OnChanged;
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Prog.PropertyChanged -= OnChanged;
+}

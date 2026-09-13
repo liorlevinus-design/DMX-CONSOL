@@ -58,6 +58,10 @@ public sealed class PatchedFixture
 
     public FixtureChannel? FindChannel(ChannelType type) => Mode.Channels.FirstOrDefault(c => c.Type == type);
 
+    /// <summary>Every channel of this fixture's mode belonging to a given operator-facing attribute group.</summary>
+    public IEnumerable<FixtureChannel> ChannelsForAttribute(AttributeClass attributeClass) =>
+        Mode.Channels.Where(c => c.Type.ToAttributeClass() == attributeClass);
+
     /// <summary>True if this fixture's footprint in its universe overlaps the given other fixture.</summary>
     public bool OverlapsWith(PatchedFixture other)
     {
