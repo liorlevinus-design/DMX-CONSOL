@@ -1,0 +1,68 @@
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div class="panel selection-bar">
+    <div class="selection-row">
+        <strong style="margin-right:4px">Fixtures:</strong>
+        @foreach (var fixture in Vm.Patch.Fixtures.OrderBy(f => f.Number))
+        {
+            <button class="btn fixture-num @(Sel.Selection.Contains(fixture) ? "selected" : "") @(Sel.PendingThruStart == fixture.Number ? "armed" : "")"
+                    @onclick="() => Sel.TapFixtureNumberCommand.Execute(fixture)">
+                @fixture.Number
+            </button>
+        }
+    </div>
+
+    <div class="selection-row">
+        <button class="btn @(Sel.PendingThruStart is not null ? "armed" : "")" @onclick="() => Sel.ArmThruCommand.Execute(null)">Thru</button>
+        <button class="btn" @onclick="() => Sel.SelectOddCommand.Execute(null)">Odd</button>
+        <button class="btn" @onclick="() => Sel.SelectEvenCommand.Execute(null)">Even</button>
+        <button class="btn" @onclick="() => Sel.PreviousCommand.Execute(null)">◀ Previous</button>
+        <button class="btn" @onclick="() => Sel.NextCommand.Execute(null)">Next ▶</button>
+        <button class="btn" @onclick="() => Sel.ClearSelectionCommand.Execute(null)">Clear</button>
+
+        <span class="selection-summary">Selected: @SelectionSummary()</span>
+    </div>
+
+    <div class="selection-row">
+        <strong style="margin-right:4px">Groups:</strong>
+        @foreach (var group in Sel.Groups.Groups)
+        {
+            <span class="group-chip">
+                <button class="btn" @onclick="() => Sel.AddGroupToSelectionCommand.Execute(group)">@group.Name</button>
+                <button class="btn btn-icon" @onclick="() => Sel.RemoveGroupCommand.Execute(group)">✕</button>
+            </span>
+        }
+        <input type="text" placeholder="New group name" @bind="Sel.NewGroupName" style="width:140px" />
+        <button class="btn" @onclick="() => Sel.SaveGroupCommand.Execute(null)">+ Save as Group</button>
+        @if (!string.IsNullOrEmpty(Sel.StatusMessage))
+        {
+            <span class="selection-summary">@Sel.StatusMessage</span>
+        }
+    </div>
+</div>
+
+@code {
+    private SelectionViewModel Sel => Vm.SelectionVm;
+
+    private string SelectionSummary() =>
+        Sel.Selection.Items.Count == 0 ? "(none)" : string.Join(", ", Sel.Selection.Items.Select(f => f.Number));
+
+    protected override void OnInitialized()
+    {
+        Sel.PropertyChanged += OnChanged;
+        Sel.Selection.Items.CollectionChanged += OnChanged;
+        Sel.Groups.Groups.CollectionChanged += OnChanged;
+        Vm.Patch.Fixtures.CollectionChanged += OnChanged;
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Sel.PropertyChanged -= OnChanged;
+        Sel.Selection.Items.CollectionChanged -= OnChanged;
+        Sel.Groups.Groups.CollectionChanged -= OnChanged;
+        Vm.Patch.Fixtures.CollectionChanged -= OnChanged;
+    }
+}

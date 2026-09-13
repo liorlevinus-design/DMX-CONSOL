@@ -56,6 +56,14 @@
 - UI: עמודת "#" חדשה בטבלת ה-Patch (`PatchPanel.razor`) - תצוגה בלבד, עדיין אין תחביר בחירה (זה Step B).
 - שום שינוי ב-`Programmer`/`Cue`/`EffectsEngine`/`DmxOutputEngine` בשלב הזה - ה-Attribute mapping והמספור הם תשתית, לא עדיין בשימוש בלוגיקת המיזוג.
 
+## Selection & Groups (Step B)
+
+- **`DmxConsole.Core.Selection`** (namespace חדש) - שכבת query בלבד מעל `Patch`, בלי שום השפעה על `Programmer`/`Cue`/`DmxOutputEngine`.
+- **`FixtureSelection`** - סט **מסודר** (לא HashSet - הסדר קובע Next/Previous ו-Odd/Even): `Toggle/Add/Remove/Clear`, `SelectRange(patch, from, to)` (טווח לפי `Number`, כולל שני הקצוות, מוסיף לבחירה הקיימת - לא מחליף), `FilterOdd()`/`FilterEven()` (שומרים לפי **מיקום בסדר הבחירה** - 1st/3rd/5th... ו-2nd/4th/6th..., לא לפי parity של ה-Number עצמו), `Next(patch)`/`Previous(patch)` (מזיזים סמן פיקסצ'ר-יחיד לפי `Number` מסודר על כל ה-patch, גולש בקצוות, **מחליף** את הבחירה).
+- **`FixtureGroup`** + **`GroupManager`** - קבוצה היא שם + רשימת references ל-`PatchedFixture` (לא snapshot ערכים); `CreateFromSelection` מצלם את החברים הנוכחיים של הבחירה לרשימה חדשה ובלתי-תלויה.
+- App: **`SelectionViewModel`** (טופס Thru דו-שלבי - "Thru" חמוש על הפריט האחרון שנבחר, הקלקה הבאה על מספר משלימה את הטווח), **`SelectionBar.razor`** (כפתורי מספר + Thru/Odd/Even/Next/Previous/Clear + צ'יפים של קבוצות + שמירה כקבוצה) בין ה-main-grid לטאבים. `FaderCard.razor` מקבל `Selection` כפרמטר ומדגיש (`.fader.selected`) פיקסצ'רים נבחרים - עדיין מציג את כל הערוצים, לא מסנן (זה Step C).
+- נבדק ידנית מקצה לקצה בדפדפן: toggle, Thru range, Odd/Even, Next, Save/Recall Group - כולם עובדים ומסונכרנים חזותית בין ה-Selection Bar ל-Fader Bank.
+
 ## הרחבה עתידית (שלבים הבאים)
 
 כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

@@ -24,6 +24,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public DmxOutputEngine Engine { get; }
     public CueListViewModel CueListVm { get; }
     public EffectsViewModel EffectsVm { get; }
+    public SelectionViewModel SelectionVm { get; }
 
     public ObservableCollection<ChannelFaderViewModel> Faders { get; } = new();
     public IReadOnlyList<FixtureProfile> AvailableProfiles { get; } = GenericFixtureLibrary.All;
@@ -66,6 +67,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         CueListVm = new CueListViewModel(Patch, Programmer, cueList);
         EffectsVm = new EffectsViewModel(Patch, effectsEngine);
+        SelectionVm = new SelectionViewModel(Patch);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();

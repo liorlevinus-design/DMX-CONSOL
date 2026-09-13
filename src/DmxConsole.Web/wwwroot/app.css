@@ -287,3 +287,20 @@ html, body {
 
 .fixture-picker { display: flex; flex-direction: column; gap: 2px; }
 .fixture-picker label { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 14px; }
+
+/* ---------- Selection bar ---------- */
+.selection-bar { margin: 0 10px 10px 10px; }
+.selection-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.selection-row:last-child { margin-bottom: 0; }
+
+.fixture-num { min-width: 44px; padding: 8px 10px; }
+.fixture-num.selected { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
+.fixture-num.armed, .btn.armed { outline: 2px solid #e0a030; }
+
+.selection-summary { font-size: 13px; color: var(--text-dim); margin-left: 8px; }
+
+.group-chip { display: inline-flex; gap: 2px; }
+.group-chip .btn:last-child { min-width: auto; padding: 8px; }
+
+/* Highlight a fader belonging to the current selection. */
+.fader.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }

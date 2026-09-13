@@ -6,7 +6,7 @@
     <div class="fader-bank">
         @foreach (var fader in Vm.Faders)
         {
-            <FaderCard Fader="fader" />
+            <FaderCard Fader="fader" Selection="Vm.SelectionVm.Selection" />
         }
     </div>
 </div>

@@ -1,6 +1,7 @@
 @implements IDisposable
+@using DmxConsole.Core.Selection
 
-<div class="fader">
+<div class="fader @(IsSelected ? "selected" : "")">
     <div class="name" title="@Fader.FixtureName">@Fader.FixtureName</div>
     <div class="chan">@Fader.ChannelLabel</div>
     <div class="fader-slider-wrap">
@@ -13,11 +14,20 @@
 
 @code {
     [Parameter, EditorRequired] public ChannelFaderViewModel Fader { get; set; } = null!;
+    [Parameter] public FixtureSelection? Selection { get; set; }
+
+    private bool IsSelected => Selection?.Contains(Fader.Fixture) ?? false;
 
     protected override void OnParametersSet()
     {
         Fader.PropertyChanged -= OnFaderChanged; // avoid double-subscribe if the parameter instance is re-set
         Fader.PropertyChanged += OnFaderChanged;
+
+        if (Selection is not null)
+        {
+            Selection.Items.CollectionChanged -= OnSelectionChanged;
+            Selection.Items.CollectionChanged += OnSelectionChanged;
+        }
     }
 
     private void OnSliderInput(Microsoft.AspNetCore.Components.ChangeEventArgs e)
@@ -27,6 +37,11 @@
     }
 
     private void OnFaderChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+    private void OnSelectionChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Fader.PropertyChanged -= OnFaderChanged;
+    public void Dispose()
+    {
+        Fader.PropertyChanged -= OnFaderChanged;
+        if (Selection is not null) Selection.Items.CollectionChanged -= OnSelectionChanged;
+    }
 }

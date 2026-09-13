@@ -13,6 +13,8 @@
         <FaderBank />
     </div>
 
+    <SelectionBar />
+
     <div class="tab-strip">
         <button class="tab-button @(ActiveTab == "cues" ? "active" : "")" @onclick='() => ActiveTab = "cues"'>Cues</button>
         <button class="tab-button @(ActiveTab == "effects" ? "active" : "")" @onclick='() => ActiveTab = "effects"'>Effects</button>
