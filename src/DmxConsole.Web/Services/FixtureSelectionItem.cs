@@ -1,7 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using DmxConsole.Core.Fixtures;
 
-namespace DmxConsole.App.ViewModels;
+namespace DmxConsole.Web.Services;
 
 /// <summary>One row in a fixture multi-select list (used to build an effect's target group).</summary>
 public partial class FixtureSelectionItem : ObservableObject

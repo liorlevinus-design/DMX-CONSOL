@@ -1,0 +1,103 @@
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div style="display:contents">
+    <div class="scroll-y fixture-picker">
+        <strong>Target Fixtures</strong>
+        @foreach (var item in Fx.AvailableFixtures)
+        {
+            <label><input type="checkbox" @bind="item.IsSelected" /> @item.Label</label>
+        }
+    </div>
+
+    <div class="scroll-y">
+        <div class="field"><label>Type</label>
+            <select @bind="Fx.SelectedEffectType">
+                @foreach (var t in Fx.EffectTypeOptions)
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+        <div class="field"><label>Name</label><input type="text" @bind="Fx.NewEffectName" /></div>
+        <div class="field"><label>Speed Hz</label><input type="number" step="0.1" @bind="Fx.SpeedHz" /></div>
+        <div class="field"><label>Spread</label><input type="number" step="0.05" @bind="Fx.Spread" /></div>
+
+        @if (Fx.SelectedEffectType is "Chase" or "Strobe" or "Sine")
+        {
+            <div class="field"><label>Channel</label>
+                <select @bind="Fx.TargetChannel">
+                    @foreach (var c in Fx.TargetChannelOptions)
+                    {
+                        <option value="@c">@c</option>
+                    }
+                </select>
+            </div>
+            <div class="field"><label>Min/Off</label><input type="number" @bind="Fx.Min" style="width:60px" />
+                <label style="min-width:auto">Max/On</label><input type="number" @bind="Fx.Max" style="width:60px" /></div>
+        }
+        @if (Fx.SelectedEffectType == "Chase")
+        {
+            <div class="field"><label>Width</label><input type="number" @bind="Fx.Width" /></div>
+        }
+        @if (Fx.SelectedEffectType == "Strobe")
+        {
+            <div class="field"><label>Duty</label><input type="number" step="0.05" @bind="Fx.DutyCycle" /></div>
+        }
+        @if (Fx.SelectedEffectType == "Rainbow")
+        {
+            <div class="field"><label>Brightness</label><input type="number" step="0.05" @bind="Fx.Brightness" /></div>
+        }
+
+        <button class="btn btn-go" style="font-size:15px; min-width:auto" @onclick="() => Fx.AddEffectCommand.Execute(null)">+ Add Effect</button>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:6px">@Fx.StatusMessage</div>
+    </div>
+
+    <div class="scroll-y">
+        <table class="data-list">
+            <thead><tr><th>Name</th><th>Type</th><th>Speed Hz</th><th>On</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var effect in Fx.Effects)
+                {
+                    <tr>
+                        <td>@effect.Name</td>
+                        <td>@effect.EffectType</td>
+                        <td><input type="number" step="0.1" value="@effect.SpeedHz" @onchange="e => OnSpeedChanged(effect, e)" style="width:60px" /></td>
+                        <td><input type="checkbox" checked="@effect.Enabled" @onchange="e => OnEnabledChanged(effect, e)" /></td>
+                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Fx.RemoveEffectCommand.Execute(effect)">✕</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private EffectsViewModel Fx => Vm.EffectsVm;
+
+    protected override void OnInitialized()
+    {
+        Fx.PropertyChanged += OnChanged;
+        Fx.AvailableFixtures.CollectionChanged += OnChanged;
+        Fx.Effects.CollectionChanged += OnChanged;
+    }
+
+    private void OnSpeedChanged(DmxConsole.Core.Effects.Effect effect, ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), out var hz)) effect.SpeedHz = hz;
+    }
+
+    private void OnEnabledChanged(DmxConsole.Core.Effects.Effect effect, ChangeEventArgs e)
+    {
+        effect.Enabled = e.Value is bool b && b;
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Fx.PropertyChanged -= OnChanged;
+        Fx.AvailableFixtures.CollectionChanged -= OnChanged;
+        Fx.Effects.CollectionChanged -= OnChanged;
+    }
+}

@@ -1,10 +1,9 @@
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 
-namespace DmxConsole.App.ViewModels;
+namespace DmxConsole.Web.Services;
 
 /// <summary>
 /// Drives one CueList: the "record current look as a cue" form, Go/Back/Stop transport,
@@ -15,7 +14,7 @@ public partial class CueListViewModel : ObservableObject, IDisposable
 {
     private readonly Patch _patch;
     private readonly Programmer _programmer;
-    private readonly DispatcherTimer _pollTimer;
+    private readonly Timer _pollTimer;
 
     public CueList CueList { get; }
 
@@ -41,12 +40,10 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         CueList = cueList;
         CueList.Changed += OnCueListChanged;
 
-        _pollTimer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = TimeSpan.FromMilliseconds(100),
-        };
-        _pollTimer.Tick += (_, _) => RefreshStatus();
-        _pollTimer.Start();
+        // A plain thread-pool timer (no WPF dispatcher here) polling every 100ms -
+        // ObservableObject's setters below raise PropertyChanged, which Blazor
+        // components subscribe to and marshal onto their own render sync context.
+        _pollTimer = new Timer(_ => RefreshStatus(), null, TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100));
 
         RefreshStatus();
     }
@@ -99,7 +96,7 @@ public partial class CueListViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        _pollTimer.Stop();
+        _pollTimer.Dispose();
         CueList.Changed -= OnCueListChanged;
     }
 }

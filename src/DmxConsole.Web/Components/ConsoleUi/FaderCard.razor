@@ -1,0 +1,32 @@
+@implements IDisposable
+
+<div class="fader">
+    <div class="name" title="@Fader.FixtureName">@Fader.FixtureName</div>
+    <div class="chan">@Fader.ChannelLabel</div>
+    <div class="fader-slider-wrap">
+        <input class="fader-slider" type="range" min="0" max="255"
+               value="@Fader.Value"
+               @oninput="OnSliderInput" />
+    </div>
+    <div class="value">@Fader.Value</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ChannelFaderViewModel Fader { get; set; } = null!;
+
+    protected override void OnParametersSet()
+    {
+        Fader.PropertyChanged -= OnFaderChanged; // avoid double-subscribe if the parameter instance is re-set
+        Fader.PropertyChanged += OnFaderChanged;
+    }
+
+    private void OnSliderInput(Microsoft.AspNetCore.Components.ChangeEventArgs e)
+    {
+        if (byte.TryParse(e.Value?.ToString(), out var value))
+            Fader.Value = value;
+    }
+
+    private void OnFaderChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Fader.PropertyChanged -= OnFaderChanged;
+}

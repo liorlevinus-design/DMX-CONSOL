@@ -1,0 +1,45 @@
+@page "/"
+@using DmxConsole.Web.Components.ConsoleUi
+@implements IDisposable
+@inject MainViewModel Vm
+
+<PageTitle>DMX Console</PageTitle>
+
+<div class="app-shell">
+    <Toolbar />
+
+    <div class="main-grid">
+        <PatchPanel />
+        <FaderBank />
+    </div>
+
+    <div class="tab-strip">
+        <button class="tab-button @(ActiveTab == "cues" ? "active" : "")" @onclick='() => ActiveTab = "cues"'>Cues</button>
+        <button class="tab-button @(ActiveTab == "effects" ? "active" : "")" @onclick='() => ActiveTab = "effects"'>Effects</button>
+    </div>
+
+    @if (ActiveTab == "cues")
+    {
+        <div class="tab-content">
+            <CueListPanel />
+        </div>
+    }
+    else
+    {
+        <div class="tab-content effects">
+            <EffectsPanel />
+        </div>
+    }
+
+    <div class="status-bar">@Vm.StatusMessage</div>
+</div>
+
+@code {
+    private string ActiveTab = "cues";
+
+    protected override void OnInitialized() => Vm.PropertyChanged += OnChanged;
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Vm.PropertyChanged -= OnChanged;
+}

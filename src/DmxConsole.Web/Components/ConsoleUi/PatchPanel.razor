@@ -1,0 +1,87 @@
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div class="panel scroll-y" style="height:100%; display:flex; flex-direction:column;">
+    <h3 style="margin-top:0">Patch</h3>
+
+    <div class="field">
+        <label>Profile</label>
+        <select @bind="ProfileId">
+            @foreach (var p in Vm.AvailableProfiles)
+            {
+                <option value="@p.Id">@p.DisplayName</option>
+            }
+        </select>
+    </div>
+    <div class="field">
+        <label>Mode</label>
+        <select @bind="ModeName">
+            @foreach (var m in Vm.AvailableModes)
+            {
+                <option value="@m.Name">@m.Name</option>
+            }
+        </select>
+    </div>
+    <div class="field">
+        <label>Name</label>
+        <input type="text" @bind="Vm.NewFixtureName" style="flex:1" />
+    </div>
+    <div class="field">
+        <label>Universe</label>
+        <input type="number" @bind="Vm.NewUniverseId" style="width:70px" />
+        <label style="min-width:auto">Address</label>
+        <input type="number" @bind="Vm.NewStartAddress" style="width:70px" />
+    </div>
+    <button class="btn btn-go" style="align-self:flex-start; font-size:15px; min-width:auto" @onclick="() => Vm.AddFixtureCommand.Execute(null)">+ Add Fixture</button>
+
+    <div class="scroll-y" style="margin-top:10px; flex:1; min-height:0;">
+        <table class="data-list">
+            <thead>
+                <tr><th>Name</th><th>Fixture</th><th>Uni</th><th>Addr</th><th>Fp</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var fixture in Vm.Patch.Fixtures)
+                {
+                    <tr>
+                        <td>@fixture.Name</td>
+                        <td>@fixture.Profile.DisplayName</td>
+                        <td>@fixture.UniverseId</td>
+                        <td>@fixture.StartAddress</td>
+                        <td>@fixture.Footprint</td>
+                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Vm.RemoveFixtureCommand.Execute(fixture)">✕</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private string? ProfileId
+    {
+        get => Vm.SelectedProfile?.Id;
+        set => Vm.SelectedProfile = Vm.AvailableProfiles.FirstOrDefault(p => p.Id == value);
+    }
+
+    private string? ModeName
+    {
+        get => Vm.SelectedMode?.Name;
+        set => Vm.SelectedMode = Vm.AvailableModes.FirstOrDefault(m => m.Name == value);
+    }
+
+    protected override void OnInitialized()
+    {
+        Vm.PropertyChanged += OnChanged;
+        Vm.AvailableModes.CollectionChanged += OnChanged;
+        Vm.Patch.Fixtures.CollectionChanged += OnChanged;
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Vm.PropertyChanged -= OnChanged;
+        Vm.AvailableModes.CollectionChanged -= OnChanged;
+        Vm.Patch.Fixtures.CollectionChanged -= OnChanged;
+    }
+}

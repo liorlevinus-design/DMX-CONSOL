@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dmx-web",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "src/DmxConsole.Web/DmxConsole.Web.csproj", "--launch-profile", "http"],
+      "port": 5250
+    }
+  ]
+}

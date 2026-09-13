@@ -5,7 +5,7 @@
 - **DmxConsole.Core** — מנוע ליבה ללא תלות ב-UI או ברשת: `Universe`, `Fixtures` (Profile/Mode/Channel/PatchedFixture/Patch), ו-`Engine` (Programmer, IOutputLayer, DmxOutputEngine).
 - **DmxConsole.Protocols** — שולחי DMX על גבי רשת: `ArtNetSender` (Art-Net/ArtDMX על UDP broadcast/unicast), `SacnSender` (E1.31 על UDP multicast).
 - **DmxConsole.Fixtures** — ספריית פרופילי פיקסצ'רים. כרגע `GenericFixtureLibrary` עם כמה טיפוסים גנריים; בהמשך ייתכן טעינת JSON/GDTF.
-- **DmxConsole.App** — אפליקציית WPF (MVVM עם CommunityToolkit.Mvvm): Patch view + Fader bank.
+- **DmxConsole.Web** — אפליקציית Blazor Server (net8.0, Interactive Server render mode גלובלי): אותם ViewModels (CommunityToolkit.Mvvm) כמו ב-WPF הקודם, תחת `Services/`, נרשם `MainViewModel` כ-Singleton ב-DI כך שכל דפדפן/טאבלט שמתחבר משתף את אותה קונסולה חיה. קומפוננטות Razor תחת `Components/ConsoleUi/` (ראו "UI: Blazor Server" למטה). **הפרויקט הישן `DmxConsole.App` (WPF) הוסר** (commits `22b8ed5`..`a2fba70` בהיסטוריית git אם צריך לעיין).
 - **DmxConsole.Core.Tests** — בדיקות יחידה ל-Core (patch overlap validation, merge engine HTP/LTP, כיול Pan/Tilt).
 
 ## זרימת הנתונים
@@ -20,7 +20,7 @@
 
 - **`Cue`** — snapshot מלא של כל ערוצי הפאץ' בזמן ההקלטה + `FadeInTime`/`FadeOutTime` נפרדים (עולה/יורד).
 - **`CueList`** — `IOutputLayer` בעדיפות 150 (בין ברירת המחדל ל-Programmer). `RecordCue` קורא מה-`Programmer` (עם נפילה לברירת המחדל של הפיקסצ'ר). `Go`/`Back`/`GoToCue` מתחילים fade מהפלט הנוכחי (נשמר ב-`_currentOutput`) אל היעד; לכל ערוץ נבחר `FadeInTime` או `FadeOutTime` בהתאם לכיוון. `Stop` משחרר את השכבה לגמרי.
-- ב-App: `CueListViewModel` עוטף את זה, כולל `DispatcherTimer` שסוקר כל 100ms כדי לעדכן progress bar/זמן נותר (כי `CueList.Changed` נורה רק בפעולות בדידות, לא ברציפות תוך כדי fade).
+- ב-App: `CueListViewModel` עוטף את זה, כולל `System.Threading.Timer` (הוחלף מ-`DispatcherTimer` בעת המעבר ל-Blazor) שסוקר כל 100ms כדי לעדכן progress bar/זמן נותר (כי `CueList.Changed` נורה רק בפעולות בדידות, לא ברציפות תוך כדי fade).
 
 ## Effects (שלב 2)
 
@@ -28,7 +28,7 @@
 - מימושים: **`ChaseEffect`** (צעד בדיד, `Width` פיקסצ'רים דלוקים בו-זמנית), **`StrobeEffect`** (גל ריבועי לפי `DutyCycle`), **`SineEffect`** (תנודה חלקה בין `Min`-`Max`), **`RainbowEffect`** (סבב על גלגל הצבעים דרך `HsvColor.ToRgb`, דורש ערוצי Red/Green/Blue מלאים).
 - **`EffectsEngine`** — `IOutputLayer` בעדיפות 300 (מעל CueList=150, מתחת ל-Programmer). גם `ITickable`: מחשב את כל האפקטים הפעילים פעם אחת בכל טיק (`Tick`) ושומר תוצאה ב-cache; `TryGetChannelValue` רק קורא מה-cache.
 - **`ITickable`** — ממשק חדש ב-`Engine`; `DmxOutputEngine.Tick()` קורא ל-`Tick(elapsed)` (לפי `Stopwatch` פנימי) על כל שכבה שמממשת אותו, לפני שלב המיזוג.
-- App: `EffectsViewModel` (בחירת פיקסצ'רים מרובה, טופס "אפקט חדש" עם שדות שמתחלפים לפי סוג האפקט דרך `EffectTypeVisibilityConverter`) + טאב "Effects" חדש ב-`MainWindow.xaml` (לצד טאב "Cues").
+- App: `EffectsViewModel` (בחירת פיקסצ'רים מרובה, טופס "אפקט חדש" עם שדות שמתחלפים לפי סוג האפקט) + טאב "Effects" ב-UI (לצד טאב "Cues").
 
 ## USB-DMX (שלב 3)
 
@@ -37,6 +37,15 @@
 - שני ה-senders מממשים `IDmxSender` (כמו Art-Net/sACN) ומשויכים ליוניברס בודד (`UniverseId` שנבחר ב-UI) - וידג'ט USB פיזי אחד = פלט של יוניברס אחד.
 - App: `MainViewModel` מנהל `_usbSender` יחיד (Enttec Pro/Open DMX, נבחר ב-toolbar), עם רשימת COM ports (`SerialPort.GetPortNames()` דרך `EnttecProSender.ListAvailablePorts()`) וכפתור רענון.
 - פרויקט בדיקות חדש: `tests/DmxConsole.Protocols.Tests` (ל-`DmxConsole.Protocols`, שאין לו תלות ב-Core-only tests).
+
+## UI: Blazor Server (מעבר מ-WPF)
+
+- ה-Core/Protocols/Fixtures **לא השתנו בכלל** במעבר הזה - הם נבנו מההתחלה בלי תלות ב-UI בדיוק בשביל זה.
+- `src/DmxConsole.Web` (Blazor Server, net8.0, `--interactivity Server --all-interactive`): `Program.cs` רושם `MainViewModel` כ-**Singleton** ב-DI - כל דפדפן/טאבלט שמתחבר חולק את אותה קונסולה חיה (בדיוק כמו כמה תחנות שליטה על קונסולת תאורה אמיתית).
+- `Services/` מכיל את אותם ViewModels שהיו ב-WPF (`MainViewModel`, `CueListViewModel`, `EffectsViewModel`, `ChannelFaderViewModel`, `FixtureSelectionItem`) כמעט ללא שינוי - הם כבר plain C# classes מבוססי `ObservableObject`/`ObservableCollection`. השינוי היחיד: `DispatcherTimer` → `System.Threading.Timer` ב-`CueListViewModel`.
+- `Components/ConsoleUi/`: `Toolbar`, `PatchPanel`, `FaderBank` (+ `FaderCard` per-channel כדי לא לרנדר מחדש את כל הבנק בכל גרירה), `CueListPanel`, `EffectsPanel`. דפוס קבוע בכל קומפוננטה: `[Inject]` ל-ViewModel, הרשמה ל-`PropertyChanged`/`CollectionChanged` ב-`OnInitialized`, `InvokeAsync(StateHasChanged)` בכל שינוי, ניתוק ב-`Dispose`.
+- `wwwroot/app.css`: עיצוב כהה למגע - יעד-מגע מינימלי 44px לכל פקד, סליידר אנכי דרך `input[type=range]` מסובב 90° (CSS, עובד בכל הדפדפנים - לא תלוי ב-`orient=vertical` שעובד רק ב-Firefox).
+- אין HTTPS redirect בכוונה - זהו כלי מקומי/רשת מקומית, ואילוץ HTTPS היה גורם לחיכוך עם תעודות self-signed בכל טאבלט שמתחבר.
 
 ## הרחבה עתידית (שלבים הבאים)
 

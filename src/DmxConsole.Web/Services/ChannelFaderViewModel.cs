@@ -3,12 +3,11 @@ using DmxConsole.Core;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 
-namespace DmxConsole.App.ViewModels;
+namespace DmxConsole.Web.Services;
 
 /// <summary>
-/// One row in the fader bank: a single DMX channel belonging to a patched fixture.
-/// Dragging the slider writes straight into the Programmer layer, which the
-/// DmxOutputEngine will pick up on its next tick.
+/// One channel of one patched fixture, as seen by a fader. Setting Value writes
+/// straight into the Programmer layer, which DmxOutputEngine picks up on its next tick.
 /// </summary>
 public partial class ChannelFaderViewModel : ObservableObject
 {

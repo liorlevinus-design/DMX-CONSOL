@@ -10,8 +10,13 @@ using DmxConsole.Protocols.ArtNet;
 using DmxConsole.Protocols.Sacn;
 using DmxConsole.Protocols.Usb;
 
-namespace DmxConsole.App.ViewModels;
+namespace DmxConsole.Web.Services;
 
+/// <summary>
+/// The console's root state: patch, live Programmer, the DMX engine, and the network/USB
+/// output fan-out. Registered as a singleton so every connected browser/tablet drives and
+/// observes the same live show - exactly like a real console with multiple control surfaces.
+/// </summary>
 public partial class MainViewModel : ObservableObject, IDisposable
 {
     public Patch Patch { get; } = new();

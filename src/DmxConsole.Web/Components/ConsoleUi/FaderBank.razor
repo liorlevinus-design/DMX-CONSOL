@@ -1,0 +1,20 @@
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div class="panel scroll-y" style="height:100%">
+    <h3 style="margin-top:0">Faders (Programmer)</h3>
+    <div class="fader-bank">
+        @foreach (var fader in Vm.Faders)
+        {
+            <FaderCard Fader="fader" />
+        }
+    </div>
+</div>
+
+@code {
+    protected override void OnInitialized() => Vm.Faders.CollectionChanged += OnChanged;
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Vm.Faders.CollectionChanged -= OnChanged;
+}

@@ -6,7 +6,7 @@ using DmxConsole.Core.Effects;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 
-namespace DmxConsole.App.ViewModels;
+namespace DmxConsole.Web.Services;
 
 /// <summary>
 /// Builds and manages the running Effects: a "new effect" form (type + target fixture
