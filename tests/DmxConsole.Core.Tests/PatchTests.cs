@@ -66,4 +66,58 @@ public class PatchTests
 
         Assert.Throws<ArgumentOutOfRangeException>(() => fixture.StartAddress = 511);
     }
+
+    [Fact]
+    public void Add_AssignsSequentialNumbers_WhenNotSpecified()
+    {
+        var patch = new Patch();
+        var profile = Rgb3();
+        var a = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1);
+        var b = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 4);
+
+        patch.Add(a);
+        patch.Add(b);
+
+        Assert.Equal(1, a.Number);
+        Assert.Equal(2, b.Number);
+    }
+
+    [Fact]
+    public void Add_KeepsExplicitNumber_WhenSetBeforePatching()
+    {
+        var patch = new Patch();
+        var profile = Rgb3();
+        var a = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1) { Number = 10 };
+
+        patch.Add(a);
+
+        Assert.Equal(10, a.Number);
+    }
+
+    [Fact]
+    public void Add_ReassignsNumber_WhenExplicitNumberAlreadyTaken()
+    {
+        var patch = new Patch();
+        var profile = Rgb3();
+        var a = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1) { Number = 5 };
+        var b = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 4) { Number = 5 };
+
+        patch.Add(a);
+        patch.Add(b);
+
+        Assert.Equal(5, a.Number);
+        Assert.Equal(6, b.Number); // duplicate requested number bumped to next free one
+    }
+
+    [Fact]
+    public void FindByNumber_ReturnsMatchingFixture()
+    {
+        var patch = new Patch();
+        var profile = Rgb3();
+        var a = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1);
+        patch.Add(a);
+
+        Assert.Same(a, patch.FindByNumber(a.Number));
+        Assert.Null(patch.FindByNumber(999));
+    }
 }

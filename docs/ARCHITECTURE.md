@@ -47,6 +47,15 @@
 - `wwwroot/app.css`: עיצוב כהה למגע - יעד-מגע מינימלי 44px לכל פקד, סליידר אנכי דרך `input[type=range]` מסובב 90° (CSS, עובד בכל הדפדפנים - לא תלוי ב-`orient=vertical` שעובד רק ב-Firefox).
 - אין HTTPS redirect בכוונה - זהו כלי מקומי/רשת מקומית, ואילוץ HTTPS היה גורם לחיכוך עם תעודות self-signed בכל טאבלט שמתחבר.
 
+## שכבת סמנטיקה: Attributes + מספור פיקסצ'רים (Step A)
+
+העיקרון: המשתמש עובד עם Fixtures ו-Attributes ("Group Back Wash → Color → Blue"), לא עם כתובות DMX גולמיות - זה נבנה בהדרגה, מלמטה למעלה, בלי לשבור את מה שכבר קיים.
+
+- **`AttributeClass`** (enum ב-`ChannelType.cs`): `Intensity, Position, Color, Beam, Other`. **`ChannelTypeExtensions.ToAttributeClass()`** ממפה כל `ChannelType` קיים לקבוצה שלו (למשל כל ערוצי הצבע → `Color`, Pan/Tilt (+Fine) → `Position`). זו שכבת מיפוי בלבד - לא משנה איך `FixtureChannel`/`FixtureMode` בנויים.
+- **`PatchedFixture.Number`** - מספר יציב, מוקצה אוטומטית ב-`Patch.Add` (המספר הפנוי הבא) אלא אם כבר נקבע מראש ידנית (ואינו תפוס). **`Patch.FindByNumber(int)`** - חיפוש לפי מספר, ישמש את שכבת ה-Selection ב-Step הבא.
+- UI: עמודת "#" חדשה בטבלת ה-Patch (`PatchPanel.razor`) - תצוגה בלבד, עדיין אין תחביר בחירה (זה Step B).
+- שום שינוי ב-`Programmer`/`Cue`/`EffectsEngine`/`DmxOutputEngine` בשלב הזה - ה-Attribute mapping והמספור הם תשתית, לא עדיין בשימוש בלוגיקת המיזוג.
+
 ## הרחבה עתידית (שלבים הבאים)
 
 כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

@@ -24,9 +24,16 @@ public sealed class Patch
                 $"overlaps '{conflict.Name}' (Universe {conflict.UniverseId}, Address {conflict.StartAddress}-{conflict.StartAddress + conflict.Footprint - 1}).");
         }
 
+        // Assign a stable operator-facing number unless the caller already set one
+        // (and it isn't already taken by another patched fixture).
+        if (fixture.Number <= 0 || _fixtures.Any(f => f.Number == fixture.Number))
+            fixture.Number = NextFreeNumber();
+
         _fixtures.Add(fixture);
         Fixtures.Add(fixture);
     }
+
+    private int NextFreeNumber() => _fixtures.Count == 0 ? 1 : _fixtures.Max(f => f.Number) + 1;
 
     public bool Remove(PatchedFixture fixture)
     {
@@ -42,4 +49,7 @@ public sealed class Patch
         _fixtures.Where(f => f.UniverseId == universeId).ToList();
 
     public IEnumerable<int> UsedUniverseIds => _fixtures.Select(f => f.UniverseId).Distinct().OrderBy(id => id);
+
+    /// <summary>Looks up a patched fixture by its stable operator-facing number, or null if none matches.</summary>
+    public PatchedFixture? FindByNumber(int number) => _fixtures.FirstOrDefault(f => f.Number == number);
 }

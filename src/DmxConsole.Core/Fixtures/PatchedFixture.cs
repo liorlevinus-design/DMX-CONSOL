@@ -8,6 +8,13 @@ public sealed class PatchedFixture
 {
     public Guid Id { get; } = Guid.NewGuid();
 
+    /// <summary>
+    /// Stable, operator-facing fixture number (e.g. "12", used in selection syntax like
+    /// "12 Thru 18"). 0 means "not assigned yet" - <see cref="Patch.Add"/> assigns the next
+    /// free number automatically unless one was already set explicitly before patching.
+    /// </summary>
+    public int Number { get; set; }
+
     /// <summary>User-facing name, e.g. "Mover 1 - Stage Left".</summary>
     public string Name { get; set; } = string.Empty;
 

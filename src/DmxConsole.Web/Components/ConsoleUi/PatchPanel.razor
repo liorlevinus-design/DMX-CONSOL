@@ -37,12 +37,13 @@
     <div class="scroll-y" style="margin-top:10px; flex:1; min-height:0;">
         <table class="data-list">
             <thead>
-                <tr><th>Name</th><th>Fixture</th><th>Uni</th><th>Addr</th><th>Fp</th><th></th></tr>
+                <tr><th>#</th><th>Name</th><th>Fixture</th><th>Uni</th><th>Addr</th><th>Fp</th><th></th></tr>
             </thead>
             <tbody>
                 @foreach (var fixture in Vm.Patch.Fixtures)
                 {
                     <tr>
+                        <td>@fixture.Number</td>
                         <td>@fixture.Name</td>
                         <td>@fixture.Profile.DisplayName</td>
                         <td>@fixture.UniverseId</td>
