@@ -73,7 +73,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CueListVm = new CueListViewModel(Patch, Programmer, cueList);
         EffectsVm = new EffectsViewModel(Patch, effectsEngine);
 
-        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager());
+        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine);
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);

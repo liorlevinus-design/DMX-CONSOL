@@ -1,6 +1,5 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
-using CoreProgrammer = DmxConsole.Core.Engine.Programmer;
 
 namespace DmxConsole.Application.Commands.Programmer;
 
@@ -33,9 +32,11 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
     /// Applies this command's effect to one fixture channel. Return true only if something
     /// actually changed - that's what marks the fixture as affected and captures undo state
     /// for this channel, so a no-op (e.g. knocking out an already-knocked-out channel) can
-    /// cleanly report "nothing happened" by returning false.
+    /// cleanly report "nothing happened" by returning false. Takes the full context (not
+    /// just Programmer) so a subclass like AdjustIntensityCommand can also read
+    /// <see cref="ConsoleContext.EffectiveOutput"/> when it needs the true merged value.
     /// </summary>
-    protected abstract bool ApplyToChannel(CoreProgrammer programmer, PatchedFixture fixture, FixtureChannel channel);
+    protected abstract bool ApplyToChannel(ConsoleContext context, PatchedFixture fixture, FixtureChannel channel);
 
     public CommandResult Execute(ConsoleContext context)
     {
@@ -55,7 +56,7 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
                 bool hadValue = context.Programmer.HasStoredValue(fixture.UniverseId, idx, out var beforeValue);
                 bool wasKnockedOut = context.Programmer.IsKnockedOut(fixture.UniverseId, idx);
 
-                if (!ApplyToChannel(context.Programmer, fixture, channel)) continue;
+                if (!ApplyToChannel(context, fixture, channel)) continue;
 
                 snapshots.Add(new ChannelSnapshot(fixture.UniverseId, idx, hadValue, hadValue ? beforeValue : (byte)0, wasKnockedOut));
                 touchedAny = true;

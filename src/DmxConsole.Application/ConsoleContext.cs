@@ -18,13 +18,22 @@ public sealed class ConsoleContext
     public FixtureSelection Selection { get; }
     public GroupManager Groups { get; }
 
-    // Future steps add: CueLists, PresetLibrary, EffectsEngine, etc. - not part of Step C0.
+    /// <summary>
+    /// Read-only view of the engine's actual merged output - what a Relative adjustment
+    /// treats as "the current value", since a Cue/Effect can be driving a channel with no
+    /// Programmer override present at all. Narrowed to this one read-only method (not the
+    /// full DmxOutputEngine) so Commands can never reach engine lifecycle/layer wiring.
+    /// </summary>
+    public IEffectiveOutputReader EffectiveOutput { get; }
 
-    public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups)
+    // Future steps add: CueLists, PresetLibrary - not part of Step C0/C1.
+
+    public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups, IEffectiveOutputReader effectiveOutput)
     {
         Patch = patch;
         Programmer = programmer;
         Selection = selection;
         Groups = groups;
+        EffectiveOutput = effectiveOutput;
     }
 }

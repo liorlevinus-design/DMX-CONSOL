@@ -1,5 +1,6 @@
 using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Core;
+using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using Xunit;
 
@@ -37,20 +38,28 @@ public class ProgrammerCommandTests
         return (patch, fixture);
     }
 
-    private static (Core.Engine.Programmer Programmer, ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo) BuildConsole(PatchedFixture fixture, Core.Fixtures.Patch patch)
+    /// <summary>
+    /// Engine has Programmer wired in as a layer (matching how MainViewModel wires the
+    /// real app) so tests can call engine.Tick() to make EffectiveOutput reflect whatever
+    /// the Programmer (or fixture defaults) currently produce - exactly what
+    /// AdjustIntensityCommand's Relative math reads as "current value".
+    /// </summary>
+    private static (Core.Engine.Programmer Programmer, DmxOutputEngine Engine, ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo) BuildConsole(PatchedFixture fixture, Core.Fixtures.Patch patch)
     {
         var programmer = new Core.Engine.Programmer();
-        var context = new ConsoleContext(patch, programmer, new Core.Selection.FixtureSelection(), new Core.Selection.GroupManager());
+        var engine = new DmxOutputEngine(patch);
+        engine.AddLayer(programmer);
+        var context = new ConsoleContext(patch, programmer, new Core.Selection.FixtureSelection(), new Core.Selection.GroupManager(), engine);
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
-        return (programmer, context, dispatcher, undoRedo);
+        return (programmer, engine, context, dispatcher, undoRedo);
     }
 
     [Fact]
     public void ReleaseCommand_ClearsAllChannels_AndUndoRestoresThem()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
+        var (programmer, _, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         var red = fixture.FindChannel(ChannelType.ColorRed)!;
         programmer.SetChannel(0, fixture.AbsoluteIndex(dimmer), 100);
@@ -74,7 +83,7 @@ public class ProgrammerCommandTests
     public void ReleaseCommand_WithAttributeFilter_OnlyClearsThatAttribute_ReportsClearAttribute()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var (programmer, _, context, dispatcher, _) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         var red = fixture.FindChannel(ChannelType.ColorRed)!;
         programmer.SetChannel(0, fixture.AbsoluteIndex(dimmer), 100);
@@ -92,7 +101,7 @@ public class ProgrammerCommandTests
     public void KnockoutCommand_SuppressesChannel_AndUndoRestoresContribution()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
+        var (programmer, _, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         int idx = fixture.AbsoluteIndex(dimmer);
         programmer.SetChannel(0, idx, 150);
@@ -113,7 +122,7 @@ public class ProgrammerCommandTests
     public void KnockoutCommand_OnChannelWithNoValue_IsNoOp()
     {
         var (patch, fixture) = BuildPatch();
-        var (_, _, dispatcher, _) = BuildConsole(fixture, patch);
+        var (_, _, _, dispatcher, _) = BuildConsole(fixture, patch);
 
         var result = dispatcher.Dispatch(new KnockoutCommand(new[] { fixture }));
 
@@ -124,7 +133,7 @@ public class ProgrammerCommandTests
     public void RestoreCommand_UndoesToKnockedOutState()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
+        var (programmer, _, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         int idx = fixture.AbsoluteIndex(dimmer);
         programmer.SetChannel(0, idx, 150);
@@ -138,14 +147,15 @@ public class ProgrammerCommandTests
     }
 
     [Fact]
-    public void AdjustIntensityCommand_Relative_AddsPercentagePoints()
+    public void AdjustIntensityCommand_Relative_AddsPercentagePointsOnTopOfEffectiveOutput()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var (programmer, engine, context, dispatcher, _) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         int idx = fixture.AbsoluteIndex(dimmer);
         const byte startValue = 178; // ~70%
         programmer.SetChannel(0, idx, startValue);
+        engine.Tick(); // computes the merged output Relative reads as "current"
 
         dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Relative, 20));
 
@@ -155,13 +165,37 @@ public class ProgrammerCommandTests
     }
 
     [Fact]
+    public void AdjustIntensityCommand_Relative_ReadsCurrentFromEffectiveOutput_NotJustProgrammer()
+    {
+        // Nothing is ever written to the Programmer directly - only a Cue-priority-style
+        // layer contributes. This is exactly the scenario the fix targets: "raise Fronts by
+        // 20" must land relative to what a Cue/Effect is currently showing.
+        var (patch, fixture) = BuildPatch();
+        var (_, engine, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
+        int idx = fixture.AbsoluteIndex(dimmer);
+
+        var cueLikeLayer = new StubOutputLayer(priority: 100);
+        cueLikeLayer.SetValue(0, idx, 128); // ~50%, simulating an active cue driving this channel
+        engine.AddLayer(cueLikeLayer);
+        engine.Tick();
+
+        dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Relative, 20));
+
+        Assert.True(context.Programmer.TryGetChannelValue(0, idx, out var value));
+        double expectedPercent = (128 / 255.0 * 100.0) + 20;
+        Assert.Equal((byte)Math.Round(expectedPercent / 100.0 * 255.0), value);
+    }
+
+    [Fact]
     public void AdjustIntensityCommand_Relative_ClampsAtUpperBound()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var (programmer, engine, context, dispatcher, _) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         int idx = fixture.AbsoluteIndex(dimmer);
         programmer.SetChannel(0, idx, 255);
+        engine.Tick();
 
         dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Relative, 20));
 
@@ -173,11 +207,12 @@ public class ProgrammerCommandTests
     public void AdjustIntensityCommand_Absolute_SetsExactPercent()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var (programmer, _, context, dispatcher, _) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         int idx = fixture.AbsoluteIndex(dimmer);
         programmer.SetChannel(0, idx, 10);
 
+        // No Tick() here on purpose: Absolute must not depend on any notion of "current value".
         dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Absolute, 50));
 
         Assert.True(programmer.TryGetChannelValue(0, idx, out var value));
@@ -188,10 +223,11 @@ public class ProgrammerCommandTests
     public void AdjustIntensityCommand_Undo_RestoresExactPreviousValue()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
+        var (programmer, engine, context, dispatcher, undoRedo) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         int idx = fixture.AbsoluteIndex(dimmer);
         programmer.SetChannel(0, idx, 123);
+        engine.Tick();
 
         dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Relative, -30));
         undoRedo.Undo();
@@ -201,7 +237,7 @@ public class ProgrammerCommandTests
     }
 
     [Fact]
-    public void AdjustIntensityCommand_UntouchedChannel_StartsFromFixtureDefault()
+    public void AdjustIntensityCommand_Relative_UntouchedChannel_StartsFromMergedFixtureDefault()
     {
         var patch = new Core.Fixtures.Patch();
         var profile = new FixtureProfile
@@ -220,7 +256,8 @@ public class ProgrammerCommandTests
         };
         var fixture = new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1);
         patch.Add(fixture);
-        var (programmer, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var (programmer, engine, context, dispatcher, _) = BuildConsole(fixture, patch);
+        engine.Tick(); // nothing set anywhere - the merge computes the fixture's own default
 
         dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Relative, 10));
 
@@ -230,10 +267,24 @@ public class ProgrammerCommandTests
     }
 
     [Fact]
+    public void AdjustIntensityCommand_Relative_BeforeAnyTick_TreatsCurrentAsZero()
+    {
+        // Documents the accepted edge case: a universe the engine has never computed has no
+        // "current effective output" yet, so Relative reads 0 rather than the fixture default.
+        var (patch, fixture) = BuildPatch();
+        var (_, _, context, dispatcher, _) = BuildConsole(fixture, patch); // no engine.Tick() at all
+
+        dispatcher.Dispatch(new AdjustIntensityCommand(new[] { fixture }, AdjustOperation.Relative, 10));
+
+        Assert.True(context.Programmer.TryGetChannelValue(0, 0, out var value));
+        Assert.Equal((byte)Math.Round(10.0 / 100 * 255), value); // 0% + 10%, not DefaultValue-based
+    }
+
+    [Fact]
     public void CommandResult_PreviousAndNewValues_AreKeyedByFixtureAndChannelType()
     {
         var (patch, fixture) = BuildPatch();
-        var (programmer, context, dispatcher, _) = BuildConsole(fixture, patch);
+        var (programmer, _, context, dispatcher, _) = BuildConsole(fixture, patch);
         var dimmer = fixture.FindChannel(ChannelType.Dimmer)!;
         programmer.SetChannel(0, fixture.AbsoluteIndex(dimmer), 100);
 
@@ -242,5 +293,21 @@ public class ProgrammerCommandTests
         var key = (fixture.Id, ChannelType.Dimmer);
         Assert.Equal(100, result.PreviousValues[key]);
         Assert.Equal((byte)Math.Round(50.0 / 100 * 255), result.NewValues[key]);
+    }
+
+    /// <summary>Minimal IOutputLayer stand-in for "some layer below the Programmer, like a Cue" in tests.</summary>
+    private sealed class StubOutputLayer : IOutputLayer
+    {
+        private readonly Dictionary<(int, int), byte> _values = new();
+        public string Name => "Stub";
+        public int Priority { get; }
+        public bool IsActive => _values.Count > 0;
+
+        public StubOutputLayer(int priority) => Priority = priority;
+
+        public void SetValue(int universeId, int channelIndex, byte value) => _values[(universeId, channelIndex)] = value;
+
+        public bool TryGetChannelValue(int universeId, int channelIndex, out byte value) =>
+            _values.TryGetValue((universeId, channelIndex), out value);
     }
 }

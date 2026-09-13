@@ -10,7 +10,7 @@ namespace DmxConsole.Core.Engine;
 /// universe, applies per-fixture pan/tilt calibration, and publishes the result via
 /// <see cref="UniverseOutputReady"/> for protocol senders to transmit.
 /// </summary>
-public sealed class DmxOutputEngine : IDisposable
+public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
 {
     private readonly Patch _patch;
     private readonly ConcurrentDictionary<int, Universe> _universes = new();
@@ -45,6 +45,14 @@ public sealed class DmxOutputEngine : IDisposable
         _universes.GetOrAdd(universeId, id => new Universe(id));
 
     public IReadOnlyCollection<Universe> Universes => _universes.Values.ToList();
+
+    /// <summary>
+    /// The merged value the most recent Tick() actually computed for one channel - see
+    /// <see cref="IEffectiveOutputReader"/>. Deliberately a read-only lookup (no
+    /// EnsureUniverse side effect): a universe nothing has ever ticked simply reads as 0.
+    /// </summary>
+    public byte GetEffectiveValue(int universeId, int channelIndex) =>
+        _universes.TryGetValue(universeId, out var universe) ? universe[channelIndex] : (byte)0;
 
     public void RebuildChannelMap()
     {

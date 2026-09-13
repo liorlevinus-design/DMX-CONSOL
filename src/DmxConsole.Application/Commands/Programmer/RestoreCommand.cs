@@ -1,6 +1,5 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
-using CoreProgrammer = DmxConsole.Core.Engine.Programmer;
 
 namespace DmxConsole.Application.Commands.Programmer;
 
@@ -14,12 +13,12 @@ public sealed class RestoreCommand : ProgrammerChannelCommandBase
 
     protected override ConsoleActionType ActionType => ConsoleActionType.Restore;
 
-    protected override bool ApplyToChannel(CoreProgrammer programmer, PatchedFixture fixture, FixtureChannel channel)
+    protected override bool ApplyToChannel(ConsoleContext context, PatchedFixture fixture, FixtureChannel channel)
     {
         int idx = fixture.AbsoluteIndex(channel);
-        if (!programmer.IsKnockedOut(fixture.UniverseId, idx)) return false;
+        if (!context.Programmer.IsKnockedOut(fixture.UniverseId, idx)) return false;
 
-        programmer.Restore(fixture.UniverseId, idx);
+        context.Programmer.Restore(fixture.UniverseId, idx);
         return true;
     }
 }

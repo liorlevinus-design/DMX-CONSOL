@@ -90,6 +90,17 @@
 - UI: **`ProgrammerPanel.razor`** (Release/Clear×4/Knockout/Restore/±% Intensity) מתחת ל-`SelectionBar`. **`FaderBank.razor`** משודרג: מסנן ל-`Selection.Items` בלבד, מקבץ לפי `AttributeClass` (כותרת per קבוצה, סדר Intensity→Position→Color→Beam→Other); בחירה ריקה → הודעה במקום רשימה שקטה.
 - נבדק ידנית מקצה לקצה: Raise/Lower/Undo/Redo, Knockout (פאדר עדיין מציג את הערך, `TryGetChannelValue` false), Release (פאדר חוזר ל-DefaultValue), קיבוץ Attribute עם 2 פיקסצ'רים שונים (RGBW + Moving Head) מציג ארבע קבוצות נכון.
 
+### תיקון: Relative Adjustment קורא את הפלט הממוזג האמיתי, לא רק את ה-Programmer
+
+לאחר סקירת המשתמש: "תרים את הפרונטים ב-20" כשיש Cue פעיל שכבר מוציא 60% (בלי ערך ב-Programmer בכלל) צריך לתת 80%, לא 20%. הפתרון (`IEffectiveOutputReader.cs`):
+
+- **`IEffectiveOutputReader`** (`DmxConsole.Core.Engine`) - ממשק צר, read-only: `GetEffectiveValue(universeId, channelIndex)`. **`DmxOutputEngine`** מממש אותו ישירות (`_universes.TryGetValue(...) ? universe[idx] : 0`) - **בלי שינוי מבני**, כי `Universe` כבר שומר את התוצאה הממוזגת האחרונה מכל Tick; זו הייתה תוספת קטנה ונקייה, לא ארכיטקטורה חדשה.
+- **`ConsoleContext.EffectiveOutput`** - שדה חדש (`IEffectiveOutputReader`, לא `DmxOutputEngine` המלא - כדי ש-Commands לעולם לא יגיעו ל-lifecycle/layers של המנוע, רק לקריאה).
+- **`ProgrammerChannelCommandBase.ApplyToChannel`** - שינה חתימה מ-`(Programmer, ...)` ל-`(ConsoleContext, ...)` כדי ש-`AdjustIntensityCommand` יוכל לקרוא גם מ-`EffectiveOutput`. **`AdjustIntensityCommand`**: `Relative` קורא כעת `context.EffectiveOutput.GetEffectiveValue(...)` (לא `Programmer.HasStoredValue ?? DefaultValue`) - "הערך הנוכחי" הוא מה שבאמת יוצא (Cue/Effect/Programmer/default, איזה שהוא באמת מנצח במיזוג), לא רק שכבת ה-Programmer. `Absolute` לא השתנה (לא תלוי בערך נוכחי כלל).
+- **מגבלה מתועדת, לא באג:** אם universe מעולם לא עבר Tick (המנוע לא הופעל), אין "פלט אפקטיבי" עדיין - `GetEffectiveValue` מחזיר 0. זהה למצב "אין פלט בפועל", לא edge-case שדורש טיפול.
+- נבדק ידנית מקצה לקצה בתרחיש אמיתי: הקלטת Cue ב-50% → Clear Programmer → GO → "+Raise 10%" → הפאדר הציג **154** (≈60%, לא ≈26 שהיה קורה עם הבאג) - מאשר שההתאמה היחסית קוראת נכון את הפלט הממוזג האמיתי מה-Cue, לא Programmer ריק.
+- Position/Color/Beam relative adjustment **עדיין לא בשלב הזה** - נותר Intensity בלבד, כפי שאושר.
+
 ## הרחבה עתידית (שלבים הבאים)
 
 כל שלב עתידי (Visualizer 3D, Music Sync) אמור להתחבר כ-`IOutputLayer`/`ITickable` נוסף ל-`DmxOutputEngine`, או כ-`IDmxSender` נוסף בפרויקט Protocols - בלי לשנות את הליבה הקיימת. Music Sync בפרט צפוי להזין `SpeedHz`/`Spread` של אפקטים קיימים לפי BPM שזוהה, ולא לדרוש סוג שכבה חדש.

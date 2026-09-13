@@ -1,6 +1,5 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
-using CoreProgrammer = DmxConsole.Core.Engine.Programmer;
 
 namespace DmxConsole.Application.Commands.Programmer;
 
@@ -18,16 +17,16 @@ public sealed class KnockoutCommand : ProgrammerChannelCommandBase
 
     protected override ConsoleActionType ActionType => ConsoleActionType.Knockout;
 
-    protected override bool ApplyToChannel(CoreProgrammer programmer, PatchedFixture fixture, FixtureChannel channel)
+    protected override bool ApplyToChannel(ConsoleContext context, PatchedFixture fixture, FixtureChannel channel)
     {
         int idx = fixture.AbsoluteIndex(channel);
 
         // Only meaningful for a channel that actually has a live value to suppress, and
         // not already knocked out - otherwise this is a no-op, not an "affected" fixture.
-        if (!programmer.HasStoredValue(fixture.UniverseId, idx, out _)) return false;
-        if (programmer.IsKnockedOut(fixture.UniverseId, idx)) return false;
+        if (!context.Programmer.HasStoredValue(fixture.UniverseId, idx, out _)) return false;
+        if (context.Programmer.IsKnockedOut(fixture.UniverseId, idx)) return false;
 
-        programmer.Knockout(fixture.UniverseId, idx);
+        context.Programmer.Knockout(fixture.UniverseId, idx);
         return true;
     }
 }

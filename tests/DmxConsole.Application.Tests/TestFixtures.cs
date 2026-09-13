@@ -36,7 +36,8 @@ internal static class TestFixtures
     public static (ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo) BuildConsole(int fixtureCount)
     {
         var patch = BuildPatch(fixtureCount);
-        var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager());
+        var engine = new DmxOutputEngine(patch); // never Started/Ticked here - these tests don't touch the Programmer
+        var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(), engine);
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         return (context, dispatcher, undoRedo);

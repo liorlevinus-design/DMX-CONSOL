@@ -1,6 +1,5 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
-using CoreProgrammer = DmxConsole.Core.Engine.Programmer;
 
 namespace DmxConsole.Application.Commands.Programmer;
 
@@ -11,11 +10,14 @@ namespace DmxConsole.Application.Commands.Programmer;
 /// needs its own semantics (a single scalar percentage doesn't map cleanly onto Pan+Tilt or
 /// R+G+B) and is deferred to a later step, most likely alongside Presets/Palettes.
 ///
-/// "Current value" for a Relative adjustment is whatever the Programmer itself currently
-/// holds for that channel (or the fixture's channel DefaultValue if untouched) - NOT the
-/// live merged DMX output, which could differ if a Cue or Effect is driving the fixture.
-/// Reading the true merged output would need DmxOutputEngine to expose its last computed
-/// snapshot, which doesn't exist yet; this is an accepted limitation for this step.
+/// A Relative adjustment is computed against the engine's actual merged output
+/// (<see cref="ConsoleContext.EffectiveOutput"/>) - "raise Fronts by 20" means 20 points on
+/// top of whatever the fixture is really showing right now, whether that came from a Cue,
+/// an Effect, or the Programmer itself. It deliberately does NOT fall back to reading the
+/// Programmer's own stored value or the fixture's DefaultValue: if a universe has never
+/// been ticked (engine never started), there genuinely is no "current" yet and this reads
+/// as 0 - an accepted edge case, not a bug, since nothing is actually being output either.
+/// Absolute is unaffected either way - it sets the requested percentage outright.
 /// </summary>
 public sealed class AdjustIntensityCommand : ProgrammerChannelCommandBase
 {
@@ -31,17 +33,25 @@ public sealed class AdjustIntensityCommand : ProgrammerChannelCommandBase
 
     protected override ConsoleActionType ActionType => ConsoleActionType.AdjustIntensity;
 
-    protected override bool ApplyToChannel(CoreProgrammer programmer, PatchedFixture fixture, FixtureChannel channel)
+    protected override bool ApplyToChannel(ConsoleContext context, PatchedFixture fixture, FixtureChannel channel)
     {
         int idx = fixture.AbsoluteIndex(channel);
-        byte current = programmer.HasStoredValue(fixture.UniverseId, idx, out var stored) ? stored : channel.DefaultValue;
 
-        double currentPercent = current / 255.0 * 100.0;
-        double newPercent = _operation == AdjustOperation.Relative ? currentPercent + _percent : _percent;
+        double newPercent;
+        if (_operation == AdjustOperation.Relative)
+        {
+            byte current = context.EffectiveOutput.GetEffectiveValue(fixture.UniverseId, idx);
+            newPercent = (current / 255.0 * 100.0) + _percent;
+        }
+        else
+        {
+            newPercent = _percent;
+        }
+
         newPercent = Math.Clamp(newPercent, 0.0, 100.0);
         byte newValue = (byte)Math.Round(newPercent / 100.0 * 255.0);
 
-        programmer.SetChannel(fixture.UniverseId, idx, newValue);
+        context.Programmer.SetChannel(fixture.UniverseId, idx, newValue);
         return true;
     }
 }

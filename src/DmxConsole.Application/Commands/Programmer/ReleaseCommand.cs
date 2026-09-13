@@ -1,6 +1,5 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
-using CoreProgrammer = DmxConsole.Core.Engine.Programmer;
 
 namespace DmxConsole.Application.Commands.Programmer;
 
@@ -20,13 +19,13 @@ public sealed class ReleaseCommand : ProgrammerChannelCommandBase
     protected override ConsoleActionType ActionType =>
         AttributeFilter is null ? ConsoleActionType.Release : ConsoleActionType.ClearAttribute;
 
-    protected override bool ApplyToChannel(CoreProgrammer programmer, PatchedFixture fixture, FixtureChannel channel)
+    protected override bool ApplyToChannel(ConsoleContext context, PatchedFixture fixture, FixtureChannel channel)
     {
         int idx = fixture.AbsoluteIndex(channel);
-        bool hasSomething = programmer.HasStoredValue(fixture.UniverseId, idx, out _) || programmer.IsKnockedOut(fixture.UniverseId, idx);
+        bool hasSomething = context.Programmer.HasStoredValue(fixture.UniverseId, idx, out _) || context.Programmer.IsKnockedOut(fixture.UniverseId, idx);
         if (!hasSomething) return false;
 
-        programmer.ClearChannel(fixture.UniverseId, idx);
+        context.Programmer.ClearChannel(fixture.UniverseId, idx);
         return true;
     }
 }
