@@ -18,6 +18,11 @@ public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
     private readonly object _layersLock = new();
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
+    /// <summary>Which layer produced the currently-winning value for each channel, as of the most
+    /// recent Tick() - see TryGetOwningLayer/GetOwner. Populated as a side effect of the same
+    /// merge loop that already computes the value, no extra pass.</summary>
+    private readonly ConcurrentDictionary<(int Universe, int Channel), IOutputLayer?> _owningLayer = new();
+
     private PatchChannelMap _channelMap;
     private readonly byte[] _scratch = new byte[Core.Universe.ChannelCount];
 
@@ -53,6 +58,31 @@ public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
     /// </summary>
     public byte GetEffectiveValue(int universeId, int channelIndex) =>
         _universes.TryGetValue(universeId, out var universe) ? universe[channelIndex] : (byte)0;
+
+    /// <summary>The raw IOutputLayer reference that produced the currently-winning value for a
+    /// channel, as of the most recent Tick() - null/false if nothing has contributed to it yet.
+    /// The layer reference itself is a stable identity (no new property forced onto Programmer/
+    /// EffectsEngine just for this). Prefer <see cref="GetOwner"/> for a structured, presentation-
+    /// independent identity.</summary>
+    public bool TryGetOwningLayer(int universeId, int channelIndex, out IOutputLayer? layer) =>
+        _owningLayer.TryGetValue((universeId, channelIndex), out layer) && layer is not null;
+
+    /// <summary>Structured ownership identity for a channel - see OutputOwner. Pattern-matches on
+    /// the winning layer's concrete type (Executor carries its own stable Id/Number; Programmer/
+    /// EffectsEngine are singletons in this app) rather than trusting a mutable display Name.</summary>
+    public OutputOwner? GetOwner(int universeId, int channelIndex)
+    {
+        if (!TryGetOwningLayer(universeId, channelIndex, out var layer) || layer is null) return null;
+
+        return layer switch
+        {
+            Executor exec => new OutputOwner($"executor:{exec.Id:N}",
+                exec.Name.Length > 0 ? exec.Name : $"Executor {exec.Number}", OwnerKind.Executor, exec.Id, exec.Number),
+            Programmer => new OutputOwner("programmer", "Programmer", OwnerKind.Programmer, null, null),
+            EffectsEngine fx => new OutputOwner("effects", fx.Name, OwnerKind.Effect, null, null),
+            _ => new OutputOwner(layer.Name, layer.Name, OwnerKind.Other, null, null),
+        };
+    }
 
     public void RebuildChannelMap()
     {
@@ -133,25 +163,43 @@ public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
             byte baseValue = isPatched ? entry.Channel.DefaultValue : (byte)0;
             var blendMode = isPatched ? entry.Channel.EffectiveBlendMode : BlendMode.Ltp;
 
+            // Pass 1: find the highest Priority among layers that actually contribute THIS
+            // channel (not the highest priority among all active layers overall - a layer that
+            // doesn't touch this channel must never suppress one that does, regardless of its
+            // own priority).
+            int highestPriority = int.MinValue;
+            foreach (var layer in activeLayers)
+                if (layer.TryGetChannelValue(universeId, channel, out _))
+                    highestPriority = Math.Max(highestPriority, layer.Priority);
+
+            // Pass 2: resolve ONLY among the top-priority contributors, via this channel's blend
+            // mode. Priority always gates participation first, for BOTH Htp and Ltp - a lower-
+            // priority layer never participates just because its raw value happens to be higher
+            // (Htp) or its revision happens to be newer (Ltp/"Latest").
             byte result = baseValue;
             bool anyLayerContributed = false;
+            long winningRevision = long.MinValue;
+            IOutputLayer? winningLayer = null;
 
             foreach (var layer in activeLayers)
             {
+                if (layer.Priority != highestPriority) continue;
                 if (!layer.TryGetChannelValue(universeId, channel, out var contributed)) continue;
 
                 if (blendMode == BlendMode.Htp)
                 {
-                    result = Math.Max(result, contributed);
+                    if (!anyLayerContributed || contributed > result) { result = contributed; winningLayer = layer; }
                 }
-                else // Ltp: last (highest-priority, since activeLayers is priority-sorted) contribution wins
+                else // Ltp ("Latest") - tie-break by semantic revision, not iteration order
                 {
-                    result = contributed;
+                    long revision = (layer as IMergeAwareLayer)?.TryGetRevision(universeId, channel, out var r) == true ? r : 0;
+                    if (!anyLayerContributed || revision >= winningRevision) { result = contributed; winningRevision = revision; winningLayer = layer; }
                 }
                 anyLayerContributed = true;
             }
 
             if (!anyLayerContributed) result = baseValue;
+            _owningLayer[(universeId, channel)] = anyLayerContributed ? winningLayer : null;
 
             destination[channel] = result;
         }

@@ -20,6 +20,7 @@
         <button class="tab-button @(ActiveTab == "cues" ? "active" : "")" @onclick='() => ActiveTab = "cues"'>Cues</button>
         <button class="tab-button @(ActiveTab == "effects" ? "active" : "")" @onclick='() => ActiveTab = "effects"'>Effects</button>
         <button class="tab-button @(ActiveTab == "presets" ? "active" : "")" @onclick='() => ActiveTab = "presets"'>Presets</button>
+        <button class="tab-button @(ActiveTab == "executors" ? "active" : "")" @onclick='() => ActiveTab = "executors"'>Executors</button>
     </div>
 
     @if (ActiveTab == "cues")
@@ -34,10 +35,16 @@
             <EffectsPanel />
         </div>
     }
-    else
+    else if (ActiveTab == "presets")
     {
         <div class="tab-content">
             <PresetPanel />
+        </div>
+    }
+    else
+    {
+        <div class="tab-content">
+            <ExecutorPanel />
         </div>
     }
 

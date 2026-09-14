@@ -21,7 +21,10 @@ public class GroupCommandTests
         Assert.Equal(new[] { 1, 2, 3 }, result.Group.Fixtures.Select(f => f.Number));
         Assert.Single(context.Groups.Groups);
 
-        undoRedo.Undo();
+        // Undo-ing a freshly Created Group is Destructive (it deletes a persistent show object) -
+        // requires the confirmed option id (Step F's UndoRisk gate), not a bare Undo().
+        var proposal = undoRedo.PeekUndo()!;
+        undoRedo.Undo(proposal.Options.Single(o => o.Risk == UndoRisk.Destructive).Id);
         Assert.Empty(context.Groups.Groups);
     }
 

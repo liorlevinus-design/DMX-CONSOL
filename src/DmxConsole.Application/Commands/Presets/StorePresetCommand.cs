@@ -13,7 +13,7 @@ namespace DmxConsole.Application.Commands.Presets;
 /// the targets for this AttributeClass are added/overwritten - other entries already in an
 /// existing Preset (e.g. from a different fixture type recorded earlier) are left alone.
 /// </summary>
-public sealed class StorePresetCommand : IConsoleCommand
+public sealed class StorePresetCommand : IConsoleCommand, IHasUndoRisk
 {
     private readonly PresetLibrary _library;
     private readonly IReadOnlyList<PatchedFixture> _targets;
@@ -93,5 +93,16 @@ public sealed class StorePresetCommand : IConsoleCommand
             _target.Values.Clear();
             foreach (var (channelType, value) in _previousValues!) _target.Values[channelType] = value;
         }
+    }
+
+    /// <summary>Only the "was new" branch is destructive - Undo-ing that deletes the freshly
+    /// created Preset. The "was update" branch just restores a previous snapshot of Values, never
+    /// deleting anything, so it stays Safe.</summary>
+    public UndoProposal PrepareUndo()
+    {
+        if (!_wasNewlyCreated) return UndoProposal.SingleSafe($"Restore previous values of Preset \"{_name}\"");
+
+        var description = $"Delete Preset \"{_name}\"";
+        return new UndoProposal(description, new[] { new UndoOption("delete", description, UndoRisk.Destructive) });
     }
 }

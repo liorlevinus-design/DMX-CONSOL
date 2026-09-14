@@ -69,7 +69,7 @@ public class PresetCommandTests
         var patch = new Patch();
         var programmer = new Core.Engine.Programmer();
         var context = new ConsoleContext(patch, programmer, new Core.Selection.FixtureSelection(),
-            new Core.Selection.GroupManager(), new Core.Engine.DmxOutputEngine(patch), new PresetLibrary());
+            new Core.Selection.GroupManager(), new Core.Engine.DmxOutputEngine(patch), new PresetLibrary(), new Core.Engine.ExecutorBank());
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         return (patch, context, dispatcher, undoRedo);
@@ -94,7 +94,10 @@ public class PresetCommandTests
         Assert.Equal(0, result.Preset.Values[ChannelType.ColorGreen]); // default, untouched in Programmer
         Assert.Single(context.Presets.Presets);
 
-        undoRedo.Undo();
+        // Undo-ing a freshly Created Preset is Destructive (Step F's UndoRisk gate) - requires
+        // the confirmed option id, not a bare Undo().
+        var proposal = undoRedo.PeekUndo()!;
+        undoRedo.Undo(proposal.Options.Single(o => o.Risk == UndoRisk.Destructive).Id);
         Assert.Empty(context.Presets.Presets);
     }
 

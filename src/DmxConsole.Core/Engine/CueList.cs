@@ -9,15 +9,28 @@ namespace DmxConsole.Core.Engine;
 /// time for channels going up and fade-out time for channels going down. Sits as an
 /// <see cref="IOutputLayer"/> below the Programmer, so live fader grabs still win.
 /// </summary>
-public sealed class CueList : IOutputLayer
+public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback, IPausablePlayback, IMergeAwareLayer
 {
     private readonly object _lock = new();
     private readonly Dictionary<(int Universe, int Channel), byte> _fadeFrom = new();
     private readonly Dictionary<(int Universe, int Channel), byte> _currentOutput = new();
 
+    /// <summary>Per-channel semantic revision - see IMergeAwareLayer. Updated in StartTransitionTo:
+    /// every channel present in the newly-active cue's Levels gets the SAME new revision (they all
+    /// received their instruction from the same single Go/Back/GoToCue event). Today (no Tracking
+    /// yet - RecordCue always full-snapshots every patched channel per Step E) this means every
+    /// patched channel's revision bumps on every Go, which is correct right now since every stored
+    /// channel genuinely is a fresh instruction under full-snapshot recording. Once Tracking exists
+    /// and a cue's Levels only contains channels that actually got a new move (others inherited),
+    /// this exact same per-key update naturally bumps only the channels really touched - no
+    /// merge-system rewrite needed when Tracking arrives.</summary>
+    private readonly Dictionary<(int Universe, int Channel), long> _channelRevisions = new();
+
     private Cue? _currentCue;
     private bool _isReleased = true;
     private DateTime _fadeStartUtc;
+    private DateTime? _pausedAtUtc;
+    private TimeSpan _accumulatedPause;
     private readonly IPresetResolver? _presetResolver;
 
     public string Name { get; }
@@ -186,6 +199,54 @@ public sealed class CueList : IOutputLayer
         _currentCue = target;
         _isReleased = false;
         _fadeStartUtc = DateTime.UtcNow;
+        _pausedAtUtc = null;
+        _accumulatedPause = TimeSpan.Zero;
+
+        // Every channel in this cue received its instruction from this SAME Go/Back/GoToCue event -
+        // they share one revision value (see the field's doc comment for why this is correct today
+        // and stays correct once Tracking exists).
+        long newRevision = RevisionClock.Next();
+        foreach (var key in target.Levels.Keys)
+            _channelRevisions[key] = newRevision;
+    }
+
+    /// <summary>Wall-clock elapsed since the fade started, minus any time spent paused (including
+    /// time currently being spent paused, if paused right now) - the single place both the fade
+    /// interpolation and status reporting read "how much time has really passed".</summary>
+    private TimeSpan EffectiveElapsed()
+    {
+        var now = DateTime.UtcNow;
+        var paused = _accumulatedPause;
+        if (_pausedAtUtc is { } pausedAt) paused += now - pausedAt;
+        var elapsed = now - _fadeStartUtc - paused;
+        return elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed;
+    }
+
+    public bool IsPaused { get { lock (_lock) { return _pausedAtUtc is not null; } } }
+
+    /// <summary>Freezes the running fade (and status) in place. No-op if already paused or nothing
+    /// is playing - graceful, never throws.</summary>
+    public void Pause()
+    {
+        lock (_lock)
+        {
+            if (_currentCue is null || _pausedAtUtc is not null) return;
+            _pausedAtUtc = DateTime.UtcNow;
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Continues the fade from exactly where Pause() froze it - not from the start, not
+    /// skipping the paused duration. No-op if not currently paused.</summary>
+    public void Resume()
+    {
+        lock (_lock)
+        {
+            if (_pausedAtUtc is not { } pausedAt) return;
+            _accumulatedPause += DateTime.UtcNow - pausedAt;
+            _pausedAtUtc = null;
+        }
+        Changed?.Invoke();
     }
 
     /// <summary>Overall fade progress (0..1) and time remaining for the active transition - for a UI progress bar.</summary>
@@ -198,7 +259,7 @@ public sealed class CueList : IOutputLayer
             // to consider every channel's own resolved timing; General is a reasonable overall estimate.
             var general = _currentCue.GeneralTiming;
             var maxDuration = general.FadeInTime > general.FadeOutTime ? general.FadeInTime : general.FadeOutTime;
-            double elapsed = (DateTime.UtcNow - _fadeStartUtc).TotalSeconds;
+            double elapsed = EffectiveElapsed().TotalSeconds;
             double progress = maxDuration.TotalSeconds <= 0
                 ? 1.0
                 : Math.Clamp(elapsed / maxDuration.TotalSeconds, 0.0, 1.0);
@@ -207,12 +268,64 @@ public sealed class CueList : IOutputLayer
         }
     }
 
+    /// <summary>Structured, time-first introspection snapshot (UX_PHILOSOPHY §9) - Overall timing
+    /// from GeneralTiming, plus a per-AttributeClass breakdown grouping the current cue's stored
+    /// channels and resolving each group's own timing via Cue.TimingFor (same precedence Step E
+    /// already established - not duplicated here). When several channels of the same class have
+    /// different individual ChannelTiming overrides, this reports one representative channel's
+    /// timing for the whole class - an accepted approximation, same spirit as GetTransitionStatus's
+    /// General-only estimate above; per-channel UI is future work, not needed yet.</summary>
+    public PlaybackStatus GetStatus()
+    {
+        lock (_lock)
+        {
+            if (_currentCue is null)
+            {
+                var zero = new TimingProgress(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero);
+                return new CueListPlaybackStatus(null, null, false, false, zero, new Dictionary<AttributeClass, TimingProgress>());
+            }
+
+            var elapsed = EffectiveElapsed();
+            var overall = ProgressFor(_currentCue.GeneralTiming, elapsed);
+
+            var perClass = new Dictionary<AttributeClass, TimingProgress>();
+            foreach (var group in _currentCue.Levels.GroupBy(kv => kv.Value.ChannelType.ToAttributeClass()))
+            {
+                var (sampleKey, sampleValue) = (group.First().Key, group.First().Value);
+                var timing = _currentCue.TimingFor(sampleKey, sampleValue);
+                perClass[group.Key] = ProgressFor(timing, elapsed);
+            }
+
+            bool isRunning = !_isReleased && _pausedAtUtc is null;
+            return new CueListPlaybackStatus(_currentCue, null, isRunning, _pausedAtUtc is not null, overall, perClass);
+        }
+    }
+
+    private static TimingProgress ProgressFor(CueTiming timing, TimeSpan elapsed)
+    {
+        var total = timing.FadeInTime > timing.FadeOutTime ? timing.FadeInTime : timing.FadeOutTime;
+        var clampedElapsed = elapsed > total ? total : elapsed;
+        var remaining = total - clampedElapsed;
+        return new TimingProgress(clampedElapsed, remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining, total);
+    }
+
+    /// <summary>See IMergeAwareLayer - false for a channel no recorded cue has ever stored.</summary>
+    public bool TryGetRevision(int universeId, int channelIndex, out long revision) =>
+        _channelRevisions.TryGetValue((universeId, channelIndex), out revision);
+
     public bool TryGetChannelValue(int universeId, int channelIndex, out byte value)
     {
         lock (_lock)
         {
-            if (_isReleased || _currentCue is null)
+            if (_isReleased || _currentCue is null || _pausedAtUtc is not null)
             {
+                // Paused: freeze at whatever _currentOutput last held for this channel (if any) -
+                // no exception, no recompute, no progression while frozen.
+                if (_pausedAtUtc is not null && _currentOutput.TryGetValue((universeId, channelIndex), out var frozen))
+                {
+                    value = frozen;
+                    return true;
+                }
                 value = 0;
                 return false;
             }
@@ -235,7 +348,7 @@ public sealed class CueList : IOutputLayer
             }
 
             byte from = _fadeFrom.TryGetValue(key, out var f) ? f : (byte)0;
-            double elapsedSeconds = (DateTime.UtcNow - _fadeStartUtc).TotalSeconds;
+            double elapsedSeconds = EffectiveElapsed().TotalSeconds;
             var timing = _currentCue.TimingFor(key, cueValue);
             var duration = target >= from ? timing.FadeInTime : timing.FadeOutTime;
             double t = duration.TotalSeconds <= 0

@@ -28,4 +28,9 @@ public sealed class CommandDispatcher
     /// <summary>Executes several commands as one transaction - a single Undo() reverts all of them.</summary>
     public CommandResult DispatchBatch(IReadOnlyList<IConsoleCommand> commands) =>
         Dispatch(new CompositeCommand(commands));
+
+    /// <summary>Executes an operational/runtime Action - Go/Back/Stop/Pause/Resume/Flash. Never
+    /// touches UndoRedoService (no push, no clear) - this is the structural guarantee that
+    /// operational actions can never enter Undo history and can never clear the Redo stack.</summary>
+    public CommandResult DispatchAction(IConsoleAction action) => action.Execute(_context);
 }

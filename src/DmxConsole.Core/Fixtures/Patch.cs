@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using DmxConsole.Core.Engine;
 
 namespace DmxConsole.Core.Fixtures;
 
@@ -7,7 +8,7 @@ namespace DmxConsole.Core.Fixtures;
 /// invariant that must hold across the whole show (two fixtures cannot share
 /// DMX addresses in the same universe).
 /// </summary>
-public sealed class Patch
+public sealed class Patch : IChannelTypeLookup
 {
     private readonly List<PatchedFixture> _fixtures = new();
 
@@ -52,4 +53,27 @@ public sealed class Patch
 
     /// <summary>Looks up a patched fixture by its stable operator-facing number, or null if none matches.</summary>
     public PatchedFixture? FindByNumber(int number) => _fixtures.FirstOrDefault(f => f.Number == number);
+
+    /// <summary>Stable, storage-independent channel identity: which ChannelType is patched at a
+    /// given address, regardless of what any specific Cue/Preset/Programmer currently holds for
+    /// it. This is what lets Executor classify a channel as Intensity without depending on a
+    /// source's current stored/tracked data (see IChannelTypeLookup's own doc comment).</summary>
+    public bool TryGetChannelType(int universeId, int channelIndex, out ChannelType channelType)
+    {
+        foreach (var fixture in InUniverse(universeId))
+        {
+            int offset = channelIndex - fixture.StartIndex;
+            if (offset < 0 || offset >= fixture.Footprint) continue;
+
+            var channel = fixture.Mode.Channels.FirstOrDefault(c => c.Offset == offset);
+            if (channel is not null)
+            {
+                channelType = channel.Type;
+                return true;
+            }
+        }
+
+        channelType = default;
+        return false;
+    }
 }

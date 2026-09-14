@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DmxConsole.Application;
+using DmxConsole.Application.Commands.Playback;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 
@@ -9,11 +11,17 @@ namespace DmxConsole.Web.Services;
 /// Drives one CueList: the "record current look as a cue" form, Go/Back/Stop transport,
 /// and a polled progress readout for the active fade (CueList only raises Changed on
 /// discrete actions, not continuously while a fade runs, so a timer fills the gap).
+/// Go/Back/Stop dispatch through the Application layer (Step F) - never a direct
+/// CueList.Go()/Back()/Stop() call from the UI - so every frontend (Touch/CLI/NL/MIDI) goes
+/// through the same door. RecordCue/RemoveCue/GoToCue stay direct CueList calls - Cue *editing*
+/// as real Commands is future work, out of scope for Step F.
 /// </summary>
 public partial class CueListViewModel : ObservableObject, IDisposable
 {
     private readonly Patch _patch;
     private readonly Programmer _programmer;
+    private readonly CommandDispatcher _dispatcher;
+    private readonly Executor _executor;
     private readonly Timer _pollTimer;
 
     public CueList CueList { get; }
@@ -33,10 +41,12 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _remainingTimeText = string.Empty;
     [ObservableProperty] private string _currentCueLabel = "(none)";
 
-    public CueListViewModel(Patch patch, Programmer programmer, CueList cueList)
+    public CueListViewModel(Patch patch, Programmer programmer, CueList cueList, CommandDispatcher dispatcher, Executor executor)
     {
         _patch = patch;
         _programmer = programmer;
+        _dispatcher = dispatcher;
+        _executor = executor;
         CueList = cueList;
         CueList.Changed += OnCueListChanged;
 
@@ -72,13 +82,13 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void Go() => CueList.Go();
+    private void Go() => _dispatcher.DispatchAction(new GoAction(_executor));
 
     [RelayCommand]
-    private void Back() => CueList.Back();
+    private void Back() => _dispatcher.DispatchAction(new BackAction(_executor));
 
     [RelayCommand]
-    private void Stop() => CueList.Stop();
+    private void Stop() => _dispatcher.DispatchAction(new StopAction(_executor));
 
     [RelayCommand]
     private void GoToCue(Cue? cue)

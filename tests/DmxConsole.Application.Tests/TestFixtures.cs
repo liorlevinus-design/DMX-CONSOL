@@ -37,7 +37,7 @@ internal static class TestFixtures
     {
         var patch = BuildPatch(fixtureCount);
         var engine = new DmxOutputEngine(patch); // never Started/Ticked here - these tests don't touch the Programmer
-        var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(), engine, new Core.Presets.PresetLibrary());
+        var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(), engine, new Core.Presets.PresetLibrary(), new ExecutorBank());
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         return (context, dispatcher, undoRedo);

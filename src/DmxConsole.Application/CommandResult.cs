@@ -1,4 +1,5 @@
 using DmxConsole.Core;
+using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
@@ -35,6 +36,21 @@ public enum ConsoleActionType
     StorePreset,
     ApplyPreset,
     RemovePreset,
+
+    // Step F - Executors: Undoable editing commands
+    AssignExecutor,
+    SetExecutorLevel,
+    CreateExecutor,
+    RemoveExecutor,
+
+    // Step F - Executors: Operational/runtime actions (IConsoleAction - never enter Undo history)
+    Go,
+    Back,
+    Stop,
+    Pause,
+    Resume,
+    FlashPress,
+    FlashRelease,
 }
 
 /// <summary>
@@ -58,6 +74,9 @@ public record CommandResult
 
     /// <summary>Populated only by Store/RemovePreset.</summary>
     public Preset? Preset { get; init; }
+
+    /// <summary>Populated by Executor Commands and Actions (Step F).</summary>
+    public Executor? Executor { get; init; }
 
     /// <summary>Attribute classes this action touched - e.g. [Intensity] for AdjustIntensity, [Color] for a "clear color" ClearAttribute.</summary>
     public IReadOnlyList<AttributeClass> AffectedAttributes { get; init; } = Array.Empty<AttributeClass>();

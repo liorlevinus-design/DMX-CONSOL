@@ -1,0 +1,65 @@
+@using DmxConsole.Core.Engine
+@implements IDisposable
+@inject MainViewModel Vm
+
+<div style="display:contents">
+    <div class="scroll-y">
+        <button class="btn btn-go" style="font-size:15px; min-width:auto; width:100%" @onclick="() => Ev.CreateNewCommand.Execute(null)">+ Create Executor</button>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:6px">@Ev.StatusMessage</div>
+    </div>
+
+    <div class="scroll-y">
+        <table class="data-list">
+            <thead><tr><th>#</th><th>Name</th><th>Source</th><th>Level</th><th>Flash</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var executor in Ev.Bank.Executors)
+                {
+                    <tr>
+                        <td>@executor.Number</td>
+                        <td>@executor.Name</td>
+                        <td>
+                            @if (executor.Source is null)
+                            {
+                                <button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Ev.AssignCueListCommand.Execute(executor)">Assign Cue List</button>
+                            }
+                            else
+                            {
+                                <span>Cue List</span>
+                                <button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Ev.UnassignCommand.Execute(executor)">✕</button>
+                            }
+                        </td>
+                        <td>
+                            <input type="range" min="0" max="1" step="0.01" value="@executor.FaderLevel"
+                                   @onchange="@(e => Ev.SetLevel(executor, double.Parse((string)e.Value!)))" />
+                        </td>
+                        <td>
+                            <button class="btn @(executor.Flash == FlashMode.Add ? "active-row" : "")" style="min-height:32px;padding:2px 10px"
+                                     @onpointerdown="() => Ev.FlashPressCommand.Execute(executor)"
+                                     @onpointerup="() => Ev.FlashReleaseCommand.Execute(executor)"
+                                     @onpointerleave="() => Ev.FlashReleaseCommand.Execute(executor)">Flash</button>
+                        </td>
+                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Ev.RemoveCommand.Execute(executor)">Delete</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private ExecutorViewModel Ev => Vm.ExecutorVm;
+
+    protected override void OnInitialized()
+    {
+        Ev.PropertyChanged += OnChanged;
+        Ev.Bank.Executors.CollectionChanged += OnChanged;
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Ev.PropertyChanged -= OnChanged;
+        Ev.Bank.Executors.CollectionChanged -= OnChanged;
+    }
+}

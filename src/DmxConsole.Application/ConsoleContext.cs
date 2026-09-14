@@ -29,9 +29,13 @@ public sealed class ConsoleContext
 
     public PresetLibrary Presets { get; }
 
-    // Future steps add: CueLists - not part of Step C0/C1/D.
+    /// <summary>The show's Executors - Step F. Playback Sources (CueLists today) are assigned
+    /// onto these handles; Commands/Actions never touch a CueList's engine registration
+    /// directly, only through the Executor wrapping it.</summary>
+    public ExecutorBank Executors { get; }
 
-    public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups, IEffectiveOutputReader effectiveOutput, PresetLibrary presets)
+    public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups,
+        IEffectiveOutputReader effectiveOutput, PresetLibrary presets, ExecutorBank executors)
     {
         Patch = patch;
         Programmer = programmer;
@@ -39,5 +43,6 @@ public sealed class ConsoleContext
         Groups = groups;
         EffectiveOutput = effectiveOutput;
         Presets = presets;
+        Executors = executors;
     }
 }

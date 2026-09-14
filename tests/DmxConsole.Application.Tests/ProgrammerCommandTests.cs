@@ -49,7 +49,7 @@ public class ProgrammerCommandTests
         var programmer = new Core.Engine.Programmer();
         var engine = new DmxOutputEngine(patch);
         engine.AddLayer(programmer);
-        var context = new ConsoleContext(patch, programmer, new Core.Selection.FixtureSelection(), new Core.Selection.GroupManager(), engine, new Core.Presets.PresetLibrary());
+        var context = new ConsoleContext(patch, programmer, new Core.Selection.FixtureSelection(), new Core.Selection.GroupManager(), engine, new Core.Presets.PresetLibrary(), new ExecutorBank());
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         return (programmer, engine, context, dispatcher, undoRedo);

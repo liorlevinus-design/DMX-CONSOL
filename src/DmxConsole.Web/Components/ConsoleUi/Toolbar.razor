@@ -11,6 +11,12 @@
     <div class="group">
         <button class="btn" @onclick="() => Vm.UndoCommand.Execute(null)">↶ Undo</button>
         <button class="btn" @onclick="() => Vm.RedoCommand.Execute(null)">↷ Redo</button>
+        @if (Vm.PendingDestructiveUndo is { } proposal)
+        {
+            <span class="warn">⚠ @proposal.Description - delete it?</span>
+            <button class="btn" @onclick="() => Vm.ConfirmDestructiveUndoCommand.Execute(null)">Confirm Delete</button>
+            <button class="btn" @onclick="() => Vm.CancelDestructiveUndoCommand.Execute(null)">Cancel</button>
+        }
     </div>
 
     <div class="group">

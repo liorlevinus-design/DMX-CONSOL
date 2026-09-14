@@ -30,6 +30,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public SelectionViewModel SelectionVm { get; }
     public ProgrammerViewModel ProgrammerVm { get; }
     public PresetViewModel PresetVm { get; }
+    public ExecutorViewModel ExecutorVm { get; }
 
     private readonly UndoRedoService _undoRedo;
 
@@ -68,20 +69,29 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var presets = new PresetLibrary();
         var cueList = new CueList(presetResolver: presets); // resolves CueValue.PresetRef entries at playback
         var effectsEngine = new EffectsEngine();
-        Engine.AddLayer(cueList);      // priority 150
+
+        // Step F: the CueList is no longer registered with the engine directly - it's assigned
+        // onto Executor 1 (the handle), which is what actually gets registered. FaderLevel
+        // defaults to 1.0 and Flash to None, so this is a byte-for-byte passthrough of what the
+        // CueList already produced - a pure wrapping change, zero behavior change.
+        var executors = new ExecutorBank(channelTypeLookup: Patch);
+        var mainExecutor = executors.Add(1);
+        mainExecutor.Assign(cueList);
+        Engine.AddLayer(mainExecutor);   // instead of Engine.AddLayer(cueList)
         Engine.AddLayer(effectsEngine); // priority 300 - above cues, below the live Programmer
         Engine.AddLayer(Programmer);
         Engine.UniverseOutputReady += OnUniverseOutputReady;
 
-        CueListVm = new CueListViewModel(Patch, Programmer, cueList);
-        EffectsVm = new EffectsViewModel(Patch, effectsEngine);
-
-        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, presets);
+        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, presets, executors);
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
+
+        CueListVm = new CueListViewModel(Patch, Programmer, cueList, dispatcher, mainExecutor);
+        EffectsVm = new EffectsViewModel(Patch, effectsEngine);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
         ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
         PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);
+        ExecutorVm = new ExecutorViewModel(consoleContext, dispatcher, cueList);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();
@@ -145,12 +155,45 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusMessage = "Programmer cleared.";
     }
 
+    /// <summary>Set when Undo() was blocked pending explicit confirmation of a destructive
+    /// inverse (e.g. Undo-ing a freshly Created Executor/Group/Preset would delete it) - the
+    /// toolbar shows a confirm/cancel prompt while this is non-null.</summary>
+    [ObservableProperty] private UndoProposal? _pendingDestructiveUndo;
+
     [RelayCommand]
     private void Undo()
     {
-        _undoRedo.Undo();
+        var outcome = _undoRedo.Undo();
+        if (!outcome.Performed && outcome.Proposal is not null)
+        {
+            PendingDestructiveUndo = outcome.Proposal;
+            StatusMessage = $"Undo requires confirmation: {outcome.Proposal.Description}";
+            return;
+        }
+
         ProgrammerVm.RefreshAllFaders();
-        StatusMessage = "Undo.";
+        StatusMessage = outcome.Performed ? "Undo." : "Nothing to undo.";
+    }
+
+    /// <summary>Proceeds with the destructive option offered by the pending Undo prompt.</summary>
+    [RelayCommand]
+    private void ConfirmDestructiveUndo()
+    {
+        if (PendingDestructiveUndo is not { } proposal) return;
+        var destructive = proposal.Options.FirstOrDefault(o => o.Risk == UndoRisk.Destructive);
+        if (destructive is null) return;
+
+        _undoRedo.Undo(destructive.Id);
+        PendingDestructiveUndo = null;
+        ProgrammerVm.RefreshAllFaders();
+        StatusMessage = "Undo (confirmed).";
+    }
+
+    [RelayCommand]
+    private void CancelDestructiveUndo()
+    {
+        PendingDestructiveUndo = null;
+        StatusMessage = "Undo cancelled.";
     }
 
     [RelayCommand]

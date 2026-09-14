@@ -3,7 +3,7 @@ using DmxConsole.Core.Selection;
 namespace DmxConsole.Application.Commands.Groups;
 
 /// <summary>Saves the current selection's members as a new named Group.</summary>
-public sealed class CreateGroupCommand : IConsoleCommand
+public sealed class CreateGroupCommand : IConsoleCommand, IHasUndoRisk
 {
     private readonly string _name;
     private FixtureGroup? _created;
@@ -25,5 +25,13 @@ public sealed class CreateGroupCommand : IConsoleCommand
     public void Undo(ConsoleContext context)
     {
         if (_created is not null) context.Groups.Remove(_created);
+    }
+
+    /// <summary>Undo-ing this deletes the freshly created Group - a persistent show object,
+    /// same category as CreateExecutorCommand - so it needs the same explicit confirmation.</summary>
+    public UndoProposal PrepareUndo()
+    {
+        var description = $"Delete Group \"{_name}\"";
+        return new UndoProposal(description, new[] { new UndoOption("delete", description, UndoRisk.Destructive) });
     }
 }

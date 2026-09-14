@@ -19,12 +19,33 @@ public sealed class UndoRedoService
         _redoStack.Clear();
     }
 
-    public void Undo()
+    /// <summary>What Undo-ing the current top of the stack would offer, without doing it -
+    /// lets a caller decide whether to ask for confirmation before calling Undo.</summary>
+    public UndoProposal? PeekUndo() => _undoStack.Count == 0
+        ? null
+        : (_undoStack.Peek() as IHasUndoRisk)?.PrepareUndo() ?? UndoProposal.SingleSafe(_undoStack.Peek().GetType().Name);
+
+    /// <summary>Performs Undo. Omitting confirmedOptionId only ever auto-performs a Safe option -
+    /// never a Destructive one. To proceed past a Destructive option, the caller must pass back
+    /// the exact option Id from a prior PeekUndo()/Undo() call, proving it was shown to (and
+    /// approved by) the operator/NL layer first. This gate lives here structurally - it is not a
+    /// convention a caller has to remember to check.</summary>
+    public UndoOutcome Undo(string? confirmedOptionId = null)
     {
-        if (_undoStack.Count == 0) return;
+        var proposal = PeekUndo();
+        if (proposal is null) return new UndoOutcome(false, null);
+
+        var chosen = confirmedOptionId is not null
+            ? proposal.Options.FirstOrDefault(o => o.Id == confirmedOptionId)
+            : proposal.Options.FirstOrDefault(o => o.Risk == UndoRisk.Safe);
+
+        if (chosen is null || (chosen.Risk == UndoRisk.Destructive && confirmedOptionId != chosen.Id))
+            return new UndoOutcome(false, proposal); // blocked - nothing popped, nothing changed
+
         var command = _undoStack.Pop();
         command.Undo(_context);
         _redoStack.Push(command);
+        return new UndoOutcome(true, proposal);
     }
 
     public void Redo()
