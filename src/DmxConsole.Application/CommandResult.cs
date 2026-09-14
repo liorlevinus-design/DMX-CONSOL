@@ -11,6 +11,7 @@ namespace DmxConsole.Application;
 public enum ConsoleActionType
 {
     ToggleFixture,
+    RemoveFixtureFromSelection,
     SelectRange,
     SelectOdd,
     SelectEven,
