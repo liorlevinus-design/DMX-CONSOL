@@ -129,4 +129,44 @@ public class DmxOutputEngineTests
         Assert.Equal(255 - 100, published![0]); // inverted
         Assert.Equal(200, published[1]);         // clamped
     }
+
+    [Fact]
+    public void ComputeUniverse_SamplesEachLayersContribution_ExactlyOncePerChannel()
+    {
+        var patch = new Patch();
+        var profile = DimmerAndRgb();
+        patch.Add(new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1));
+
+        var engine = new DmxOutputEngine(patch);
+        var spy = new CallCountingLayer();
+        engine.AddLayer(spy);
+
+        engine.Tick();
+
+        // One universe of Universe.ChannelCount channels - the spy must be asked exactly once
+        // per channel, never twice (Priority/HTP/LTP resolution must operate on a captured
+        // snapshot, not re-invoke TryGetChannelValue).
+        Assert.Equal(Universe.ChannelCount, spy.TotalCalls);
+        Assert.All(spy.CallsPerChannel.Values, count => Assert.Equal(1, count));
+    }
+
+    /// <summary>Spy IOutputLayer that records how many times TryGetChannelValue was called for
+    /// each channel - used to prove the merge loop samples each layer once per channel.</summary>
+    private sealed class CallCountingLayer : IOutputLayer
+    {
+        public string Name => "Spy";
+        public int Priority => 100;
+        public bool IsActive => true;
+
+        public int TotalCalls { get; private set; }
+        public Dictionary<int, int> CallsPerChannel { get; } = new();
+
+        public bool TryGetChannelValue(int universeId, int channelIndex, out byte value)
+        {
+            TotalCalls++;
+            CallsPerChannel[channelIndex] = CallsPerChannel.GetValueOrDefault(channelIndex) + 1;
+            value = 0;
+            return false; // doesn't actually contribute - only measuring how often it's asked
+        }
+    }
 }
