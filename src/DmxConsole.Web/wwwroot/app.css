@@ -325,6 +325,43 @@ html, body {
     font-size: 13px;
 }
 .workspace-name { font-weight: 700; color: var(--text); }
+
+.workspace-picker {
+    min-height: 32px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 13px;
+    padding: 2px 6px;
+    max-width: 220px;
+}
+
+.workspace-btn {
+    min-height: 32px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 12px;
+    cursor: pointer;
+}
+.workspace-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.workspace-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.workspace-rename-input {
+    min-height: 32px;
+    background: var(--panel-alt);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 13px;
+    padding: 2px 6px;
+}
+
+.workspace-status { font-size: 12px; color: var(--text-dim); font-style: italic; }
+
 .workspace-lock-toggle {
     margin-left: auto;
     min-height: 32px;

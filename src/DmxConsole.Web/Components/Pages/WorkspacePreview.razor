@@ -1,6 +1,24 @@
 @page "/workspace-preview"
 @using DmxConsole.Web.Components.Shell
+@using DmxConsole.Web.Services
+@inject WorkspaceViewModel Wvm
 
 <PageTitle>Workspace Preview</PageTitle>
 
-<ConsoleShell />
+@if (_ready)
+{
+    <ConsoleShell />
+}
+
+@code {
+    private bool _ready;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Loads any previously-saved User workspaces from disk before the shell renders, so the
+        // workspace picker (Slice 5) shows the full list from the first paint instead of
+        // appearing empty and then populating a moment later.
+        await Wvm.InitializeAsync();
+        _ready = true;
+    }
+}

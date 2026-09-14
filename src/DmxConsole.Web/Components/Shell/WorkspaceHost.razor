@@ -4,13 +4,48 @@
 @implements IDisposable
 
 @*
-    Renders the active Workspace's single "Main" Surface. Slice 2 has no Save/Load/Rename UI yet
-    (that's Slice 5) - just enough chrome to see the active Workspace's name and lock state.
+    Renders the active Workspace's single "Main" Surface, plus the workspace management strip
+    (picker/New/Save/SaveAs/Rename/Duplicate/Delete/Reorder/Lock) - all of it thin: every button
+    here calls straight into WorkspaceViewModel/WorkspaceLayoutService, never touches the tree or
+    the store directly.
 *@
 
 <div class="workspace-host">
     <div class="workspace-tabbar">
-        <span class="workspace-name">@Wvm.Current.Name</span>
+        <select class="workspace-picker" title="Switch workspace" value="@Wvm.Current.Id" @onchange="@(e => SwitchTo(e.Value?.ToString()))">
+            @foreach (var workspace in Wvm.Workspaces)
+            {
+                <option value="@workspace.Id">@workspace.Name@(workspace.Scope == WorkspaceScope.Factory ? " (Factory)" : "")</option>
+            }
+        </select>
+
+        @if (_renaming)
+        {
+            <input class="workspace-rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="OnRenameKeyDown" />
+            <button class="workspace-btn" @onclick="ConfirmRename">✓</button>
+            <button class="workspace-btn" @onclick="CancelRename">✕</button>
+        }
+        else
+        {
+            <button class="workspace-btn" title="New Workspace" @onclick="NewWorkspace">+ New</button>
+            <button class="workspace-btn" title="Save" @onclick="Save">💾 Save</button>
+            <button class="workspace-btn" title="Save As" @onclick="StartSaveAs">Save As…</button>
+            <button class="workspace-btn" title="Rename" disabled="@(Wvm.Current.Scope == WorkspaceScope.Factory)" @onclick="StartRename">Rename</button>
+            <button class="workspace-btn" title="Duplicate" @onclick="Duplicate">Duplicate</button>
+            <button class="workspace-btn" title="Delete" disabled="@(Wvm.Current.Scope == WorkspaceScope.Factory)" @onclick="Delete">Delete</button>
+            <button class="workspace-btn" title="Move earlier in the list" @onclick="@(() => Move(-1))">▲</button>
+            <button class="workspace-btn" title="Move later in the list" @onclick="@(() => Move(1))">▼</button>
+        }
+
+        @if (_savingAs)
+        {
+            <input class="workspace-rename-input" @bind="_saveAsText" @bind:event="oninput" @onkeydown="OnSaveAsKeyDown" placeholder="New workspace name" />
+            <button class="workspace-btn" @onclick="ConfirmSaveAs">✓</button>
+            <button class="workspace-btn" @onclick="CancelSaveAs">✕</button>
+        }
+
+        <span class="workspace-status">@_statusMessage</span>
+
         <button class="pane-action workspace-lock-toggle" title="@(Wvm.Current.LayoutLocked ? "Unlock layout" : "Lock layout")" @onclick="ToggleLock">
             @(Wvm.Current.LayoutLocked ? "🔒 Locked" : "🔓 Unlocked")
         </button>
@@ -23,10 +58,110 @@
 @code {
     private WorkspaceSurface MainSurface => Wvm.Current.Surfaces[0];
 
+    private bool _renaming;
+    private string _renameText = "";
+    private bool _savingAs;
+    private string _saveAsText = "";
+    private string _statusMessage = "";
+
     private void ToggleLock()
     {
         if (Wvm.Current.LayoutLocked) Wvm.Layout.UnlockLayout(Wvm.Current);
         else Wvm.Layout.LockLayout(Wvm.Current);
+        Refresh();
+    }
+
+    private void SwitchTo(string? idText)
+    {
+        if (Guid.TryParse(idText, out var id)) Wvm.SwitchTo(id);
+        _statusMessage = "";
+        Refresh();
+    }
+
+    private void NewWorkspace()
+    {
+        Wvm.NewWorkspace();
+        _statusMessage = "New workspace created (not yet saved).";
+        Refresh();
+    }
+
+    private async Task Save()
+    {
+        bool wasFactory = Wvm.Current.Scope == WorkspaceScope.Factory;
+        await Wvm.SaveAsync();
+        _statusMessage = wasFactory ? $"Saved as new workspace \"{Wvm.Current.Name}\"." : "Saved.";
+        Refresh();
+    }
+
+    private void StartSaveAs()
+    {
+        _savingAs = true;
+        _saveAsText = Wvm.Current.Name + " Copy";
+    }
+
+    private async Task ConfirmSaveAs()
+    {
+        if (string.IsNullOrWhiteSpace(_saveAsText)) return;
+        await Wvm.SaveAsAsync(_saveAsText.Trim());
+        _savingAs = false;
+        _statusMessage = $"Saved as \"{Wvm.Current.Name}\".";
+        Refresh();
+    }
+
+    private void CancelSaveAs()
+    {
+        _savingAs = false;
+    }
+
+    private async Task OnSaveAsKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await ConfirmSaveAs();
+        else if (e.Key == "Escape") CancelSaveAs();
+    }
+
+    private void StartRename()
+    {
+        if (Wvm.Current.Scope == WorkspaceScope.Factory) return;
+        _renaming = true;
+        _renameText = Wvm.Current.Name;
+    }
+
+    private void ConfirmRename()
+    {
+        if (!string.IsNullOrWhiteSpace(_renameText)) Wvm.Rename(_renameText.Trim());
+        _renaming = false;
+        Refresh();
+    }
+
+    private void CancelRename()
+    {
+        _renaming = false;
+    }
+
+    private void OnRenameKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") ConfirmRename();
+        else if (e.Key == "Escape") CancelRename();
+    }
+
+    private void Duplicate()
+    {
+        Wvm.Duplicate();
+        _statusMessage = $"Duplicated as \"{Wvm.Current.Name}\".";
+        Refresh();
+    }
+
+    private async Task Delete()
+    {
+        var id = Wvm.Current.Id;
+        bool deleted = await Wvm.DeleteAsync(id);
+        _statusMessage = deleted ? "Deleted." : "Cannot delete the Factory workspace.";
+        Refresh();
+    }
+
+    private void Move(int direction)
+    {
+        Wvm.MoveWorkspace(Wvm.Current.Id, direction);
         Refresh();
     }
 
