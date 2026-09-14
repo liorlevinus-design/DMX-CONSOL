@@ -51,7 +51,9 @@ public sealed class EffectPhaser : IOutputLayer, IBaseAwareLayer, IMergeAwareLay
         if (positiveWidthSteps.Length == 0) return false;
 
         double speedMultiplier = SpeedMaster?.GetSpeedMultiplier() ?? 1;
-        double phase = Normalize(_elapsed.TotalSeconds * SpeedHz * speedMultiplier + fixtureIndex * Spread);
+        double phaseOffset = EffectPhaseCalculator.OffsetFor(
+            Fixtures, fixtureIndex, Spread, Parts, Segments, Direction, Id);
+        double phase = Normalize(_elapsed.TotalSeconds * SpeedHz * speedMultiplier + phaseOffset);
         var (current, next, progress) = LocateStep(positiveWidthSteps, phase);
 
         double transition = Math.Clamp(current.Transition / 100.0, 0, 1);
