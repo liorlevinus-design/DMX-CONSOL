@@ -1,5 +1,6 @@
 using DmxConsole.Core;
 using DmxConsole.Core.Engine;
+using DmxConsole.Core.Effects;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
@@ -51,6 +52,12 @@ public enum ConsoleActionType
     Resume,
     FlashPress,
     FlashRelease,
+
+    CreateEffect,
+    DeleteEffect,
+    StartEffect,
+    StopEffect,
+    SetEffectRate,
 }
 
 /// <summary>
@@ -77,6 +84,9 @@ public record CommandResult
 
     /// <summary>Populated by Executor Commands and Actions (Step F).</summary>
     public Executor? Executor { get; init; }
+
+    /// <summary>Populated by Effect Commands and Actions (Step G).</summary>
+    public EffectPhaser? Effect { get; init; }
 
     /// <summary>Attribute classes this action touched - e.g. [Intensity] for AdjustIntensity, [Color] for a "clear color" ClearAttribute.</summary>
     public IReadOnlyList<AttributeClass> AffectedAttributes { get; init; } = Array.Empty<AttributeClass>();

@@ -1,4 +1,5 @@
 using DmxConsole.Core.Engine;
+using DmxConsole.Core.Effects;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
@@ -33,9 +34,11 @@ public sealed class ConsoleContext
     /// onto these handles; Commands/Actions never touch a CueList's engine registration
     /// directly, only through the Executor wrapping it.</summary>
     public ExecutorBank Executors { get; }
+    public EffectBank Effects { get; }
 
     public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups,
-        IEffectiveOutputReader effectiveOutput, PresetLibrary presets, ExecutorBank executors)
+        IEffectiveOutputReader effectiveOutput, PresetLibrary presets, ExecutorBank executors,
+        EffectBank? effects = null)
     {
         Patch = patch;
         Programmer = programmer;
@@ -44,5 +47,6 @@ public sealed class ConsoleContext
         EffectiveOutput = effectiveOutput;
         Presets = presets;
         Executors = executors;
+        Effects = effects ?? new EffectBank();
     }
 }
