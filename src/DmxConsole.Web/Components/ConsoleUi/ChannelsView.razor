@@ -1,0 +1,15 @@
+@*
+    Phase H1 migration wrapper: the old fixed layout kept SelectionBar as persistent chrome
+    above every tab, so FaderBank alone ("Select fixtures above to see their faders") only made
+    sense next to it. Hosted standalone inside a Pane, FaderBank needs its own way to pick
+    fixtures - so this composes the two existing, unmodified components together rather than
+    changing either. This is the migrated "Channels" View for now; the real ownership-aware
+    Channels View redesign (channel/level/selected/active/owner columns) is a later, separate
+    step per the milestone's own sequencing.
+*@
+<div class="channels-view" style="display:flex; flex-direction:column; height:100%; min-height:0">
+    <SelectionBar />
+    <div style="flex:1 1 auto; min-height:0; overflow:auto">
+        <FaderBank />
+    </div>
+</div>

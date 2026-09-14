@@ -47,22 +47,50 @@ public sealed class WorkspaceViewModel
         _workspaces.AddRange(loaded);
     }
 
-    /// <summary>Slice 3: the first existing console View (CueListPanel) becomes hostable by the
-    /// Workspace shell, unchanged - proving the architecture, not redesigning the View. More
-    /// kinds get registered as later slices migrate the remaining fixed tabs (Slice 7 of the
-    /// milestone's own sequencing).</summary>
+    /// <summary>Phase H1: every existing fixed-tab console component becomes hostable by the
+    /// Workspace shell, unchanged - proving the architecture over each real screen, not
+    /// redesigning them yet (that's a later, separate step per-View). ViewKind.Fixtures has no
+    /// existing component to wrap - nothing was ever built standalone for it (the old fixed UI
+    /// never had a dedicated Fixtures screen either) - so it stays unregistered until Phase H1's
+    /// own "Fixtures View" step builds one; StageLayout/ThreeD/TrackSheet/Diagnostics stay
+    /// unregistered too, per the milestone's "keep as placeholders for later" instruction.</summary>
     private void RegisterViews()
     {
+        Registry.Register(new ViewDescriptor(ViewKind.Channels, "Channels", typeof(ChannelsView)));
+        Registry.Register(new ViewDescriptor(ViewKind.Patch, "Patch", typeof(PatchPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.CueList, "Cues", typeof(CueListPanel)));
+        Registry.Register(new ViewDescriptor(ViewKind.Executors, "Executors", typeof(ExecutorPanel)));
+        Registry.Register(new ViewDescriptor(ViewKind.Presets, "Presets", typeof(PresetPanel)));
+        Registry.Register(new ViewDescriptor(ViewKind.Effects, "Effects", typeof(EffectsPanel)));
+        Registry.Register(new ViewDescriptor(ViewKind.Programmer, "Programmer", typeof(ProgrammerPanel)));
     }
 
-    /// <summary>Slice 3: the default Workspace now opens with one tab hosting CueListPanel, so
-    /// the preview route has something real to show instead of an empty pane.</summary>
+    /// <summary>The real factory layout for day-to-day programming (not just a compatibility
+    /// clone of the old fixed tab strip): Channels+Patch and Programmer+Presets on the left,
+    /// Cue List and Executors+Effects on the right. Purely a starting point - the operator can
+    /// rearrange/duplicate/save over it like any other Workspace (see WorkspaceLayoutService).</summary>
     private static Workspace BuildDefaultWorkspace()
     {
+        var channelsTab = new ViewInstance { Kind = ViewKind.Channels, Title = "Channels" };
+        var patchTab = new ViewInstance { Kind = ViewKind.Patch, Title = "Patch" };
+        var topLeft = new TabPaneNode { Tabs = { channelsTab, patchTab }, ActiveTabId = channelsTab.Id };
+
+        var programmerTab = new ViewInstance { Kind = ViewKind.Programmer, Title = "Programmer" };
+        var presetsTab = new ViewInstance { Kind = ViewKind.Presets, Title = "Presets" };
+        var bottomLeft = new TabPaneNode { Tabs = { programmerTab, presetsTab }, ActiveTabId = programmerTab.Id };
+
         var cueListTab = new ViewInstance { Kind = ViewKind.CueList, Title = "Cues" };
-        var tabPane = new TabPaneNode { Tabs = { cueListTab }, ActiveTabId = cueListTab.Id };
-        var surface = new WorkspaceSurface { Name = "Main", Root = tabPane };
+        var topRight = new TabPaneNode { Tabs = { cueListTab }, ActiveTabId = cueListTab.Id };
+
+        var executorsTab = new ViewInstance { Kind = ViewKind.Executors, Title = "Executors" };
+        var effectsTab = new ViewInstance { Kind = ViewKind.Effects, Title = "Effects" };
+        var bottomRight = new TabPaneNode { Tabs = { executorsTab, effectsTab }, ActiveTabId = executorsTab.Id };
+
+        var leftColumn = new SplitNode { Orientation = SplitOrientation.Vertical, Ratio = 0.5, ChildA = topLeft, ChildB = bottomLeft };
+        var rightColumn = new SplitNode { Orientation = SplitOrientation.Vertical, Ratio = 0.5, ChildA = topRight, ChildB = bottomRight };
+        var root = new SplitNode { Orientation = SplitOrientation.Horizontal, Ratio = 0.5, ChildA = leftColumn, ChildB = rightColumn };
+
+        var surface = new WorkspaceSurface { Name = "Main", Root = root };
         return new Workspace { Name = "Default", Scope = WorkspaceScope.Factory, Surfaces = { surface } };
     }
 
