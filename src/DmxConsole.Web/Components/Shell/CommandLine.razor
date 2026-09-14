@@ -1,0 +1,37 @@
+@using DmxConsole.Web.Services
+@inject MainViewModel Vm
+@implements IDisposable
+
+@*
+    Persistent console infrastructure per H1.5 - lives outside the pane tree, alongside
+    ConsoleChrome, never a closable View. Shows the command currently being composed
+    (CommandComposer's structured state, rendered - never re-parsed, see CommandComposition's
+    own doc comment), unresolved/ambiguous state, and errors/warnings. The rendered text is a
+    view of the structured composition, never the source of truth.
+*@
+
+<div class="command-line @(HasError ? "has-error" : "")">
+    <span class="command-line-prompt">&gt;</span>
+    <span class="command-line-text">@(string.IsNullOrEmpty(Sfc.DisplayPreview) ? " " : Sfc.DisplayPreview)</span>
+    @if (HasError)
+    {
+        <span class="command-line-error">@ErrorText</span>
+    }
+    @if (Sfc.Current.ExpectedNext.Count > 0 && !HasError)
+    {
+        <span class="command-line-expected">expects: @string.Join(" / ", Sfc.Current.ExpectedNext)</span>
+    }
+</div>
+
+@code {
+    private CommandSurfaceViewModel Sfc => Vm.CommandSurfaceVm;
+
+    private string? ErrorText => Sfc.DispatchError ?? Sfc.Current.Error;
+    private bool HasError => ErrorText is not null;
+
+    protected override void OnInitialized() => Sfc.Changed += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Sfc.Changed -= OnChanged;
+}

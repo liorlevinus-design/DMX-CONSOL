@@ -1,9 +1,22 @@
 @*
-    Root of the Workspace shell: fixed ConsoleChrome (never part of the pane tree) plus the
-    editable WorkspaceHost. See ConsoleChrome.razor / WorkspaceHost.razor for what each owns.
+    Root of the Workspace shell. Per H1.5's Command Surface Architecture:
+
+        ConsoleShell
+        +-- WorkspaceHost   (the editable pane tree)
+        +-- ConsoleChrome   (persistent - toolbar/status)
+        +-- CommandLine     (persistent - what's being composed right now)
+        +-- CommandSurface  (persistent - keypad/soft keys that compose it)
+
+    CommandLine and CommandSurface are persistent console infrastructure, exactly like
+    ConsoleChrome - never part of the pane tree, never closable/splittable Views. See each
+    component's own doc comment for what it owns.
 *@
 
 <div class="console-shell">
     <ConsoleChrome />
-    <WorkspaceHost />
+    <div class="console-shell-workspace">
+        <WorkspaceHost />
+    </div>
+    <CommandLine />
+    <CommandSurface />
 </div>

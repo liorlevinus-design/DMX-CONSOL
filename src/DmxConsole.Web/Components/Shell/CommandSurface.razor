@@ -1,0 +1,107 @@
+@using DmxConsole.Application.CommandSurface
+@using DmxConsole.Web.CommandSurface
+@using DmxConsole.Web.Services
+@inject MainViewModel Vm
+@implements IDisposable
+
+@*
+    Persistent console infrastructure per H1.5 - lives outside the pane tree, alongside
+    ConsoleChrome/CommandLine, never a closable View/Pane. The operator's actual controls for
+    composing commands. Buttons here never mutate console state directly - each one only calls
+    CommandSurfaceViewModel, which pushes a structured CommandToken into CommandComposer; only a
+    complete/Enter'd composition is ever dispatched through the existing Application layer. This
+    is deliberately not one Razor component with hardcoded per-button business logic - every
+    button below is a thin proxy to CommandSurfaceViewModel/KeyboardCommandMap, nothing else.
+*@
+
+<div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
+    <div class="command-surface-context">
+        <div class="context-soft-keys">
+            <span class="context-soft-keys-label">Context</span>
+            @* Reserved structural region for context-sensitive soft keys (Intensity/Position/
+               Color/Beam in a Fixture context, Timing/Trigger/Follow/Wait in a Cue context,
+               etc. - see the milestone plan). Not yet populated: CommandComposer only
+               interprets the token kinds used below this first slice - a richer
+               CommandSurfaceContext model lands once the composer's grammar grows to match. *@
+            <div class="context-soft-keys-empty">@ContextHint</div>
+        </div>
+    </div>
+
+    <div class="command-keypad">
+        <div class="keypad-row">
+            <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
+            <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Group)">Group</button>
+            <button class="key" @onclick="() => PressToken(CommandTokenKind.Next)">Next</button>
+            <button class="key" @onclick="() => PressToken(CommandTokenKind.Previous)">Prev</button>
+        </div>
+        <div class="keypad-row">
+            <button class="key key-num" @onclick="() => PressDigit('7')">7</button>
+            <button class="key key-num" @onclick="() => PressDigit('8')">8</button>
+            <button class="key key-num" @onclick="() => PressDigit('9')">9</button>
+            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Thru)">Thru</button>
+        </div>
+        <div class="keypad-row">
+            <button class="key key-num" @onclick="() => PressDigit('4')">4</button>
+            <button class="key key-num" @onclick="() => PressDigit('5')">5</button>
+            <button class="key key-num" @onclick="() => PressDigit('6')">6</button>
+            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Plus)">+</button>
+        </div>
+        <div class="keypad-row">
+            <button class="key key-num" @onclick="() => PressDigit('1')">1</button>
+            <button class="key key-num" @onclick="() => PressDigit('2')">2</button>
+            <button class="key key-num" @onclick="() => PressDigit('3')">3</button>
+            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Minus)">-</button>
+        </div>
+        <div class="keypad-row">
+            <button class="key key-num key-wide" @onclick="() => PressDigit('0')">0</button>
+            <button class="key key-num" @onclick="PressDecimalPoint">.</button>
+            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.At)">At</button>
+        </div>
+        <div class="keypad-row">
+            <button class="key key-danger" @onclick="Sfc.PressClear">Clear</button>
+            <button class="key" @onclick="Sfc.PressBackspace">⌫</button>
+            <button class="key key-enter" @onclick="() => PressToken(CommandTokenKind.Enter)">Enter</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CommandSurfaceViewModel Sfc => Vm.CommandSurfaceVm;
+
+    private string ContextHint => Sfc.Current.Tokens.Count == 0
+        ? "Start with Fixture or Group"
+        : "(attribute/verb soft keys arrive with a later slice)";
+
+    protected override void OnInitialized() => Sfc.Changed += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private void PressDigit(char digit) => Sfc.PressDigit(digit);
+
+    private void PressDecimalPoint() => Sfc.PressDecimalPoint();
+
+    private void PressToken(CommandTokenKind kind) => Sfc.PressToken(kind);
+
+    /// <summary>A physical keyboard resolves to the exact same tokens a touch press would,
+    /// via the single shared KeyboardCommandMap - see that type's own doc comment.</summary>
+    private void OnKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (!KeyboardCommandMap.TryResolve(e.Key, out var binding)) return;
+
+        if (binding.Digit is char digit)
+        {
+            if (digit == '.') Sfc.PressDecimalPoint();
+            else Sfc.PressDigit(digit);
+            return;
+        }
+
+        if (binding.TokenKind is CommandTokenKind kind)
+        {
+            if (kind == CommandTokenKind.Backspace) Sfc.PressBackspace();
+            else if (kind == CommandTokenKind.Clear) Sfc.PressClear();
+            else Sfc.PressToken(kind);
+        }
+    }
+
+    public void Dispose() => Sfc.Changed -= OnChanged;
+}

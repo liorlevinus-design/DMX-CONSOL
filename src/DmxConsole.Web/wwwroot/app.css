@@ -220,6 +220,86 @@ html, body {
 
 .color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; }
 
+/* ============================================================
+   Command Line / Command Surface (H1.5) - persistent console
+   infrastructure, outside the pane tree, alongside ConsoleChrome.
+   ============================================================ */
+
+.command-line {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #101418;
+    border-top: 1px solid var(--border);
+    border-bottom: 2px solid var(--border);
+    font-family: "Consolas", "SF Mono", monospace;
+    font-size: 18px;
+    min-height: 44px;
+}
+.command-line.has-error { border-bottom-color: var(--danger); }
+
+.command-line-prompt { color: var(--accent); font-weight: 700; }
+.command-line-text { color: var(--text); flex: 1 1 auto; letter-spacing: 0.02em; }
+.command-line-error { color: var(--danger); font-size: 13px; font-family: "Segoe UI", system-ui, sans-serif; }
+.command-line-expected { color: var(--text-dim); font-size: 12px; font-family: "Segoe UI", system-ui, sans-serif; }
+
+.command-surface {
+    flex: none;
+    display: flex;
+    background: var(--panel-alt);
+    border-top: 1px solid var(--border);
+    outline: none;
+}
+
+.command-surface-context {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px;
+    border-right: 1px solid var(--border);
+}
+.context-soft-keys { display: flex; flex-direction: column; gap: 6px; height: 100%; }
+.context-soft-keys-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+.context-soft-keys-empty {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 13px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.command-keypad { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 280px; }
+.keypad-row { display: flex; gap: 4px; }
+
+.key {
+    flex: 1 1 0;
+    min-height: 44px;
+    min-width: 44px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.key:hover { border-color: var(--accent); }
+.key:active { background: var(--accent); color: #fff; }
+
+.key-num { font-variant-numeric: tabular-nums; }
+.key-wide { flex: 2 1 0; }
+.key-op { color: var(--accent); }
+.key-object { font-size: 13px; color: var(--text-dim); }
+.key-danger { color: var(--danger); border-color: var(--danger); }
+.key-enter { flex: 2 1 0; background: var(--go); color: #fff; border-color: var(--go); }
+.key-enter:hover { background: var(--go-active); }
+
 /* ---------- Fader bank ---------- */
 .fader-bank {
     display: flex;
@@ -352,6 +432,7 @@ html, body {
 
 .console-shell { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
 .console-chrome { flex: none; }
+.console-shell-workspace { flex: 1 1 auto; min-height: 0; display: flex; }
 
 .workspace-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 
