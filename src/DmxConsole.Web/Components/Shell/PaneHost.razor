@@ -1,0 +1,110 @@
+@using Microsoft.AspNetCore.Components
+@using DmxConsole.Web.Workspaces
+@using DmxConsole.Web.Services
+@inject WorkspaceViewModel Wvm
+
+@*
+    Renders the model, collects user intent, calls WorkspaceLayoutService - never performs tree
+    surgery itself (see WorkspaceLayoutService's own doc comment for why that boundary matters).
+    Recurses for SplitNode; hosts the active tab's View via DynamicComponent for TabPaneNode.
+*@
+
+@if (Node is SplitNode split)
+{
+    <div class="pane-split @(split.Orientation == SplitOrientation.Horizontal ? "pane-split-h" : "pane-split-v")">
+        <div class="pane-split-child" style="flex-basis:@(RatioPercent(split.Ratio))%">
+            <PaneHost Node="split.ChildA" Surface="Surface" OnChanged="OnChanged" />
+        </div>
+        <div class="pane-resize-handle @(split.Orientation == SplitOrientation.Horizontal ? "horizontal" : "vertical")"></div>
+        <div class="pane-split-child" style="flex-basis:@(RatioPercent(1 - split.Ratio))%">
+            <PaneHost Node="split.ChildB" Surface="Surface" OnChanged="OnChanged" />
+        </div>
+    </div>
+}
+else if (Node is TabPaneNode tabPane)
+{
+    <div class="pane-tabpane">
+        <div class="pane-tabstrip">
+            @foreach (var tab in tabPane.Tabs)
+            {
+                <button class="pane-tab @(tab.Id == tabPane.ActiveTabId ? "active" : "")" @onclick="() => SetActive(tabPane, tab.Id)">
+                    <span>@tab.Title</span>
+                    <span class="pane-tab-close" @onclick="() => CloseTab(tab.Id)" @onclick:stopPropagation="true">✕</span>
+                </button>
+            }
+            <div class="pane-tabstrip-spacer"></div>
+            @if (!Wvm.Current.LayoutLocked)
+            {
+                <button class="pane-action" title="Split Horizontal" @onclick="() => Split(SplitOrientation.Horizontal)">⬌</button>
+                <button class="pane-action" title="Split Vertical" @onclick="() => Split(SplitOrientation.Vertical)">⬍</button>
+                <button class="pane-action" title="@(tabPane.Maximized ? "Restore" : "Maximize")" @onclick="ToggleMaximize">@(tabPane.Maximized ? "🗗" : "🗖")</button>
+                <button class="pane-action" title="Close Pane" @onclick="ClosePane">✕</button>
+            }
+        </div>
+        <div class="pane-content">
+            @if (tabPane.Tabs.Count == 0)
+            {
+                <div class="pane-empty">Empty pane</div>
+            }
+            else if (ActiveDescriptor is { } descriptor)
+            {
+                <DynamicComponent Type="descriptor.ComponentType" />
+            }
+            else
+            {
+                <div class="pane-empty">Unknown view</div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public PaneNode Node { get; set; } = null!;
+    [Parameter, EditorRequired] public WorkspaceSurface Surface { get; set; } = null!;
+    [Parameter, EditorRequired] public Action OnChanged { get; set; } = null!;
+
+    private static string RatioPercent(double ratio) => (ratio * 100).ToString("0.##");
+
+    private ViewDescriptor? ActiveDescriptor
+    {
+        get
+        {
+            if (Node is not TabPaneNode tabPane) return null;
+            var active = tabPane.Tabs.FirstOrDefault(t => t.Id == tabPane.ActiveTabId);
+            if (active is null) return null;
+            return Wvm.Registry.TryGet(active.Kind, out var descriptor) ? descriptor : null;
+        }
+    }
+
+    private void Split(SplitOrientation orientation)
+    {
+        Wvm.Layout.SplitPane(Wvm.Current, Surface, Node.Id, orientation);
+        OnChanged();
+    }
+
+    private void ClosePane()
+    {
+        Wvm.Layout.ClosePane(Wvm.Current, Surface, Node.Id);
+        OnChanged();
+    }
+
+    private void CloseTab(Guid viewInstanceId)
+    {
+        Wvm.Layout.CloseView(Wvm.Current, Surface, viewInstanceId);
+        OnChanged();
+    }
+
+    private void SetActive(TabPaneNode tabPane, Guid viewInstanceId)
+    {
+        Wvm.Layout.SetActiveTab(Surface, tabPane.Id, viewInstanceId);
+        OnChanged();
+    }
+
+    private void ToggleMaximize()
+    {
+        if (Node is not TabPaneNode tabPane) return;
+        if (tabPane.Maximized) Wvm.Layout.RestorePane(Wvm.Current, Surface);
+        else Wvm.Layout.MaximizePane(Wvm.Current, Surface, Node.Id);
+        OnChanged();
+    }
+}

@@ -1,0 +1,23 @@
+@using DmxConsole.Web.Components.ConsoleUi
+@inject MainViewModel Vm
+@implements IDisposable
+
+@*
+    Persistent console chrome, per the GUI milestone's correction #2: Command Line / system
+    status / engine-output status / Undo-Redo / layout-lock indication live OUTSIDE the pane
+    tree - never closable, never splittable. Slice 2 just hosts/adapts the existing Toolbar and
+    status bar; a real command line and richer status readout are future slices.
+*@
+
+<div class="console-chrome">
+    <Toolbar />
+</div>
+<div class="status-bar">@Vm.StatusMessage</div>
+
+@code {
+    protected override void OnInitialized() => Vm.PropertyChanged += OnChanged;
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Vm.PropertyChanged -= OnChanged;
+}

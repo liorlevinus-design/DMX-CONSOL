@@ -1,0 +1,30 @@
+@using DmxConsole.Web.Workspaces
+@using DmxConsole.Web.Services
+@inject WorkspaceViewModel Wvm
+@implements IDisposable
+
+@*
+    Renders the active Workspace's single "Main" Surface. Slice 2 has no Save/Load/Rename UI yet
+    (that's Slice 5) - just enough chrome to see the active Workspace's name and lock state.
+*@
+
+<div class="workspace-host">
+    <div class="workspace-tabbar">
+        <span class="workspace-name">@Wvm.Current.Name</span>
+        @if (Wvm.Current.LayoutLocked)
+        {
+            <span class="workspace-lock-indicator" title="Layout locked">🔒 Locked</span>
+        }
+    </div>
+    <div class="workspace-surface">
+        <PaneHost Node="MainSurface.Root" Surface="MainSurface" OnChanged="Refresh" />
+    </div>
+</div>
+
+@code {
+    private WorkspaceSurface MainSurface => Wvm.Current.Surfaces[0];
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() { }
+}

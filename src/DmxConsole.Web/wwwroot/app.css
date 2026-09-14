@@ -304,3 +304,92 @@ html, body {
 
 /* Highlight a fader belonging to the current selection. */
 .fader.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
+
+/* ============================================================
+   GUI Workspace Engine / Shell (Slice 2 preview - /workspace-preview only)
+   ============================================================ */
+
+.console-shell { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
+.console-chrome { flex: none; }
+
+.workspace-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+
+.workspace-tabbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--panel-alt);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+.workspace-name { font-weight: 700; color: var(--text); }
+.workspace-lock-indicator { color: #e0a030; font-size: 12px; }
+
+.workspace-surface { flex: 1 1 auto; min-height: 0; display: flex; }
+
+/* ---------- PaneHost: split / tab-pane structure ---------- */
+
+.pane-split { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; }
+.pane-split-h { flex-direction: row; }
+.pane-split-v { flex-direction: column; }
+
+.pane-split-child { display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+
+.pane-resize-handle { flex: none; background: var(--border); }
+.pane-resize-handle.horizontal { width: 4px; cursor: col-resize; }
+.pane-resize-handle.vertical { height: 4px; cursor: row-resize; }
+.pane-resize-handle:hover { background: var(--accent); }
+
+.pane-tabpane { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border: 1px solid var(--border); }
+
+.pane-tabstrip {
+    flex: none;
+    display: flex;
+    align-items: center;
+    background: var(--panel-alt);
+    border-bottom: 1px solid var(--border);
+    min-height: 44px;
+}
+.pane-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    min-height: 44px;
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+}
+.pane-tab.active { background: var(--panel); color: var(--text); font-weight: 700; }
+.pane-tab-close { padding: 2px 4px; border-radius: 3px; opacity: 0.6; }
+.pane-tab-close:hover { opacity: 1; background: var(--border); }
+
+.pane-tabstrip-spacer { flex: 1 1 auto; }
+
+.pane-action {
+    min-width: 44px;
+    min-height: 44px;
+    background: transparent;
+    border: none;
+    border-left: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 16px;
+    cursor: pointer;
+}
+.pane-action:hover { background: var(--panel); color: var(--text); }
+
+.pane-content { flex: 1 1 auto; min-height: 0; overflow: auto; }
+
+.pane-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-size: 14px;
+}

@@ -11,6 +11,10 @@ builder.Services.AddRazorComponents()
 // console with multiple control surfaces looking at the same live show.
 builder.Services.AddSingleton<MainViewModel>();
 
+// GUI milestone: the Workspace shell's shared state - see WorkspaceViewModel's own doc comment.
+// Exposed only via /workspace-preview for now; the existing / route is untouched.
+builder.Services.AddSingleton<WorkspaceViewModel>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
