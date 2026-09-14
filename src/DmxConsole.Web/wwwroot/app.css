@@ -218,6 +218,8 @@ html, body {
 
 .channels-empty { text-align: center; color: var(--text-dim); padding: 20px; }
 
+.color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; }
+
 /* ---------- Fader bank ---------- */
 .fader-bank {
     display: flex;

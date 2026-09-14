@@ -48,15 +48,14 @@ public sealed class WorkspaceViewModel
     }
 
     /// <summary>Phase H1: every existing fixed-tab console component becomes hostable by the
-    /// Workspace shell, unchanged - proving the architecture over each real screen, not
-    /// redesigning them yet (that's a later, separate step per-View). ViewKind.Fixtures has no
-    /// existing component to wrap - nothing was ever built standalone for it (the old fixed UI
-    /// never had a dedicated Fixtures screen either) - so it stays unregistered until Phase H1's
-    /// own "Fixtures View" step builds one; StageLayout/ThreeD/TrackSheet/Diagnostics stay
-    /// unregistered too, per the milestone's "keep as placeholders for later" instruction.</summary>
+    /// Workspace shell (Channels/Fixtures redesigned as real ownership-aware Views; Patch/Cues/
+    /// Executors/Presets/Effects/Programmer wrap their existing, unmodified components).
+    /// StageLayout/ThreeD/TrackSheet/Diagnostics stay unregistered placeholders for later, per
+    /// instruction.</summary>
     private void RegisterViews()
     {
         Registry.Register(new ViewDescriptor(ViewKind.Channels, "Channels", typeof(ChannelsView)));
+        Registry.Register(new ViewDescriptor(ViewKind.Fixtures, "Fixtures", typeof(FixturesView)));
         Registry.Register(new ViewDescriptor(ViewKind.Patch, "Patch", typeof(PatchPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.CueList, "Cues", typeof(CueListPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.Executors, "Executors", typeof(ExecutorPanel)));
@@ -72,8 +71,9 @@ public sealed class WorkspaceViewModel
     private static Workspace BuildDefaultWorkspace()
     {
         var channelsTab = new ViewInstance { Kind = ViewKind.Channels, Title = "Channels" };
+        var fixturesTab = new ViewInstance { Kind = ViewKind.Fixtures, Title = "Fixtures" };
         var patchTab = new ViewInstance { Kind = ViewKind.Patch, Title = "Patch" };
-        var topLeft = new TabPaneNode { Tabs = { channelsTab, patchTab }, ActiveTabId = channelsTab.Id };
+        var topLeft = new TabPaneNode { Tabs = { channelsTab, fixturesTab, patchTab }, ActiveTabId = channelsTab.Id };
 
         var programmerTab = new ViewInstance { Kind = ViewKind.Programmer, Title = "Programmer" };
         var presetsTab = new ViewInstance { Kind = ViewKind.Presets, Title = "Presets" };

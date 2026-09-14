@@ -1,0 +1,184 @@
+@using DmxConsole.Core
+@using DmxConsole.Core.Engine
+@using DmxConsole.Core.Fixtures
+@implements IDisposable
+@inject MainViewModel Vm
+
+@*
+    Phase H1's second real View redesign: one row per intelligent fixture, showing concise
+    live SEMANTIC state (Intensity/Position/Color/Beam - Step A's AttributeClass grouping, not
+    a wall of raw channels), plus selected/active/owner exactly like the Channels View. Not
+    every raw parameter at once - a fixture with several Beam-class channels (Gobo/Zoom/Focus/
+    Shutter/Prism) shows a short summary, not five separate columns.
+*@
+
+<div class="channels-view">
+    <div class="channels-view-header">
+        <span class="channels-view-title">Fixtures</span>
+        <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
+        @if (Vm.SelectionVm.Selection.Items.Count > 0)
+        {
+            <button class="btn" @onclick="ClearSelection">Clear</button>
+        }
+    </div>
+
+    <div class="channels-table-scroll">
+        <table class="data-list channels-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Intensity</th>
+                    <th>Position</th>
+                    <th>Color</th>
+                    <th>Beam</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var fixture in Vm.Patch.Fixtures.OrderBy(f => f.Number))
+                {
+                    bool isSelected = Vm.SelectionVm.Selection.Contains(fixture);
+                    var owner = DescribeFixtureOwner(fixture, out bool isActive);
+
+                    <tr class="channels-row @(isSelected ? "selected" : "") @(isActive ? "active" : "")" @onclick="() => Toggle(fixture)">
+                        <td class="ch-cell">@fixture.Number</td>
+                        <td>@fixture.Name</td>
+                        <td>@DescribeIntensity(fixture)</td>
+                        <td>@DescribePosition(fixture)</td>
+                        <td>
+                            @{ var swatchStyle = ColorSwatchStyle(fixture); }
+                            @if (swatchStyle is null)
+                            {
+                                <span>—</span>
+                            }
+                            else
+                            {
+                                <span class="color-swatch" style="@swatchStyle"></span>
+                            }
+                        </td>
+                        <td>@DescribeBeam(fixture)</td>
+                        <td class="source-cell @SourceCssClass(owner)">@(owner?.Kind == OwnerKind.Executor ? DescribeExecutorOwner(owner) : (owner?.DisplayName ?? (isActive ? "Mixed" : "—")))</td>
+                    </tr>
+                }
+                @if (Vm.Patch.Fixtures.Count == 0)
+                {
+                    <tr><td colspan="7" class="channels-empty">No fixtures patched yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private System.Threading.Timer? _liveTimer;
+
+    protected override void OnInitialized()
+    {
+        Vm.SelectionVm.Selection.Items.CollectionChanged += OnChanged;
+        Vm.Patch.Fixtures.CollectionChanged += OnChanged;
+        _liveTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 200, 200);
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void Toggle(PatchedFixture fixture) => Vm.SelectionVm.TapFixtureNumberCommand.Execute(fixture);
+
+    private void ClearSelection() => Vm.SelectionVm.ClearSelectionCommand.Execute(null);
+
+    private byte EffectiveValue(PatchedFixture fixture, FixtureChannel channel) =>
+        Vm.Engine.GetEffectiveValue(fixture.UniverseId, fixture.AbsoluteIndex(channel));
+
+    private string DescribeIntensity(PatchedFixture fixture)
+    {
+        var channel = fixture.ChannelsForAttribute(AttributeClass.Intensity).FirstOrDefault();
+        if (channel is null) return "—";
+        int percent = (int)Math.Round(EffectiveValue(fixture, channel) / 255.0 * 100);
+        return $"{percent}%";
+    }
+
+    private string DescribePosition(PatchedFixture fixture)
+    {
+        var pan = fixture.FindChannel(ChannelType.Pan);
+        var tilt = fixture.FindChannel(ChannelType.Tilt);
+        if (pan is null && tilt is null) return "—";
+        string panText = pan is null ? "-" : $"{(int)Math.Round(EffectiveValue(fixture, pan) / 255.0 * 100)}%";
+        string tiltText = tilt is null ? "-" : $"{(int)Math.Round(EffectiveValue(fixture, tilt) / 255.0 * 100)}%";
+        return $"P {panText} / T {tiltText}";
+    }
+
+    private string? ColorSwatchStyle(PatchedFixture fixture)
+    {
+        var red = fixture.FindChannel(ChannelType.ColorRed);
+        var green = fixture.FindChannel(ChannelType.ColorGreen);
+        var blue = fixture.FindChannel(ChannelType.ColorBlue);
+        if (red is null && green is null && blue is null) return null;
+
+        byte r = red is null ? (byte)0 : EffectiveValue(fixture, red);
+        byte g = green is null ? (byte)0 : EffectiveValue(fixture, green);
+        byte b = blue is null ? (byte)0 : EffectiveValue(fixture, blue);
+        return $"background:rgb({r},{g},{b})";
+    }
+
+    private string DescribeBeam(PatchedFixture fixture)
+    {
+        var beamChannels = fixture.ChannelsForAttribute(AttributeClass.Beam).ToList();
+        if (beamChannels.Count == 0) return "—";
+
+        var first = beamChannels[0];
+        int percent = (int)Math.Round(EffectiveValue(fixture, first) / 255.0 * 100);
+        string label = $"{first.Type} {percent}%";
+        return beamChannels.Count > 1 ? $"{label} (+{beamChannels.Count - 1})" : label;
+    }
+
+    /// <summary>Fixture-level ownership: if every channel that has an owner shares the SAME
+    /// owner, that's the fixture's owner; if channels are split across different owners (e.g.
+    /// Intensity from the Programmer, Position from a running Cue), there's no single answer -
+    /// isActive is still true, but the caller falls back to "Mixed" rather than picking one
+    /// arbitrarily.</summary>
+    private OutputOwner? DescribeFixtureOwner(PatchedFixture fixture, out bool isActive)
+    {
+        OutputOwner? common = null;
+        bool first = true;
+        isActive = false;
+
+        foreach (var channel in fixture.Mode.Channels)
+        {
+            var owner = Vm.Engine.GetOwner(fixture.UniverseId, fixture.AbsoluteIndex(channel));
+            if (owner is null) continue;
+            isActive = true;
+
+            if (first) { common = owner; first = false; }
+            else if (common?.Id != owner.Id) return null; // mixed - no single owner
+        }
+
+        return common;
+    }
+
+    private string DescribeExecutorOwner(OutputOwner owner)
+    {
+        var executor = Vm.ExecutorVm.Bank.Executors.FirstOrDefault(e => e.Id == owner.ExecutorId);
+        string label = $"Exec {owner.ExecutorNumber}";
+        if (executor?.GetStatus() is CueListPlaybackStatus { CurrentCue: { } cue })
+        {
+            string cueLabel = string.IsNullOrWhiteSpace(cue.Name) ? $"Cue {cue.Number}" : cue.Name;
+            label += $" / {cueLabel}";
+        }
+        return label;
+    }
+
+    private static string SourceCssClass(OutputOwner? owner) => owner?.Kind switch
+    {
+        OwnerKind.Programmer => "src-programmer",
+        OwnerKind.Executor => "src-executor",
+        OwnerKind.Effect => "src-effect",
+        _ => "src-none",
+    };
+
+    public void Dispose()
+    {
+        Vm.SelectionVm.Selection.Items.CollectionChanged -= OnChanged;
+        Vm.Patch.Fixtures.CollectionChanged -= OnChanged;
+        _liveTimer?.Dispose();
+    }
+}
