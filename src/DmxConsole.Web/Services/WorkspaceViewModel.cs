@@ -1,3 +1,4 @@
+using DmxConsole.Web.Components.ConsoleUi;
 using DmxConsole.Web.Workspaces;
 
 namespace DmxConsole.Web.Services;
@@ -18,14 +19,26 @@ public sealed class WorkspaceViewModel
 
     public WorkspaceViewModel()
     {
+        RegisterViews();
         Current = BuildDefaultWorkspace();
     }
 
-    /// <summary>Slice 2's shell has nothing real to host yet - a single empty pane. Slice 3
-    /// registers a real View (CueList) and this default grows a first tab for it.</summary>
+    /// <summary>Slice 3: the first existing console View (CueListPanel) becomes hostable by the
+    /// Workspace shell, unchanged - proving the architecture, not redesigning the View. More
+    /// kinds get registered as later slices migrate the remaining fixed tabs (Slice 7 of the
+    /// milestone's own sequencing).</summary>
+    private void RegisterViews()
+    {
+        Registry.Register(new ViewDescriptor(ViewKind.CueList, "Cues", typeof(CueListPanel)));
+    }
+
+    /// <summary>Slice 3: the default Workspace now opens with one tab hosting CueListPanel, so
+    /// the preview route has something real to show instead of an empty pane.</summary>
     private static Workspace BuildDefaultWorkspace()
     {
-        var surface = new WorkspaceSurface { Name = "Main", Root = new TabPaneNode() };
+        var cueListTab = new ViewInstance { Kind = ViewKind.CueList, Title = "Cues" };
+        var tabPane = new TabPaneNode { Tabs = { cueListTab }, ActiveTabId = cueListTab.Id };
+        var surface = new WorkspaceSurface { Name = "Main", Root = tabPane };
         return new Workspace { Name = "Default", Scope = WorkspaceScope.Factory, Surfaces = { surface } };
     }
 }
