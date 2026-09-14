@@ -38,11 +38,13 @@ public sealed class EffectPrimitiveBuilderTests
     [InlineData(0, 1)]
     [InlineData(20, 20)]
     [InlineData(100, 99)]
-    public void Square_ClampsDutyCycleToUsableTransitionRange(double requested, double expected)
+    public void Square_ClampsDutyCycleAndUsesSnapTransitions(double requested, double expected)
     {
         var steps = EffectPrimitiveBuilder.Build(
             EffectPrimitiveKind.Square, ChannelType.Dimmer, 0, 255, requested);
 
-        Assert.All(steps, step => Assert.Equal(expected, step.Transition));
+        Assert.Equal(expected, steps[0].Width);
+        Assert.Equal(100 - expected, steps[1].Width);
+        Assert.All(steps, step => Assert.Equal(0, step.Transition));
     }
 }

@@ -40,6 +40,20 @@ public sealed class EffectPhaserEvaluationTests
     }
 
     [Fact]
+    public void Square_DutyControlsOnTime_NotCrossfadeTime()
+    {
+        var phaser = Build(EffectPrimitiveKind.Square, 0, 255);
+        phaser.Steps = EffectPrimitiveBuilder.Build(
+            EffectPrimitiveKind.Square, ChannelType.Dimmer, 0, 255, dutyCyclePercent: 25);
+
+        phaser.Tick(TimeSpan.FromSeconds(0.10));
+        AssertValue(phaser, 255);
+
+        phaser.Tick(TimeSpan.FromSeconds(0.30));
+        AssertValue(phaser, 0);
+    }
+
+    [Fact]
     public void PartialTransition_HoldsNextValueForRemainderOfStep()
     {
         var fixture = DimmerFixture();

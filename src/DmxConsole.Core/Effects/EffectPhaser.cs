@@ -15,6 +15,7 @@ public sealed class EffectPhaser : IOutputLayer, IBaseAwareLayer, IMergeAwareLay
 
     public Guid Id { get; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
+    public string EffectType { get; set; } = "Phaser";
     public bool Enabled { get; set; } = true;
     public int Priority { get; set; } = 300;
     public IReadOnlyList<PatchedFixture> Fixtures { get; set; } = Array.Empty<PatchedFixture>();
