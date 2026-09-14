@@ -156,16 +156,11 @@ public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
     private void ComputeUniverse(int universeId, List<IOutputLayer> activeLayers, byte[] destination)
     {
         Array.Clear(destination);
-
-        // Reused per-channel scratch for each layer's captured contribution this channel -
-        // sized once per ComputeUniverse call, not re-allocated per channel. Every layer's
-        // TryGetChannelValue is sampled EXACTLY ONCE per channel here; Priority/HTP/LTP
-        // resolution below reads only this captured snapshot, never calls it again - so a
-        // source whose value could otherwise drift between two calls in the same tick (e.g.
-        // CueList's wall-clock-based fade interpolation) can never disagree with itself within
-        // one merge computation.
-        var sampled = new bool[activeLayers.Count];
-        var sampledValue = new byte[activeLayers.Count];
+        var priorityTiers = activeLayers
+            .GroupBy(layer => layer.Priority)
+            .OrderBy(group => group.Key)
+            .Select(group => group.ToArray())
+            .ToArray();
 
         for (int channel = 0; channel < Core.Universe.ChannelCount; channel++)
         {
@@ -173,41 +168,58 @@ public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
             byte baseValue = isPatched ? entry.Channel.DefaultValue : (byte)0;
             var blendMode = isPatched ? entry.Channel.EffectiveBlendMode : BlendMode.Ltp;
 
-            // Single sampling pass: capture every layer's contribution for this channel once,
-            // and find the highest Priority among those that actually contribute (not the
-            // highest priority among all active layers overall - a layer that doesn't touch
-            // this channel must never suppress one that does, regardless of its own priority).
-            int highestPriority = int.MinValue;
-            for (int i = 0; i < activeLayers.Count; i++)
-            {
-                sampled[i] = activeLayers[i].TryGetChannelValue(universeId, channel, out sampledValue[i]);
-                if (sampled[i]) highestPriority = Math.Max(highestPriority, activeLayers[i].Priority);
-            }
-
-            // Resolve using only the captured snapshot above. Priority always gates
-            // participation first, for BOTH Htp and Ltp - a lower-priority layer never
-            // participates just because its raw value happens to be higher (Htp) or its
-            // revision happens to be newer (Ltp/"Latest").
             byte result = baseValue;
             bool anyLayerContributed = false;
-            long winningRevision = long.MinValue;
             IOutputLayer? winningLayer = null;
 
-            for (int i = 0; i < activeLayers.Count; i++)
+            // Process a whole priority tier at a time. Every base-aware contributor in a tier
+            // receives the same immutable result of STRICTLY lower tiers; contributors at the
+            // same priority never become one another's base. Each layer is still sampled once
+            // per channel per merge computation.
+            foreach (var tier in priorityTiers)
             {
-                if (!sampled[i] || activeLayers[i].Priority != highestPriority) continue;
-                byte contributed = sampledValue[i];
+                byte baseBelowTier = result;
+                bool tierContributed = false;
+                byte tierResult = baseBelowTier;
+                long tierWinningRevision = long.MinValue;
+                IOutputLayer? tierWinningLayer = null;
 
-                if (blendMode == BlendMode.Htp)
+                foreach (var layer in tier)
                 {
-                    if (!anyLayerContributed || contributed > result) { result = contributed; winningLayer = activeLayers[i]; }
+                    bool contributed = layer is IBaseAwareLayer baseAware
+                        ? baseAware.TryGetChannelValue(universeId, channel, baseBelowTier, out var value)
+                        : layer.TryGetChannelValue(universeId, channel, out value);
+                    if (!contributed) continue;
+
+                    if (blendMode == BlendMode.Htp)
+                    {
+                        if (!tierContributed || value > tierResult)
+                        {
+                            tierResult = value;
+                            tierWinningLayer = layer;
+                        }
+                    }
+                    else
+                    {
+                        long revision = (layer as IMergeAwareLayer)?.TryGetRevision(
+                            universeId, channel, out var r) == true ? r : 0;
+                        if (!tierContributed || revision >= tierWinningRevision)
+                        {
+                            tierResult = value;
+                            tierWinningRevision = revision;
+                            tierWinningLayer = layer;
+                        }
+                    }
+
+                    tierContributed = true;
                 }
-                else // Ltp ("Latest") - tie-break by semantic revision, not iteration order
+
+                if (tierContributed)
                 {
-                    long revision = (activeLayers[i] as IMergeAwareLayer)?.TryGetRevision(universeId, channel, out var r) == true ? r : 0;
-                    if (!anyLayerContributed || revision >= winningRevision) { result = contributed; winningRevision = revision; winningLayer = activeLayers[i]; }
+                    result = tierResult;
+                    winningLayer = tierWinningLayer;
+                    anyLayerContributed = true;
                 }
-                anyLayerContributed = true;
             }
 
             if (!anyLayerContributed) result = baseValue;

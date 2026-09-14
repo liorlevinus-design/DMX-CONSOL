@@ -150,6 +150,29 @@ public class DmxOutputEngineTests
         Assert.All(spy.CallsPerChannel.Values, count => Assert.Equal(1, count));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EqualPriorityBaseAwareLayers_ObserveSameFrozenLowerTierBase(bool reverseOrder)
+    {
+        var patch = new Patch();
+        var profile = DimmerAndRgb();
+        patch.Add(new PatchedFixture(profile, profile.Modes[0], universeId: 0, startAddress: 1));
+
+        var engine = new DmxOutputEngine(patch);
+        var lower = new ConstantLayer("Lower", priority: 100, value: 40);
+        var a = new BaseRecordingLayer("A", priority: 300, addedValue: 10);
+        var b = new BaseRecordingLayer("B", priority: 300, addedValue: 20);
+        engine.AddLayer(lower);
+        engine.AddLayer(reverseOrder ? b : a);
+        engine.AddLayer(reverseOrder ? a : b);
+
+        engine.Tick();
+
+        Assert.Equal((byte?)40, a.ObservedBase);
+        Assert.Equal((byte?)40, b.ObservedBase);
+    }
+
     /// <summary>Spy IOutputLayer that records how many times TryGetChannelValue was called for
     /// each channel - used to prove the merge loop samples each layer once per channel.</summary>
     private sealed class CallCountingLayer : IOutputLayer
@@ -167,6 +190,44 @@ public class DmxOutputEngineTests
             CallsPerChannel[channelIndex] = CallsPerChannel.GetValueOrDefault(channelIndex) + 1;
             value = 0;
             return false; // doesn't actually contribute - only measuring how often it's asked
+        }
+    }
+
+    private sealed class ConstantLayer(string name, int priority, byte value) : IOutputLayer
+    {
+        public string Name => name;
+        public int Priority => priority;
+        public bool IsActive => true;
+
+        public bool TryGetChannelValue(int universeId, int channelIndex, out byte contribution)
+        {
+            contribution = value;
+            return channelIndex == 0;
+        }
+    }
+
+    private sealed class BaseRecordingLayer(string name, int priority, byte addedValue)
+        : IOutputLayer, IBaseAwareLayer
+    {
+        public string Name => name;
+        public int Priority => priority;
+        public bool IsActive => true;
+        public byte? ObservedBase { get; private set; }
+
+        public bool TryGetChannelValue(int universeId, int channelIndex, out byte value) =>
+            TryGetChannelValue(universeId, channelIndex, 0, out value);
+
+        public bool TryGetChannelValue(int universeId, int channelIndex, byte baseValue, out byte value)
+        {
+            if (channelIndex != 0)
+            {
+                value = 0;
+                return false;
+            }
+
+            ObservedBase = baseValue;
+            value = (byte)(baseValue + addedValue);
+            return true;
         }
     }
 }
