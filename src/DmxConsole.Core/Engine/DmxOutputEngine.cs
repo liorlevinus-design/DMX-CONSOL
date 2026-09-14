@@ -10,7 +10,7 @@ namespace DmxConsole.Core.Engine;
 /// universe, applies per-fixture pan/tilt calibration, and publishes the result via
 /// <see cref="UniverseOutputReady"/> for protocol senders to transmit.
 /// </summary>
-public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader
+public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader, IOutputLayerRegistry
 {
     private readonly Patch _patch;
     private readonly ConcurrentDictionary<int, Universe> _universes = new();
