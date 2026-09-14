@@ -1,4 +1,6 @@
 @using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
 @using DmxConsole.Web.Workspaces
 @using DmxConsole.Web.Services
 @inject WorkspaceViewModel Wvm
@@ -11,11 +13,17 @@
 
 @if (Node is SplitNode split)
 {
-    <div class="pane-split @(split.Orientation == SplitOrientation.Horizontal ? "pane-split-h" : "pane-split-v")">
+    <div class="pane-split @(split.Orientation == SplitOrientation.Horizontal ? "pane-split-h" : "pane-split-v")" @ref="_splitContainerRef">
         <div class="pane-split-child" style="flex-basis:@(RatioPercent(split.Ratio))%">
             <PaneHost Node="split.ChildA" Surface="Surface" OnChanged="OnChanged" />
         </div>
-        <div class="pane-resize-handle @(split.Orientation == SplitOrientation.Horizontal ? "horizontal" : "vertical")"></div>
+        <div class="pane-resize-handle @(split.Orientation == SplitOrientation.Horizontal ? "horizontal" : "vertical")"
+             @ref="_resizeHandleRef"
+             @onpointerdown="@(e => StartResize(e, split))"
+             @onpointermove="@(e => DoResize(e, split))"
+             @onpointerup="EndResize"
+             @onpointercancel="EndResize">
+        </div>
         <div class="pane-split-child" style="flex-basis:@(RatioPercent(1 - split.Ratio))%">
             <PaneHost Node="split.ChildB" Surface="Surface" OnChanged="OnChanged" />
         </div>
@@ -35,6 +43,13 @@ else if (Node is TabPaneNode tabPane)
             <div class="pane-tabstrip-spacer"></div>
             @if (!Wvm.Current.LayoutLocked)
             {
+                <select class="pane-add-view" title="Add View" @onchange="@(e => AddView(tabPane, e.Value?.ToString()))">
+                    <option value="">+ View</option>
+                    @foreach (var descriptor in Wvm.Registry.All)
+                    {
+                        <option value="@descriptor.Kind">@descriptor.DisplayName</option>
+                    }
+                </select>
                 <button class="pane-action" title="Split Horizontal" @onclick="() => Split(SplitOrientation.Horizontal)">⬌</button>
                 <button class="pane-action" title="Split Vertical" @onclick="() => Split(SplitOrientation.Vertical)">⬍</button>
                 <button class="pane-action" title="@(tabPane.Maximized ? "Restore" : "Maximize")" @onclick="ToggleMaximize">@(tabPane.Maximized ? "🗗" : "🗖")</button>
@@ -62,6 +77,15 @@ else if (Node is TabPaneNode tabPane)
     [Parameter, EditorRequired] public PaneNode Node { get; set; } = null!;
     [Parameter, EditorRequired] public WorkspaceSurface Surface { get; set; } = null!;
     [Parameter, EditorRequired] public Action OnChanged { get; set; } = null!;
+
+    [Inject] private IJSRuntime JS { get; set; } = null!;
+
+    private ElementReference _splitContainerRef;
+    private ElementReference _resizeHandleRef;
+    private bool _resizing;
+    private double _resizeStartClientPos;
+    private double _resizeStartRatio;
+    private double _containerSizePx;
 
     private static string RatioPercent(double ratio) => (ratio * 100).ToString("0.##");
 
@@ -107,4 +131,52 @@ else if (Node is TabPaneNode tabPane)
         else Wvm.Layout.MaximizePane(Wvm.Current, Surface, Node.Id);
         OnChanged();
     }
+
+    private void AddView(TabPaneNode tabPane, string? kindValue)
+    {
+        if (string.IsNullOrEmpty(kindValue) || !Enum.TryParse<ViewKind>(kindValue, out var kind)) return;
+        if (!Wvm.Registry.TryGet(kind, out var descriptor)) return;
+
+        var view = new ViewInstance { Kind = kind, Title = descriptor.DisplayName };
+        Wvm.Layout.AddView(Wvm.Current, Surface, tabPane.Id, view);
+        OnChanged();
+    }
+
+    // ---------- Split drag-resize ----------
+    // Pixel<->ratio conversion needs the container's live size, which only JS can measure;
+    // pointer capture (also JS - see workspacePaneResize.js) is what keeps pointermove/up
+    // arriving at the handle even when a fast drag briefly leaves its thin hit area.
+
+    private async Task StartResize(PointerEventArgs e, SplitNode split)
+    {
+        if (Wvm.Current.LayoutLocked) return;
+
+        var rect = await JS.InvokeAsync<PaneResizeRect>("dmxPaneResize.getRect", _splitContainerRef);
+        _containerSizePx = split.Orientation == SplitOrientation.Horizontal ? rect.Width : rect.Height;
+        if (_containerSizePx <= 0) return;
+
+        _resizing = true;
+        _resizeStartClientPos = split.Orientation == SplitOrientation.Horizontal ? e.ClientX : e.ClientY;
+        _resizeStartRatio = split.Ratio;
+        await JS.InvokeVoidAsync("dmxPaneResize.capture", _resizeHandleRef, e.PointerId);
+    }
+
+    private void DoResize(PointerEventArgs e, SplitNode split)
+    {
+        if (!_resizing || _containerSizePx <= 0) return;
+
+        double currentPos = split.Orientation == SplitOrientation.Horizontal ? e.ClientX : e.ClientY;
+        double deltaRatio = (currentPos - _resizeStartClientPos) / _containerSizePx;
+        Wvm.Layout.ResizeSplit(Wvm.Current, Surface, split.Id, _resizeStartRatio + deltaRatio);
+        OnChanged();
+    }
+
+    private async Task EndResize(PointerEventArgs e)
+    {
+        if (!_resizing) return;
+        _resizing = false;
+        await JS.InvokeVoidAsync("dmxPaneResize.release", _resizeHandleRef, e.PointerId);
+    }
+
+    private sealed record PaneResizeRect(double Width, double Height);
 }

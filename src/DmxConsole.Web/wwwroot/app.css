@@ -325,7 +325,18 @@ html, body {
     font-size: 13px;
 }
 .workspace-name { font-weight: 700; color: var(--text); }
-.workspace-lock-indicator { color: #e0a030; font-size: 12px; }
+.workspace-lock-toggle {
+    margin-left: auto;
+    min-height: 32px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 12px;
+    cursor: pointer;
+}
+.workspace-lock-toggle:hover { color: var(--text); border-color: var(--accent); }
 
 .workspace-surface { flex: 1 1 auto; min-height: 0; display: flex; }
 
@@ -370,6 +381,17 @@ html, body {
 .pane-tab-close:hover { opacity: 1; background: var(--border); }
 
 .pane-tabstrip-spacer { flex: 1 1 auto; }
+
+.pane-add-view {
+    min-height: 32px;
+    margin-right: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 2px 4px;
+}
 
 .pane-action {
     min-width: 44px;
