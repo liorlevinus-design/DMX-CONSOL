@@ -31,7 +31,7 @@
     </div>
 
     <div class="editor-toolbar-keys">
-        @if (IsFixtureContext)
+        @if (HasFixtureSelection)
         {
             @foreach (var attribute in AvailableAttributes())
             {
@@ -40,7 +40,7 @@
         }
         @foreach (var key in Tb.Registry.For(Tb.Context.Current.Id))
         {
-            @if (!(IsFixtureContext && key.Id.StartsWith("fixture.") && key.Label is "INTENSITY" or "POSITION" or "COLOR" or "BEAM"))
+            @if (!(HasFixtureSelection && key.Id.StartsWith("fixture.") && key.Label is "INTENSITY" or "POSITION" or "COLOR" or "BEAM"))
             {
             <button class="soft-key @(key.ActionType == DmxConsole.Web.EditorToolBar.SoftKeyActionType.NotImplemented ? "soft-key-stub" : "")"
                     disabled="@(!key.Implemented)"
@@ -59,7 +59,7 @@
 
 @code {
     private EditorToolBarViewModel Tb => Vm.EditorToolBarVm;
-    private bool IsFixtureContext => Tb.Context.Current.ObjectType == DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture;
+    private bool HasFixtureSelection => Vm.SelectionVm.Selection.Items.Count > 0;
 
     protected override void OnInitialized()
     {

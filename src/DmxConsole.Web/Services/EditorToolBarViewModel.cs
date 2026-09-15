@@ -71,10 +71,10 @@ public sealed class EditorToolBarViewModel
 
     public void SelectFixtureAttribute(AttributeClass attribute)
     {
-        var fixtureFrame = Context.Frames.FirstOrDefault();
-        if (fixtureFrame?.ObjectType != EditorObjectType.Fixture) return;
+        var objectFrame = Context.Frames.FirstOrDefault();
+        if (objectFrame is null) return;
         SelectedFixtureAttribute = attribute;
-        Context.EnterObject(EditorObjectType.Fixture, "FIXTURE", fixtureFrame.SelectedObject, fixtureFrame.SelectedObjectLabel);
+        Context.EnterObject(objectFrame.ObjectType, objectFrame.Label, objectFrame.SelectedObject, objectFrame.SelectedObjectLabel);
         Context.Push(attribute.ToString(), attribute.ToString().ToUpperInvariant());
         Changed?.Invoke();
     }
