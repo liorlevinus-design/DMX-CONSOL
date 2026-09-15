@@ -13,6 +13,13 @@
 <div class="channels-view">
     <div class="channels-view-header">
         <span class="channels-view-title">Channels</span>
+        <select class="pane-add-view channels-filter" @bind="_filter" aria-label="Filter channels">
+            <option value="All">All</option>
+            <option value="Selected">Selected</option>
+            <option value="Active">Active</option>
+            <option value="Programmer">Programmer</option>
+        </select>
+        <span class="channels-legend"><i class="legend-dot selected"></i>Selected <i class="legend-dot active"></i>Live <i class="legend-dot programmer"></i>Programmer</span>
         <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
         @if (Vm.SelectionVm.Selection.Items.Count > 0)
         {
@@ -25,29 +32,30 @@
             <thead>
                 <tr>
                     <th>CH</th>
-                    <th>Fixture</th>
+                    <th class="fixture-name-column">Fixture</th>
                     <th>Attribute</th>
                     <th>Level</th>
-                    <th>Source</th>
+                    <th class="source-column">Source</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach (var fader in Vm.Faders)
+                @foreach (var fader in FilteredFaders())
                 {
                     var owner = Vm.Engine.GetOwner(fader.UniverseId, fader.ChannelIndex);
                     bool isSelected = Vm.SelectionVm.Selection.Contains(fader.Fixture);
                     bool isActive = owner is not null;
+                    bool isProgrammer = Vm.Programmer.HasStoredValue(fader.UniverseId, fader.ChannelIndex, out var programmerValue);
                     int levelPercent = (int)Math.Round(Vm.Engine.GetEffectiveValue(fader.UniverseId, fader.ChannelIndex) / 255.0 * 100);
 
-                    <tr class="channels-row @(isSelected ? "selected" : "") @(isActive ? "active" : "")" @onclick="() => Toggle(fader.Fixture)">
+                    <tr class="channels-row @(isSelected ? "selected" : "") @(isActive ? "active" : "") @(isProgrammer ? "programmer" : "")" @onclick="() => Toggle(fader.Fixture)">
                         <td class="ch-cell">@($"{fader.Fixture.Number}.{OrdinalWithin(fader)}")</td>
-                        <td>@fader.FixtureName</td>
-                        <td>@fader.ChannelTypeName</td>
+                        <td class="fixture-name-column">@fader.FixtureName</td>
+                        <td><span class="attribute-name">@fader.ChannelTypeName</span>@if (isProgrammer) { <span class="programmer-chip" title="Programmer captured value">P @Percent(programmerValue)%</span> }</td>
                         <td class="level-cell">
                             <div class="level-bar"><div class="level-bar-fill" style="width:@(levelPercent)%"></div></div>
                             <span>@levelPercent%</span>
                         </td>
-                        <td class="source-cell @ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(owner))">@DescribeOwner(owner)</td>
+                        <td class="source-cell source-column @ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(owner))">@DescribeOwner(owner)</td>
                     </tr>
                 }
                 @if (Vm.Faders.Count == 0)
@@ -61,6 +69,7 @@
 
 @code {
     private System.Threading.Timer? _liveTimer;
+    private string _filter = "All";
 
     protected override void OnInitialized()
     {
@@ -73,6 +82,16 @@
     }
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private IEnumerable<ChannelFaderViewModel> FilteredFaders() => _filter switch
+    {
+        "Selected" => Vm.Faders.Where(f => Vm.SelectionVm.Selection.Contains(f.Fixture)),
+        "Active" => Vm.Faders.Where(f => Vm.Engine.GetOwner(f.UniverseId, f.ChannelIndex) is not null),
+        "Programmer" => Vm.Faders.Where(f => Vm.Programmer.HasStoredValue(f.UniverseId, f.ChannelIndex, out _)),
+        _ => Vm.Faders,
+    };
+
+    private static int Percent(byte value) => (int)Math.Round(value / 255.0 * 100);
 
     private void Toggle(PatchedFixture fixture)
     {
