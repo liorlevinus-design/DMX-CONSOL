@@ -39,6 +39,7 @@
             <option value="Active">Active (on)</option>
             <option value="Playback">Playback (Cue/Executor)</option>
             <option value="ProgrammerCaptured">Programmer (captured, unstored)</option>
+            <option value="Pending">Pending (not winning live)</option>
             <option value="MainCueList">Main Cue List only</option>
             <option value="Executor">Executor only</option>
         </select>
@@ -52,18 +53,20 @@
                     <th>CH</th>
                     <th>Fixture</th>
                     <th>Attribute</th>
-                    <th>Live Value</th>
-                    <th>Programmer</th>
-                    <th>Source</th>
+                    <th>Effective Live</th>
+                    <th>Pending / Programmer</th>
+                    <th>Winning Source</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var (fader, owner, hasStored, storedValue) in FilteredRows())
                 {
                     var category = ProvenanceClassifier.Classify(owner);
-                    int levelPercent = (int)Math.Round(Vm.Engine.GetEffectiveValue(fader.UniverseId, fader.ChannelIndex) / 255.0 * 100);
+                    int levelPercent = Percent(Vm.Engine.GetEffectiveValue(fader.UniverseId, fader.ChannelIndex));
+                    bool programmerWins = category == ProvenanceCategory.Programmer;
+                    bool pending = hasStored && !programmerWins;
 
-                    <tr class="channels-row @(owner is not null ? "active" : "")">
+                    <tr class="channels-row @(owner is not null ? "active" : "") @(hasStored ? "programmer" : "") @(pending ? "pending" : "")">
                         <td class="ch-cell">@($"{fader.Fixture.Number}.{OrdinalWithin(fader)}")</td>
                         <td>@fader.FixtureName</td>
                         <td>@fader.ChannelTypeName</td>
@@ -72,7 +75,15 @@
                             <span>@levelPercent%</span>
                         </td>
                         <td class="@(hasStored ? "prog-captured" : "prog-none")">
-                            @(hasStored ? $"{(int)Math.Round(storedValue / 255.0 * 100)}% ({(category == ProvenanceCategory.Programmer ? "live" : "pending")})" : "—")
+                            @if (hasStored)
+                            {
+                                <span>@Percent(storedValue)%</span>
+                                <span class="programmer-state @(pending ? "state-pending" : "state-live")">@(pending ? "PENDING" : "LIVE")</span>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
                         </td>
                         <td class="source-cell @ProvenanceClassifier.CssClass(category)">@DescribeOwner(owner)</td>
                     </tr>
@@ -128,11 +139,14 @@
             ProgrammerLiveFilter.Active => owner is not null,
             ProgrammerLiveFilter.Playback => category is ProvenanceCategory.MainCueList or ProvenanceCategory.Executor,
             ProgrammerLiveFilter.ProgrammerCaptured => hasStored,
+            ProgrammerLiveFilter.Pending => hasStored && category != ProvenanceCategory.Programmer,
             ProgrammerLiveFilter.MainCueList => category == ProvenanceCategory.MainCueList,
             ProgrammerLiveFilter.Executor => category == ProvenanceCategory.Executor,
             _ => true,
         };
     }
+
+    private static int Percent(byte value) => (int)Math.Round(value / 255.0 * 100);
 
     private static int OrdinalWithin(ChannelFaderViewModel fader)
     {

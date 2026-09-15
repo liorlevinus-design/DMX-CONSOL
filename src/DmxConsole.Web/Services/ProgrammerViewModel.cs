@@ -23,6 +23,7 @@ public enum ProgrammerLiveFilter
     Active,
     Playback,
     ProgrammerCaptured,
+    Pending,
     MainCueList,
     Executor,
 }
