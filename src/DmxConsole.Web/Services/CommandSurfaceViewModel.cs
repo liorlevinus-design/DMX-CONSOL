@@ -81,6 +81,12 @@ public sealed class CommandSurfaceViewModel
     public void PressDecimalPoint()
     {
         _clearArmedForFullSelection = false;
+        if (_pendingDigits.Length == 0 &&
+            (Current.Tokens.Count == 0 || Current.Tokens[^1].Kind is CommandTokenKind.Fixture or CommandTokenKind.Group or CommandTokenKind.At))
+        {
+            Push(CommandToken.Simple(CommandTokenKind.Recall));
+            return;
+        }
         if (_pendingDigits.Contains('.')) return;
         _pendingDigits += _pendingDigits.Length == 0 ? "0." : ".";
         Changed?.Invoke();
@@ -217,6 +223,9 @@ public sealed class CommandSurfaceViewModel
             var result = _dispatcher.Dispatch(composition.ReadyOperation);
             if (result.Success)
             {
+                _context.SelectionCycle.RememberSelection(_context.Selection.Items);
+                if (composition.ResolvedGroupNumber is int groupNumber) _context.SelectionCycle.RememberGroup(groupNumber);
+                if (composition.AppliedAtPercent is double atPercent) _context.SelectionCycle.RememberAt(atPercent);
                 if (!_mirrorsExistingSelection)
                     _context.SelectionCycle.RecordGesture(baseline, startsFresh);
 

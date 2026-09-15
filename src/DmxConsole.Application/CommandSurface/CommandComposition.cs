@@ -45,6 +45,8 @@ public sealed record CommandComposition
     /// selection remains visibly selected until that next selection actually happens.
     /// </summary>
     public bool EndsSelectionCycle { get; init; }
+    public int? ResolvedGroupNumber { get; init; }
+    public double? AppliedAtPercent { get; init; }
 
     /// <summary>Populated only when IsComplete is true - the actual structured operation, ready
     /// to hand to CommandDispatcher.Dispatch. The composer builds this but never dispatches it

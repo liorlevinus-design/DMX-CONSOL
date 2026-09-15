@@ -53,7 +53,11 @@ public partial class GroupsViewModel : ObservableObject
 
         var result = _dispatcher.Dispatch(operation);
         if (result.Success)
+        {
             _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+            _context.SelectionCycle.RememberSelection(Selection.Items);
+            _context.SelectionCycle.RememberGroup(group.Number);
+        }
     }
 
     [RelayCommand]

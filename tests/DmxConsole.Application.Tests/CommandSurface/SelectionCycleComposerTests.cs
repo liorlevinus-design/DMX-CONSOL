@@ -5,6 +5,53 @@ namespace DmxConsole.Application.Tests.CommandSurface;
 public class SelectionCycleComposerTests
 {
     [Fact]
+    public void FixtureRecall_RestoresLastSelection()
+    {
+        var (context, dispatcher, _) = TestFixtures.BuildConsole(fixtureCount: 3);
+        context.SelectionCycle.RememberSelection(context.Patch.Fixtures.Where(f => f.Number is 1 or 3));
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Fixture));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Recall));
+        var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
+        Assert.True(final.IsComplete);
+        dispatcher.Dispatch(final.ReadyOperation!);
+        Assert.Equal(new[] { 1, 3 }, context.Selection.Items.Select(f => f.Number).ToArray());
+    }
+
+    [Fact]
+    public void GroupRecall_UsesLastGroupNumber()
+    {
+        var (context, dispatcher, _) = TestFixtures.BuildConsole(fixtureCount: 3);
+        context.Selection.Add(context.Patch.Fixtures.First(f => f.Number == 2));
+        context.Groups.CreateFromSelection("Back", context.Selection, number: 7);
+        context.Selection.Clear();
+        context.SelectionCycle.RememberGroup(7);
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Group));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Recall));
+        var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
+        dispatcher.Dispatch(final.ReadyOperation!);
+        Assert.Equal(2, Assert.Single(context.Selection.Items).Number);
+    }
+
+    [Fact]
+    public void AtRecall_AppliesLastLevelToCurrentSelection()
+    {
+        var (context, dispatcher, _) = TestFixtures.BuildConsole(fixtureCount: 1);
+        var fixture = Assert.Single(context.Patch.Fixtures);
+        context.Selection.Add(fixture);
+        context.SelectionCycle.RememberAt(42);
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.At));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Recall));
+        var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
+        Assert.True(dispatcher.Dispatch(final.ReadyOperation!).Success);
+        var channel = fixture.FindChannel(DmxConsole.Core.ChannelType.Dimmer)!;
+        Assert.True(context.Programmer.TryGetChannelValue(fixture.UniverseId, fixture.AbsoluteIndex(channel), out var value));
+        Assert.Equal((byte)Math.Round(.42 * 255), value);
+    }
+
+    [Fact]
     public void BareNumbers_DefaultToFixtureContext()
     {
         var (context, dispatcher, _) = TestFixtures.BuildConsole(fixtureCount: 5);

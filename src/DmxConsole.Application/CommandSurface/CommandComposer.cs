@@ -92,6 +92,28 @@ public sealed class CommandComposer
             };
         }
 
+        if (_tokens.Count == 2 && _tokens[1].Kind == CommandTokenKind.Recall &&
+            _tokens[0].Kind is CommandTokenKind.Fixture or CommandTokenKind.Group)
+        {
+            if (!finalize) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+            return ResolveRecall(_tokens[0].Kind, preview);
+        }
+
+        if (_tokens.Count == 2 && _tokens[0].Kind == CommandTokenKind.At && _tokens[1].Kind == CommandTokenKind.Recall)
+        {
+            if (!finalize) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+            if (_context.SelectionCycle.LastAtPercent is not double lastAt)
+                return Incomplete(preview, "No previous At value to recall.");
+            if (_context.Selection.Items.Count == 0)
+                return Incomplete(preview, "Select at least one fixture before At recall.");
+            return new CommandComposition
+            {
+                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+                AppliedAtPercent = lastAt,
+                ReadyOperation = new AdjustIntensityCommand(_context.Selection.Items.ToList(), AdjustOperation.Absolute, lastAt),
+            };
+        }
+
         var head = _tokens[0];
         ObjectType objectType;
         int i;
@@ -180,6 +202,31 @@ public sealed class CommandComposer
         }
 
         return Resolve(objectType, clauses, atValue, preview);
+    }
+
+    private CommandComposition ResolveRecall(CommandTokenKind kind, string preview)
+    {
+        IReadOnlyList<PatchedFixture> fixtures;
+        int? groupNumber = null;
+        if (kind == CommandTokenKind.Fixture)
+        {
+            fixtures = _context.SelectionCycle.LastSelection;
+            if (fixtures.Count == 0) return Incomplete(preview, "No previous fixture selection to recall.");
+        }
+        else
+        {
+            groupNumber = _context.SelectionCycle.LastGroupNumber;
+            var group = groupNumber is int number ? _context.Groups.FindByNumber(number) : null;
+            if (group is null) return Incomplete(preview, "No previous group to recall.");
+            fixtures = group.Fixtures;
+        }
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true,
+            ResolvedGroupNumber = groupNumber,
+            ReadyOperation = new ReplaceSelectionCommand(fixtures),
+        };
     }
 
     private CommandComposition Incomplete(string preview, string? error, params CommandTokenKind[] expected) => new()
@@ -276,6 +323,8 @@ public sealed class CommandComposer
             PreviewText = preview,
             IsComplete = true,
             EndsSelectionCycle = atValue is not null,
+            ResolvedGroupNumber = objectType == ObjectType.Group ? (int?)clauses.Last().Number : null,
+            AppliedAtPercent = atValue,
             ReadyOperation = operation,
         };
     }

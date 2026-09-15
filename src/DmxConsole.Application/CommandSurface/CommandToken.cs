@@ -49,6 +49,7 @@ public sealed record CommandToken
         CommandTokenKind.Plus => "+",
         CommandTokenKind.Minus => "-",
         CommandTokenKind.At => "At",
+        CommandTokenKind.Recall => ".",
         CommandTokenKind.Enter => "Enter",
         CommandTokenKind.Odd => "Odd",
         CommandTokenKind.Even => "Even",

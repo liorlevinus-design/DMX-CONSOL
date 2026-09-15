@@ -12,9 +12,17 @@ namespace DmxConsole.Application;
 public sealed class SelectionCycleState
 {
     private readonly List<IReadOnlyList<PatchedFixture>> _gestureBaselines = new();
+    private IReadOnlyList<PatchedFixture> _lastSelection = Array.Empty<PatchedFixture>();
 
     public bool StartFreshOnNextSelection { get; private set; }
     public bool HasGestureHistory => _gestureBaselines.Count > 0;
+    public IReadOnlyList<PatchedFixture> LastSelection => _lastSelection;
+    public int? LastGroupNumber { get; private set; }
+    public double? LastAtPercent { get; private set; }
+
+    public void RememberSelection(IEnumerable<PatchedFixture> fixtures) => _lastSelection = fixtures.Distinct().ToList();
+    public void RememberGroup(int number) => LastGroupNumber = number;
+    public void RememberAt(double percent) => LastAtPercent = percent;
 
     /// <summary>Called after a non-selection execution consumed the current targets.</summary>
     public void MarkExecutionCompleted() => StartFreshOnNextSelection = true;

@@ -10,6 +10,7 @@ public enum CommandTokenKind
 {
     // Values
     Number,
+    Recall,
 
     // Object types
     Fixture,
