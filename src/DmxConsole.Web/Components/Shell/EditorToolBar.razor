@@ -35,7 +35,7 @@
         {
             @foreach (var attribute in AvailableAttributes())
             {
-                <button class="soft-key @(_selectedAttribute == attribute ? "active" : "")" @onclick="() => SelectAttribute(attribute)">@AttributeLabel(attribute)</button>
+                <button class="soft-key @(Tb.SelectedFixtureAttribute == attribute ? "active" : "")" @onclick="() => Tb.SelectFixtureAttribute(attribute)">@AttributeLabel(attribute)</button>
             }
         }
         @foreach (var key in Tb.Registry.For(Tb.Context.Current.Id))
@@ -55,29 +55,10 @@
             <span class="editor-toolbar-empty">No actions for this context yet.</span>
         }
     </div>
-    @if (IsFixtureContext && _selectedAttribute is { } selected)
-    {
-        <div class="encoder-bank">
-            @foreach (var channelType in EncoderTypes(selected).Take(5))
-            {
-                var state = EncoderValue(channelType);
-                <label class="encoder-slot">
-                    <span class="encoder-name">@EncoderLabel(channelType)</span>
-                    <input type="range" min="0" max="255" value="@state.Value" @oninput="e => SetEncoder(channelType, e.Value)" />
-                    <span class="encoder-value">@(state.Mixed ? "MIXED" : $"{Percent(state.Value)}%")</span>
-                </label>
-            }
-            @for (var i = EncoderTypes(selected).Take(5).Count(); i < 5; i++)
-            {
-                <div class="encoder-slot encoder-empty"><span>—</span></div>
-            }
-        </div>
-    }
 </div>
 
 @code {
     private EditorToolBarViewModel Tb => Vm.EditorToolBarVm;
-    private DmxConsole.Core.AttributeClass? _selectedAttribute;
     private bool IsFixtureContext => Tb.Context.Current.ObjectType == DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture;
 
     protected override void OnInitialized()
@@ -90,7 +71,6 @@
 
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
-        if (_selectedAttribute is { } selected && !AvailableAttributes().Contains(selected)) _selectedAttribute = null;
         InvokeAsync(StateHasChanged);
     }
 
@@ -102,36 +82,7 @@
         return common.Where(cls => fixtures.All(f => f.Mode.Channels.Any(c => c.Type.ToAttributeClass() == cls)));
     }
 
-    private void SelectAttribute(DmxConsole.Core.AttributeClass attribute)
-    {
-        _selectedAttribute = attribute;
-        var frame = Tb.Context.Frames.FirstOrDefault();
-        Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture, "FIXTURE", frame?.SelectedObject, frame?.SelectedObjectLabel ?? "");
-        Vm.EditorContext.Push(attribute.ToString(), AttributeLabel(attribute));
-    }
-
-    private IReadOnlyList<DmxConsole.Core.ChannelType> EncoderTypes(DmxConsole.Core.AttributeClass attribute) =>
-        Vm.SelectionVm.Selection.Items.SelectMany(f => f.Mode.Channels)
-            .Where(c => c.Type.ToAttributeClass() == attribute)
-            .Select(c => c.Type).Distinct().OrderBy(t => t).ToList();
-
-    private (byte Value, bool Mixed) EncoderValue(DmxConsole.Core.ChannelType type)
-    {
-        var values = Vm.SelectionVm.Selection.Items
-            .Select(f => (Fixture: f, Channel: f.FindChannel(type)))
-            .Where(x => x.Channel is not null)
-            .Select(x => Vm.Engine.GetEffectiveValue(x.Fixture.UniverseId, x.Fixture.AbsoluteIndex(x.Channel!))).ToList();
-        return values.Count == 0 ? ((byte)0, false) : (values[0], values.Any(v => v != values[0]));
-    }
-
-    private void SetEncoder(DmxConsole.Core.ChannelType type, object? raw)
-    {
-        if (byte.TryParse(raw?.ToString(), out var value)) Vm.ProgrammerVm.SetEncoderValue(type, value);
-    }
-
-    private static int Percent(byte value) => (int)Math.Round(value / 255d * 100);
     private static string AttributeLabel(DmxConsole.Core.AttributeClass value) => value.ToString().ToUpperInvariant();
-    private static string EncoderLabel(DmxConsole.Core.ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
 
     public void Dispose()
     {

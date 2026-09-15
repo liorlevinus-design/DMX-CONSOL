@@ -1,0 +1,71 @@
+@using DmxConsole.Core
+@inject MainViewModel Vm
+@implements IDisposable
+
+<div class="context-encoder-workspace">
+    @if (Vm.EditorToolBarVm.SelectedFixtureAttribute is { } attributeClass && Vm.SelectionVm.Selection.Items.Count > 0)
+    {
+        <div class="encoder-workspace-heading">
+            <strong>@attributeClass.ToString().ToUpperInvariant()</strong>
+            <span>@Vm.SelectionVm.Selection.Items.Count fixture(s)</span>
+        </div>
+        <div class="encoder-bank encoder-bank-workspace">
+            @foreach (var channelType in EncoderTypes(attributeClass).Take(5))
+            {
+                var state = EncoderValue(channelType);
+                <label class="encoder-slot">
+                    <span class="encoder-name">@EncoderLabel(channelType)</span>
+                    <input type="range" min="0" max="255" value="@state.Value" @oninput="e => SetEncoder(channelType, e.Value)" />
+                    <span class="encoder-value">@(state.Mixed ? "MIXED" : $"{Percent(state.Value)}%")</span>
+                </label>
+            }
+            @for (var i = EncoderTypes(attributeClass).Take(5).Count(); i < 5; i++)
+            {
+                <div class="encoder-slot encoder-empty"><span>—</span></div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="context-soft-keys-empty">Select fixtures, then choose an attribute above.</div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Vm.EditorToolBarVm.Changed += OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged += OnSelectionChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+    private void OnSelectionChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private IReadOnlyList<ChannelType> EncoderTypes(AttributeClass attribute) =>
+        Vm.SelectionVm.Selection.Items.SelectMany(f => f.Mode.Channels)
+            .Where(c => c.Type.ToAttributeClass() == attribute)
+            .Select(c => c.Type).Distinct().OrderBy(t => t).ToList();
+
+    private (byte Value, bool Mixed) EncoderValue(ChannelType type)
+    {
+        var values = Vm.SelectionVm.Selection.Items
+            .Select(f => (Fixture: f, Channel: f.FindChannel(type)))
+            .Where(x => x.Channel is not null)
+            .Select(x => Vm.Engine.GetEffectiveValue(x.Fixture.UniverseId, x.Fixture.AbsoluteIndex(x.Channel!))).ToList();
+        return values.Count == 0 ? ((byte)0, false) : (values[0], values.Any(v => v != values[0]));
+    }
+
+    private void SetEncoder(ChannelType type, object? raw)
+    {
+        if (byte.TryParse(raw?.ToString(), out var value)) Vm.ProgrammerVm.SetEncoderValue(type, value);
+    }
+
+    private static int Percent(byte value) => (int)Math.Round(value / 255d * 100);
+    private static string EncoderLabel(ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
+
+    public void Dispose()
+    {
+        Vm.EditorToolBarVm.Changed -= OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
+    }
+}

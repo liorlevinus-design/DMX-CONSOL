@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.Input;
+using DmxConsole.Core;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
@@ -27,6 +28,7 @@ public sealed class EditorToolBarViewModel
     public SoftKeyRegistry Registry { get; }
 
     public string? StatusMessage { get; private set; }
+    public AttributeClass? SelectedFixtureAttribute { get; private set; }
 
     public event Action? Changed;
 
@@ -66,6 +68,16 @@ public sealed class EditorToolBarViewModel
     public void Back() => Context.Back();
 
     public void Root() => Context.Root();
+
+    public void SelectFixtureAttribute(AttributeClass attribute)
+    {
+        var fixtureFrame = Context.Frames.FirstOrDefault();
+        if (fixtureFrame?.ObjectType != EditorObjectType.Fixture) return;
+        SelectedFixtureAttribute = attribute;
+        Context.EnterObject(EditorObjectType.Fixture, "FIXTURE", fixtureFrame.SelectedObject, fixtureFrame.SelectedObjectLabel);
+        Context.Push(attribute.ToString(), attribute.ToString().ToUpperInvariant());
+        Changed?.Invoke();
+    }
 
     private void EnterContext(SoftKeyDefinition key)
     {

@@ -16,15 +16,7 @@
 
 <div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
     <div class="command-surface-context">
-        <div class="context-soft-keys">
-            <span class="context-soft-keys-label">Context</span>
-            @* Reserved structural region for context-sensitive soft keys (Intensity/Position/
-               Color/Beam in a Fixture context, Timing/Trigger/Follow/Wait in a Cue context,
-               etc. - see the milestone plan). Not yet populated: CommandComposer only
-               interprets the token kinds used below this first slice - a richer
-               CommandSurfaceContext model lands once the composer's grammar grows to match. *@
-            <div class="context-soft-keys-empty">@ContextHint</div>
-        </div>
+        <FixtureEncoderBank />
     </div>
 
     <div class="command-keypad">
@@ -70,10 +62,6 @@
 
 @code {
     private CommandSurfaceViewModel Sfc => Vm.CommandSurfaceVm;
-
-    private string ContextHint => Sfc.Current.Tokens.Count == 0
-        ? "Start with Fixture or Group"
-        : "(attribute/verb soft keys arrive with a later slice)";
 
     protected override void OnInitialized() => Sfc.Changed += OnChanged;
 
