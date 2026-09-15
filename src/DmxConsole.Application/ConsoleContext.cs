@@ -21,6 +21,12 @@ public sealed class ConsoleContext
     public GroupManager Groups { get; }
 
     /// <summary>
+    /// Shared operator selection-cycle state: selection survives an execution, while the next
+    /// new selection knows whether to append to the current cycle or start a fresh one.
+    /// </summary>
+    public SelectionCycleState SelectionCycle { get; } = new();
+
+    /// <summary>
     /// Read-only view of the engine's actual merged output - what a Relative adjustment
     /// treats as "the current value", since a Cue/Effect can be driving a channel with no
     /// Programmer override present at all. Narrowed to this one read-only method (not the
