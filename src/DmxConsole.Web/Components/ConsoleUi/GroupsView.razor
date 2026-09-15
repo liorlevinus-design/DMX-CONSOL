@@ -9,64 +9,68 @@
     (CommandDispatcher), never mutate GroupManager directly.
 *@
 
-<div class="channels-view">
+<div class="groups-view">
     <div class="channels-view-header">
         <span class="channels-view-title">Groups</span>
         <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
     </div>
 
-    <div class="groups-store-row">
+    <div class="groups-store-row" aria-label="Store group controls">
         <label>#</label>
         <input type="number" min="1" @bind="Vm.GroupsVm.NewGroupNumber" style="width:60px" placeholder="auto" />
         <label>Name</label>
         <input type="text" @bind="Vm.GroupsVm.NewGroupName" style="flex:1; min-width:80px" placeholder="New group name" />
-        <button class="btn btn-go" @onclick="() => Vm.GroupsVm.StoreCommand.Execute(null)">Store Group</button>
+        <button class="btn btn-go" disabled="@(Vm.SelectionVm.Selection.Items.Count == 0)" @onclick="StoreGroup">Store</button>
+        @if (_focusedGroup is not null)
+        {
+            <button class="btn" disabled="@(Vm.SelectionVm.Selection.Items.Count == 0)" @onclick="UpdateFocusedGroup">Update #@_focusedGroup.Number</button>
+        }
         @if (!string.IsNullOrEmpty(Vm.GroupsVm.StatusMessage))
         {
             <span class="groups-status">@Vm.GroupsVm.StatusMessage</span>
         }
     </div>
 
-    <div class="channels-table-scroll">
-        <table class="data-list groups-table">
-            <thead>
-                <tr><th>#</th><th>Name</th><th>Members</th><th></th></tr>
-            </thead>
-            <tbody>
-                @foreach (var group in Vm.GroupsVm.Groups.Groups.OrderBy(g => g.Number))
-                {
-                    <tr class="cue-row" title="Click to enter Group context" @onclick="() => SelectForContext(group)">
-                        <td class="ch-cell">@group.Number</td>
-                        <td>
-                            @if (_renamingGroup == group)
-                            {
-                                <input class="workspace-rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="@(e => OnRenameKeyDown(e, group))" @onclick:stopPropagation="true" />
-                            }
-                            else
-                            {
-                                <span @ondblclick="() => StartRename(group)" title="Double-click to rename">@group.Name</span>
-                            }
-                        </td>
-                        <td class="groups-members">@string.Join(", ", group.Fixtures.Select(f => f.Number))</td>
-                        <td class="groups-actions" @onclick:stopPropagation="true">
-                            <button class="btn" @onclick="() => ApplyGroup(group)">Apply</button>
-                            <button class="btn" @onclick="() => Vm.GroupsVm.UpdateCommand.Execute(group)">Update</button>
-                            <button class="btn" @onclick="() => StartRename(group)">Rename</button>
-                            <button class="btn key-danger" @onclick="() => Vm.GroupsVm.RemoveCommand.Execute(group)">Delete</button>
-                        </td>
-                    </tr>
-                }
-                @if (Vm.GroupsVm.Groups.Groups.Count == 0)
-                {
-                    <tr><td colspan="4" class="channels-empty">No groups stored yet. Select fixtures, then Store Group.</td></tr>
-                }
-            </tbody>
-        </table>
+    <div class="groups-pool">
+        @foreach (var group in Vm.GroupsVm.Groups.Groups.OrderBy(g => g.Number))
+        {
+            var selectedCount = group.Fixtures.Count(Vm.SelectionVm.Selection.Contains);
+            var fullySelected = group.Fixtures.Count > 0 && selectedCount == group.Fixtures.Count;
+            var partlySelected = selectedCount > 0 && !fullySelected;
+            <article class="group-tile @(ReferenceEquals(_focusedGroup, group) ? "focused" : "") @(fullySelected ? "selected" : partlySelected ? "partial" : "")"
+                     @onclick="() => FocusGroup(group)">
+                <button class="group-tile-apply" @onclick="() => ApplyGroup(group)" @onclick:stopPropagation="true"
+                        aria-label="Apply group @group.Number">
+                    <span class="group-tile-number">@group.Number</span>
+                    @if (_renamingGroup == group)
+                    {
+                        <input class="group-rename-input" @bind="_renameText" @bind:event="oninput"
+                               @onkeydown="@(e => OnRenameKeyDown(e, group))" @onclick:stopPropagation="true" />
+                    }
+                    else
+                    {
+                        <span class="group-tile-name" @ondblclick="() => StartRename(group)" @ondblclick:stopPropagation="true">@group.Name</span>
+                    }
+                    <span class="group-tile-members">@MemberSummary(group)</span>
+                    <span class="group-tile-state">@(fullySelected ? "Selected" : partlySelected ? $"{selectedCount}/{group.Fixtures.Count} selected" : $"{group.Fixtures.Count} fixtures")</span>
+                </button>
+                <div class="groups-actions" @onclick:stopPropagation="true">
+                    <button class="btn" @onclick="() => UpdateGroup(group)" disabled="@(Vm.SelectionVm.Selection.Items.Count == 0)">Update</button>
+                    <button class="btn" @onclick="() => StartRename(group)">Rename</button>
+                    <button class="btn key-danger" @onclick="() => RemoveGroup(group)">Delete</button>
+                </div>
+            </article>
+        }
+        @if (Vm.GroupsVm.Groups.Groups.Count == 0)
+        {
+            <div class="groups-empty">No groups stored yet. Select fixtures, name the group, then press Store.</div>
+        }
     </div>
 </div>
 
 @code {
     private FixtureGroup? _renamingGroup;
+    private FixtureGroup? _focusedGroup;
     private string _renameText = "";
 
     protected override void OnInitialized()
@@ -78,15 +82,48 @@
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    private void SelectForContext(FixtureGroup group) =>
+    private void FocusGroup(FixtureGroup group)
+    {
+        _focusedGroup = group;
         Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Group, "GROUP", group, $"Group {group.Number} \"{group.Name}\"");
+    }
 
     private void ApplyGroup(FixtureGroup group)
     {
+        _focusedGroup = group;
         Vm.GroupsVm.ApplyCommand.Execute(group);
         Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
         Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Group,
             "GROUP", group, $"Group {group.Number} \"{group.Name}\"");
+    }
+
+    private void StoreGroup() => Vm.GroupsVm.StoreCommand.Execute(null);
+
+    private void UpdateFocusedGroup()
+    {
+        if (_focusedGroup is not null) UpdateGroup(_focusedGroup);
+    }
+
+    private void UpdateGroup(FixtureGroup group)
+    {
+        _focusedGroup = group;
+        Vm.GroupsVm.UpdateCommand.Execute(group);
+        FocusGroup(group);
+    }
+
+    private void RemoveGroup(FixtureGroup group)
+    {
+        Vm.GroupsVm.RemoveCommand.Execute(group);
+        if (ReferenceEquals(_focusedGroup, group)) _focusedGroup = null;
+    }
+
+    private static string MemberSummary(FixtureGroup group)
+    {
+        if (group.Fixtures.Count == 0) return "Empty";
+        const int visibleMembers = 8;
+        var numbers = group.Fixtures.OrderBy(f => f.Number).Select(f => f.Number).ToList();
+        var summary = string.Join(" · ", numbers.Take(visibleMembers));
+        return numbers.Count > visibleMembers ? $"{summary}  +{numbers.Count - visibleMembers}" : summary;
     }
 
     private void StartRename(FixtureGroup group)
