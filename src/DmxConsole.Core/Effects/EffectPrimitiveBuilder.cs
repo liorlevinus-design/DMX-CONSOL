@@ -5,6 +5,25 @@ namespace DmxConsole.Core.Effects;
 /// <summary>Maps simple UI primitives onto the canonical step model.</summary>
 public static class EffectPrimitiveBuilder
 {
+    public static IReadOnlyList<EffectStep> BuildRainbow(double brightness)
+    {
+        double level = Math.Clamp(brightness, 0, 1);
+        return Enumerable.Range(0, 6)
+            .Select(index => HsvColor.ToRgb(index / 6.0, 1, level))
+            .Select(rgb => new EffectStep
+            {
+                AbsoluteValues = new Dictionary<ChannelType, double>
+                {
+                    [ChannelType.ColorRed] = rgb.R,
+                    [ChannelType.ColorGreen] = rgb.G,
+                    [ChannelType.ColorBlue] = rgb.B,
+                },
+                Width = 100,
+                Transition = 100,
+            })
+            .ToArray();
+    }
+
     public static IReadOnlyList<EffectStep> Build(
         EffectPrimitiveKind kind,
         ChannelType channel,

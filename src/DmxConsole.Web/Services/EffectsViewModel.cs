@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DmxConsole.Application;
+using DmxConsole.Application.Commands.Effects;
+using DmxConsole.Application.Commands.Playback;
 using DmxConsole.Core;
 using DmxConsole.Core.Effects;
 using DmxConsole.Core.Engine;
@@ -15,9 +18,10 @@ namespace DmxConsole.Web.Services;
 public partial class EffectsViewModel : ObservableObject
 {
     private readonly Patch _patch;
+    private readonly CommandDispatcher _dispatcher;
 
-    public EffectsEngine EffectsEngine { get; }
-    public ObservableCollection<Effect> Effects => EffectsEngine.Effects;
+    public EffectBank EffectBank { get; }
+    public ObservableCollection<EffectPhaser> Effects => EffectBank.Effects;
     public ObservableCollection<FixtureSelectionItem> AvailableFixtures { get; } = new();
 
     public string[] EffectTypeOptions { get; } = { "Chase", "Strobe", "Sine", "Rainbow" };
@@ -35,10 +39,11 @@ public partial class EffectsViewModel : ObservableObject
     [ObservableProperty] private double _brightness = 1.0;
     [ObservableProperty] private string _statusMessage = string.Empty;
 
-    public EffectsViewModel(Patch patch, EffectsEngine effectsEngine)
+    public EffectsViewModel(Patch patch, EffectBank effectBank, CommandDispatcher dispatcher)
     {
         _patch = patch;
-        EffectsEngine = effectsEngine;
+        EffectBank = effectBank;
+        _dispatcher = dispatcher;
         RebuildFixtureList();
         _patch.Fixtures.CollectionChanged += (_, _) => RebuildFixtureList();
     }
@@ -65,29 +70,56 @@ public partial class EffectsViewModel : ObservableObject
             return;
         }
 
-        Effect effect = SelectedEffectType switch
+        IReadOnlyList<EffectStep> steps = SelectedEffectType switch
         {
-            "Sine" => new SineEffect { TargetChannel = TargetChannel, Min = Min, Max = Max },
-            "Chase" => new ChaseEffect { TargetChannel = TargetChannel, OnValue = Max, OffValue = Min, Width = Width },
-            "Strobe" => new StrobeEffect { TargetChannel = TargetChannel, OnValue = Max, OffValue = Min, DutyCycle = DutyCycle },
-            "Rainbow" => new RainbowEffect { Brightness = Brightness },
+            "Sine" => EffectPrimitiveBuilder.Build(EffectPrimitiveKind.Sine, TargetChannel, Min, Max),
+            "Chase" => EffectPrimitiveBuilder.Build(EffectPrimitiveKind.Square, TargetChannel, Min, Max,
+                dutyCyclePercent: Math.Clamp(Width, 1, selected.Count) * 100.0 / selected.Count),
+            "Strobe" => EffectPrimitiveBuilder.Build(EffectPrimitiveKind.Square, TargetChannel, Min, Max,
+                dutyCyclePercent: DutyCycle * 100),
+            "Rainbow" => EffectPrimitiveBuilder.BuildRainbow(Brightness),
             _ => throw new InvalidOperationException($"Unknown effect type '{SelectedEffectType}'."),
         };
 
-        effect.Name = string.IsNullOrWhiteSpace(NewEffectName) ? $"{SelectedEffectType} {Effects.Count + 1}" : NewEffectName;
-        effect.Fixtures = selected;
-        effect.SpeedHz = SpeedHz;
-        effect.Spread = Spread;
+        var effect = new EffectPhaser
+        {
+            Name = string.IsNullOrWhiteSpace(NewEffectName) ? $"{SelectedEffectType} {Effects.Count + 1}" : NewEffectName,
+            EffectType = SelectedEffectType,
+            Fixtures = selected,
+            Steps = steps,
+            SpeedHz = SpeedHz,
+            // Legacy Chase advanced exactly one fixture per step; the equivalent phaser offset
+            // is one evenly-spread cycle over the selected group. Other primitives keep the
+            // operator-entered Spread value.
+            Spread = SelectedEffectType == "Chase" ? 1.0 / selected.Count : Spread,
+        };
 
-        Effects.Add(effect);
-        StatusMessage = $"Added effect '{effect.Name}' on {selected.Count} fixture(s).";
-        NewEffectName = string.Empty;
+        var result = _dispatcher.Dispatch(new CreateEffectCommand(effect));
+        StatusMessage = result.Success
+            ? $"Added effect '{effect.Name}' on {selected.Count} fixture(s)."
+            : result.Error ?? "Could not add effect.";
+        if (result.Success) NewEffectName = string.Empty;
     }
 
     [RelayCommand]
-    private void RemoveEffect(Effect? effect)
+    private void RemoveEffect(EffectPhaser? effect)
     {
         if (effect is null) return;
-        Effects.Remove(effect);
+        var result = _dispatcher.Dispatch(new DeleteEffectCommand(effect));
+        StatusMessage = result.Success ? $"Removed effect '{effect.Name}'." : result.Error ?? "Could not remove effect.";
+    }
+
+    public void SetEnabled(EffectPhaser effect, bool enabled)
+    {
+        var result = _dispatcher.DispatchAction(enabled
+            ? new StartEffectAction(effect)
+            : new StopEffectAction(effect));
+        StatusMessage = result.Success ? $"Effect '{effect.Name}' {(enabled ? "started" : "stopped")}." : result.Error!;
+    }
+
+    public void SetSpeed(EffectPhaser effect, double speedHz)
+    {
+        var result = _dispatcher.DispatchAction(new SetEffectRateAction(effect, speedHz));
+        StatusMessage = result.Success ? $"Effect '{effect.Name}' speed: {speedHz:0.##} Hz." : result.Error!;
     }
 }

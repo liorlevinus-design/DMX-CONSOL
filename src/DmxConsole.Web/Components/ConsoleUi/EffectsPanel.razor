@@ -82,14 +82,14 @@
         Fx.Effects.CollectionChanged += OnChanged;
     }
 
-    private void OnSpeedChanged(DmxConsole.Core.Effects.Effect effect, ChangeEventArgs e)
+    private void OnSpeedChanged(DmxConsole.Core.Effects.EffectPhaser effect, ChangeEventArgs e)
     {
-        if (double.TryParse(e.Value?.ToString(), out var hz)) effect.SpeedHz = hz;
+        if (double.TryParse(e.Value?.ToString(), out var hz)) Fx.SetSpeed(effect, hz);
     }
 
-    private void OnEnabledChanged(DmxConsole.Core.Effects.Effect effect, ChangeEventArgs e)
+    private void OnEnabledChanged(DmxConsole.Core.Effects.EffectPhaser effect, ChangeEventArgs e)
     {
-        effect.Enabled = e.Value is bool b && b;
+        Fx.SetEnabled(effect, e.Value is bool b && b);
     }
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);

@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
 using DmxConsole.Core.Engine;
+using DmxConsole.Core.Effects;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Presets;
 using DmxConsole.Core.Selection;
@@ -69,7 +70,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Engine = new DmxOutputEngine(Patch);
         var presets = new PresetLibrary();
         var cueList = new CueList(presetResolver: presets); // resolves CueValue.PresetRef entries at playback
-        var effectsEngine = new EffectsEngine();
+        var effects = new EffectBank(Engine);
 
         // Step F: the CueList is no longer registered with the engine directly - it's assigned
         // onto Executor 1 (the handle), which is what actually gets registered. FaderLevel
@@ -79,16 +80,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var mainExecutor = executors.Add(1);
         mainExecutor.Assign(cueList);
         Engine.AddLayer(mainExecutor);   // instead of Engine.AddLayer(cueList)
-        Engine.AddLayer(effectsEngine); // priority 300 - above cues, below the live Programmer
         Engine.AddLayer(Programmer);
         Engine.UniverseOutputReady += OnUniverseOutputReady;
 
-        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, presets, executors);
+        var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, presets, executors, effects);
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
 
         CueListVm = new CueListViewModel(Patch, Programmer, cueList, dispatcher, mainExecutor);
-        EffectsVm = new EffectsViewModel(Patch, effectsEngine);
+        EffectsVm = new EffectsViewModel(Patch, effects, dispatcher);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
         ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
         PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);

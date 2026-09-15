@@ -6,6 +6,18 @@ namespace DmxConsole.Core.Tests;
 public sealed class EffectPrimitiveBuilderTests
 {
     [Fact]
+    public void Rainbow_BuildsContinuousSixStepRgbWheel()
+    {
+        var steps = EffectPrimitiveBuilder.BuildRainbow(1);
+
+        Assert.Equal(6, steps.Count);
+        Assert.Equal(255, steps[0].AbsoluteValues[ChannelType.ColorRed]);
+        Assert.Equal(0, steps[0].AbsoluteValues[ChannelType.ColorGreen]);
+        Assert.Equal(0, steps[0].AbsoluteValues[ChannelType.ColorBlue]);
+        Assert.All(steps, step => Assert.Equal(3, step.AbsoluteValues.Count));
+    }
+
+    [Fact]
     public void Sine_BuildsCanonicalTwoStepPhaserCurve()
     {
         var steps = EffectPrimitiveBuilder.Build(EffectPrimitiveKind.Sine, ChannelType.Dimmer, 10, 240);
