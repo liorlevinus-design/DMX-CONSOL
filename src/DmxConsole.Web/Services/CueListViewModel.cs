@@ -40,6 +40,7 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     [ObservableProperty] private double _transitionProgress;
     [ObservableProperty] private string _remainingTimeText = string.Empty;
     [ObservableProperty] private string _currentCueLabel = "(none)";
+    [ObservableProperty] private string _statusMessage = string.Empty;
 
     public CueListViewModel(Patch patch, Programmer programmer, CueList cueList, CommandDispatcher dispatcher, Executor executor)
     {
@@ -70,15 +71,63 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         CurrentCueLabel = CueList.CurrentCue is { } c ? $"{c.Number:0.##} - {c.Name}" : "(none)";
     }
 
+    /// <summary>
+    /// UX correction F: Store creates a brand-new Cue at the explicit NewCueNumber - and only
+    /// that. A number already in use is an explicit, blocking conflict (never a silent
+    /// duplicate-numbered Cue, never a silent substitute number) - the operator corrects the
+    /// number or uses Update instead. Mirrors the same "explicit collision, no guessing" rule
+    /// this milestone already applied to Patch fixture numbering and Group numbers.
+    /// </summary>
     [RelayCommand]
-    private void RecordCue()
+    private void StoreCue()
     {
+        if (CueList.FindByNumber(NewCueNumber) is not null)
+        {
+            StatusMessage = $"Cue {NewCueNumber:0.##} already exists - Update it instead, or choose a different number.";
+            return;
+        }
+
         var name = string.IsNullOrWhiteSpace(NewCueName) ? $"Cue {NewCueNumber:0.##}" : NewCueName;
         CueList.RecordCue(_patch, _programmer, name, NewCueNumber,
             TimeSpan.FromSeconds(NewFadeInSeconds), TimeSpan.FromSeconds(NewFadeOutSeconds));
 
+        StatusMessage = $"Stored Cue {NewCueNumber:0.##}.";
         NewCueNumber = Math.Floor(NewCueNumber) + 1;
         NewCueName = string.Empty;
+    }
+
+    /// <summary>Update requires an already-existing Cue at NewCueNumber - an explicit "no such
+    /// cue" error if there isn't one, never silently creating it instead (that's what Store is
+    /// for). Replaces the target Cue's captured levels/name/timing in place via
+    /// CueList.UpdateCue - its Number and list position are unchanged.</summary>
+    [RelayCommand]
+    private void UpdateCue()
+    {
+        var existing = CueList.FindByNumber(NewCueNumber);
+        if (existing is null)
+        {
+            StatusMessage = $"Cue {NewCueNumber:0.##} doesn't exist yet - Store it first.";
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(NewCueName) ? existing.Name : NewCueName;
+        CueList.UpdateCue(existing, _patch, _programmer, name,
+            TimeSpan.FromSeconds(NewFadeInSeconds), TimeSpan.FromSeconds(NewFadeOutSeconds));
+
+        StatusMessage = $"Updated Cue {NewCueNumber:0.##}.";
+    }
+
+    /// <summary>Loads an existing Cue's number/name/timing into the Store/Update form fields, so
+    /// "Update Cue N" always targets exactly the cue the operator clicked, never whatever number
+    /// happened to be left in the box from a previous action.</summary>
+    [RelayCommand]
+    private void LoadForEdit(Cue? cue)
+    {
+        if (cue is null) return;
+        NewCueNumber = cue.Number;
+        NewCueName = cue.Name;
+        NewFadeInSeconds = cue.GeneralTiming.FadeInTime.TotalSeconds;
+        NewFadeOutSeconds = cue.GeneralTiming.FadeOutTime.TotalSeconds;
     }
 
     [RelayCommand]

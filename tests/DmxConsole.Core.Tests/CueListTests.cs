@@ -201,4 +201,66 @@ public class CueListTests
         Assert.True(revision > 0);
         Assert.False(cueList.TryGetRevision(0, 99, out _)); // never-patched channel
     }
+
+    [Fact]
+    public void FindByNumber_ReturnsMatchingCue_OrNull()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        var cue = cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+
+        Assert.Same(cue, cueList.FindByNumber(1));
+        Assert.Null(cueList.FindByNumber(2));
+    }
+
+    [Fact]
+    public void UpdateCue_ReplacesLevelsAndName_KeepsSameNumberAndListPosition()
+    {
+        var (patch, fixture) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        cueList.RecordCue(patch, programmer, "Cue 0", 0, TimeSpan.Zero, TimeSpan.Zero);
+        var original = cueList.RecordCue(patch, programmer, "Original", 1, TimeSpan.Zero, TimeSpan.Zero);
+        cueList.RecordCue(patch, programmer, "Cue 2", 2, TimeSpan.Zero, TimeSpan.Zero);
+
+        programmer.SetChannel(0, 0, 222);
+        var updated = cueList.UpdateCue(original, patch, programmer, "Renamed", TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+
+        Assert.NotNull(updated);
+        Assert.Equal(1, updated!.Number);
+        Assert.Equal("Renamed", updated.Name);
+        Assert.Equal(222, updated.Levels[(0, 0)].AbsoluteValue);
+        Assert.Equal(new[] { 0.0, 1.0, 2.0 }, cueList.Cues.Select(c => c.Number)); // position/order preserved
+        Assert.Same(updated, cueList.FindByNumber(1));
+    }
+
+    [Fact]
+    public void UpdateCue_ReturnsNull_WhenCueNoLongerInList()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        var cue = cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        cueList.RemoveCue(cue);
+
+        var result = cueList.UpdateCue(cue, patch, programmer, "New Name", TimeSpan.Zero, TimeSpan.Zero);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void UpdateCue_OnCurrentlyActiveCue_UpdatesTheLivePointer_SoGoToCueStillWorks()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        var cue = cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        cueList.Go(); // cue becomes _currentCue
+
+        var updated = cueList.UpdateCue(cue, patch, programmer, "Cue 1 renamed", TimeSpan.Zero, TimeSpan.Zero);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Cue 1 renamed", cueList.CurrentCue!.Name);
+    }
 }

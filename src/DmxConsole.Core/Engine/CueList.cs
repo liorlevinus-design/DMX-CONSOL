@@ -90,6 +90,15 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
     private Cue RecordCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime,
         TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
     {
+        var cue = BuildCue(patch, programmer, name, number, fadeInTime, fadeOutTime, presetOverrides);
+        InsertSorted(cue);
+        Changed?.Invoke();
+        return cue;
+    }
+
+    private static Cue BuildCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime,
+        TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
+    {
         var levels = new Dictionary<(int, int), CueValue>();
         foreach (var fixture in patch.Fixtures)
         {
@@ -113,17 +122,40 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
             }
         }
 
-        var cue = new Cue
+        return new Cue
         {
             Number = number,
             Name = name,
             GeneralTiming = new CueTiming(fadeInTime, fadeOutTime),
             Levels = levels,
         };
+    }
 
-        InsertSorted(cue);
+    /// <summary>Looks up a Cue by its exact stored Number - the "does Cue N already exist"
+    /// question the Store/Update workflow needs to answer explicitly, never guessed.</summary>
+    public Cue? FindByNumber(double number) => Cues.FirstOrDefault(c => c.Number == number);
+
+    /// <summary>Replaces an already-recorded Cue's captured levels/name/timing in place - the
+    /// "Update Cue N" workflow (as opposed to RecordCue, which always creates a new Cue object).
+    /// The Cue's list position and Number are preserved; if it happens to be the cue currently
+    /// playing/active, the live pointer is updated too so playback doesn't go stale referencing
+    /// a replaced object. Returns null (no mutation) if the given Cue is no longer in this list -
+    /// an explicit, checkable failure rather than silently doing nothing.</summary>
+    public Cue? UpdateCue(Cue existing, Patch patch, Programmer programmer, string name, TimeSpan fadeInTime, TimeSpan fadeOutTime)
+    {
+        Cue updated;
+        lock (_lock)
+        {
+            int index = Cues.IndexOf(existing);
+            if (index < 0) return null;
+
+            updated = BuildCue(patch, programmer, name, existing.Number, fadeInTime, fadeOutTime, presetOverrides: null);
+            Cues[index] = updated;
+            if (ReferenceEquals(_currentCue, existing)) _currentCue = updated;
+        }
+
         Changed?.Invoke();
-        return cue;
+        return updated;
     }
 
     private void InsertSorted(Cue cue)

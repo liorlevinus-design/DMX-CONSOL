@@ -178,6 +178,8 @@ html, body {
 .data-list th { color: var(--text-dim); font-weight: 600; }
 .data-list tr:nth-child(even) { background: var(--row-alt); }
 .data-list tr.active-row { background: #2f4a33; }
+.data-list tr.cue-row { cursor: pointer; }
+.data-list tr.cue-row:hover { background: var(--row-alt); }
 
 /* ---------- Channels View (Phase H1) ---------- */
 

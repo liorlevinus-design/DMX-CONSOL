@@ -9,7 +9,14 @@
             <label>Fade In</label><input type="number" step="0.1" @bind="Cues.NewFadeInSeconds" style="width:60px" />
             <label style="min-width:auto">Out</label><input type="number" step="0.1" @bind="Cues.NewFadeOutSeconds" style="width:60px" />
         </div>
-        <button class="btn" style="width:100%; margin-bottom:10px" @onclick="() => Cues.RecordCueCommand.Execute(null)">● Record Cue (from Programmer)</button>
+        <div style="display:flex; gap:6px; margin-bottom:6px">
+            <button class="btn btn-go" style="flex:1" @onclick="() => Cues.StoreCueCommand.Execute(null)">● Store Cue @(Cues.NewCueNumber.ToString("0.##"))</button>
+            <button class="btn" style="flex:1" @onclick="() => Cues.UpdateCueCommand.Execute(null)">⟳ Update Cue @(Cues.NewCueNumber.ToString("0.##"))</button>
+        </div>
+        @if (!string.IsNullOrEmpty(Cues.StatusMessage))
+        {
+            <div style="font-size:12px; color:var(--text-dim); margin-bottom:8px">@Cues.StatusMessage</div>
+        }
 
         <div style="display:flex; gap:6px; margin-bottom:8px">
             <button class="btn" @onclick="() => Cues.BackCommand.Execute(null)">◀ Back</button>
@@ -28,12 +35,15 @@
             <tbody>
                 @foreach (var cue in Cues.CueList.Cues)
                 {
-                    <tr class="@(cue == Cues.CueList.CurrentCue && Cues.IsActive ? "active-row" : "")" @ondblclick="() => Cues.GoToCueCommand.Execute(cue)">
+                    <tr class="cue-row @(cue == Cues.CueList.CurrentCue && Cues.IsActive ? "active-row" : "")"
+                        title="Click to load into Store/Update fields - double-click to jump playback here"
+                        @onclick="() => Cues.LoadForEditCommand.Execute(cue)"
+                        @ondblclick="() => Cues.GoToCueCommand.Execute(cue)">
                         <td>@cue.Number</td>
                         <td>@cue.Name</td>
                         <td>@cue.GeneralTiming.FadeInTime</td>
                         <td>@cue.GeneralTiming.FadeOutTime</td>
-                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Cues.RemoveCueCommand.Execute(cue)">✕</button></td>
+                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Cues.RemoveCueCommand.Execute(cue)" @onclick:stopPropagation="true">✕</button></td>
                     </tr>
                 }
             </tbody>
