@@ -1,6 +1,7 @@
 using DmxConsole.Application;
 using DmxConsole.Application.CommandSurface;
 using DmxConsole.Application.Commands.Selection;
+using DmxConsole.Core.Fixtures;
 using DmxConsole.Web.EditorToolBar;
 
 namespace DmxConsole.Web.Services;
@@ -44,6 +45,35 @@ public sealed class CommandSurfaceViewModel
     /// <summary>What CommandLine actually renders - the composer's preview plus whatever digits
     /// are still being typed (shown with a trailing cursor-ish underscore, e.g. "FIXTURE 1 AT 7_").</summary>
     public string DisplayPreview => _pendingDigits.Length == 0 ? Current.PreviewText : $"{Current.PreviewText} {_pendingDigits}".TrimStart();
+
+    /// <summary>
+    /// Mirrors a fixture selection made outside the keypad (mouse/touch Views) into the SAME
+    /// CommandComposer used by the Command Surface. This deliberately does not dispatch any
+    /// selection command: the View/SelectionViewModel already performed that mutation. Its only
+    /// job is to make a subsequent keypad operation such as AT 50 operate on exactly the fixtures
+    /// the operator can already see selected instead of starting from an unrelated empty parser.
+    /// </summary>
+    public void SynchronizeFixtureSelection(IEnumerable<PatchedFixture> fixtures)
+    {
+        _pendingDigits = string.Empty;
+        DispatchError = null;
+        _composer.Reset();
+
+        var ordered = fixtures
+            .Distinct()
+            .OrderBy(f => f.Number)
+            .ToList();
+
+        if (ordered.Count > 0)
+        {
+            _composer.Push(CommandToken.Simple(CommandTokenKind.Fixture));
+            foreach (var fixture in ordered)
+                _composer.Push(CommandToken.Number(fixture.Number));
+        }
+
+        Current = _composer.Current;
+        Changed?.Invoke();
+    }
 
     public void PressDigit(char digit)
     {
