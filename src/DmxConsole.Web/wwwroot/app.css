@@ -468,6 +468,17 @@ html, body {
 }
 .workspace-name { font-weight: 700; color: var(--text); }
 
+.workspace-current-label {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+    padding: 0 4px;
+    white-space: nowrap;
+}
+
+.workspace-btn-rename { border-color: var(--accent); color: var(--accent); }
+.workspace-btn-rename:hover { background: var(--accent); color: #fff; }
+
 .workspace-picker {
     min-height: 32px;
     background: var(--panel);

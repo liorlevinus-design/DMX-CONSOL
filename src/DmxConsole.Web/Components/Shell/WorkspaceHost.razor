@@ -12,27 +12,30 @@
 
 <div class="workspace-host">
     <div class="workspace-tabbar">
-        <select class="workspace-picker" title="Switch workspace" value="@Wvm.Current.Id" @onchange="@(e => SwitchTo(e.Value?.ToString()))">
-            @foreach (var workspace in Wvm.Workspaces)
-            {
-                <option value="@workspace.Id">@workspace.Name@(workspace.Scope == WorkspaceScope.Factory ? " (Factory)" : "")</option>
-            }
-        </select>
-
         @if (_renaming)
         {
-            <input class="workspace-rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="OnRenameKeyDown" />
-            <button class="workspace-btn" @onclick="ConfirmRename">✓</button>
-            <button class="workspace-btn" @onclick="CancelRename">✕</button>
+            <span class="workspace-current-label">Name:</span>
+            <input class="workspace-rename-input" autofocus @bind="_renameText" @bind:event="oninput" @onkeydown="OnRenameKeyDown" />
+            <button class="workspace-btn" @onclick="ConfirmRename">✓ Save name</button>
+            <button class="workspace-btn" @onclick="CancelRename">✕ Cancel</button>
         }
         else
         {
+            <span class="workspace-current-label" title="Current workspace">@Wvm.Current.Name@(Wvm.Current.Scope == WorkspaceScope.Factory ? " (Factory - read-only)" : "")</span>
+
+            <select class="workspace-picker" title="Switch workspace" value="@Wvm.Current.Id" @onchange="@(e => SwitchTo(e.Value?.ToString()))">
+                @foreach (var workspace in Wvm.Workspaces)
+                {
+                    <option value="@workspace.Id">@workspace.Name@(workspace.Scope == WorkspaceScope.Factory ? " (Factory)" : "")</option>
+                }
+            </select>
+
             <button class="workspace-btn" title="New Workspace" @onclick="NewWorkspace">+ New</button>
             <button class="workspace-btn" title="Save" @onclick="Save">💾 Save</button>
             <button class="workspace-btn" title="Save As" @onclick="StartSaveAs">Save As…</button>
-            <button class="workspace-btn" title="Rename" disabled="@(Wvm.Current.Scope == WorkspaceScope.Factory)" @onclick="StartRename">Rename</button>
+            <button class="workspace-btn workspace-btn-rename" title="@(Wvm.Current.Scope == WorkspaceScope.Factory ? "The Factory workspace is read-only - this makes an editable copy and renames that." : "Rename")" @onclick="StartRename">✎ Rename</button>
             <button class="workspace-btn" title="Duplicate" @onclick="Duplicate">Duplicate</button>
-            <button class="workspace-btn" title="Delete" disabled="@(Wvm.Current.Scope == WorkspaceScope.Factory)" @onclick="Delete">Delete</button>
+            <button class="workspace-btn" title="@(Wvm.Current.Scope == WorkspaceScope.Factory ? "The Factory workspace can't be deleted - Duplicate it first." : "Delete")" disabled="@(Wvm.Current.Scope == WorkspaceScope.Factory)" @onclick="Delete">Delete</button>
             <button class="workspace-btn" title="Move earlier in the list" @onclick="@(() => Move(-1))">▲</button>
             <button class="workspace-btn" title="Move later in the list" @onclick="@(() => Move(1))">▼</button>
         }
@@ -119,9 +122,18 @@
         else if (e.Key == "Escape") CancelSaveAs();
     }
 
+    /// <summary>Never a silent no-op, even on the read-only Factory workspace: renaming that
+    /// one first makes an editable Duplicate (clearly reported in the status line), then opens
+    /// the rename box for the copy - "Rename" always does something the operator can see and
+    /// understand, per the UX correction ("do not hide Rename behind obscure controls").</summary>
     private void StartRename()
     {
-        if (Wvm.Current.Scope == WorkspaceScope.Factory) return;
+        if (Wvm.Current.Scope == WorkspaceScope.Factory)
+        {
+            Wvm.Duplicate();
+            _statusMessage = $"The Factory workspace is read-only - duplicated it as \"{Wvm.Current.Name}\" so you can rename it.";
+        }
+
         _renaming = true;
         _renameText = Wvm.Current.Name;
     }
