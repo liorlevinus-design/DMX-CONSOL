@@ -13,6 +13,7 @@ public enum ViewKind
     Effects,
     Patch,
     Presets,
+    Groups,
     StageLayout,
     ThreeD,
     TrackSheet,

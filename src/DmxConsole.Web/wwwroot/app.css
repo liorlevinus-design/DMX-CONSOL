@@ -220,6 +220,22 @@ html, body {
 
 .color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; }
 
+/* ---------- Groups View ---------- */
+
+.groups-store-row {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+}
+.groups-store-row input { min-height: 36px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 4px 8px; }
+.groups-status { font-size: 12px; color: var(--text-dim); font-style: italic; }
+.groups-members { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 13px; }
+.groups-actions { display: flex; gap: 4px; }
+.groups-actions .btn { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+
 /* ============================================================
    Command Line / Command Surface (H1.5) - persistent console
    infrastructure, outside the pane tree, alongside ConsoleChrome.

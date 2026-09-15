@@ -1,0 +1,106 @@
+@using DmxConsole.Core.Selection
+@implements IDisposable
+@inject MainViewModel Vm
+
+@*
+    UX correction #2: Groups as a first-class View, not something hidden inside SelectionBar's
+    save-as-group corner. Shows Number/Name/membership for every saved Group; Apply adds its
+    members to the current selection; Store/Update/Rename/Remove all go through GroupsViewModel
+    (CommandDispatcher), never mutate GroupManager directly.
+*@
+
+<div class="channels-view">
+    <div class="channels-view-header">
+        <span class="channels-view-title">Groups</span>
+        <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
+    </div>
+
+    <div class="groups-store-row">
+        <label>#</label>
+        <input type="number" min="1" @bind="Vm.GroupsVm.NewGroupNumber" style="width:60px" placeholder="auto" />
+        <label>Name</label>
+        <input type="text" @bind="Vm.GroupsVm.NewGroupName" style="flex:1; min-width:80px" placeholder="New group name" />
+        <button class="btn btn-go" @onclick="() => Vm.GroupsVm.StoreCommand.Execute(null)">Store Group</button>
+        @if (!string.IsNullOrEmpty(Vm.GroupsVm.StatusMessage))
+        {
+            <span class="groups-status">@Vm.GroupsVm.StatusMessage</span>
+        }
+    </div>
+
+    <div class="channels-table-scroll">
+        <table class="data-list groups-table">
+            <thead>
+                <tr><th>#</th><th>Name</th><th>Members</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var group in Vm.GroupsVm.Groups.Groups.OrderBy(g => g.Number))
+                {
+                    <tr>
+                        <td class="ch-cell">@group.Number</td>
+                        <td>
+                            @if (_renamingGroup == group)
+                            {
+                                <input class="workspace-rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="@(e => OnRenameKeyDown(e, group))" />
+                            }
+                            else
+                            {
+                                <span @ondblclick="() => StartRename(group)" title="Double-click to rename">@group.Name</span>
+                            }
+                        </td>
+                        <td class="groups-members">@string.Join(", ", group.Fixtures.Select(f => f.Number))</td>
+                        <td class="groups-actions">
+                            <button class="btn" @onclick="() => Vm.GroupsVm.ApplyCommand.Execute(group)">Apply</button>
+                            <button class="btn" @onclick="() => Vm.GroupsVm.UpdateCommand.Execute(group)">Update</button>
+                            <button class="btn" @onclick="() => StartRename(group)">Rename</button>
+                            <button class="btn key-danger" @onclick="() => Vm.GroupsVm.RemoveCommand.Execute(group)">Delete</button>
+                        </td>
+                    </tr>
+                }
+                @if (Vm.GroupsVm.Groups.Groups.Count == 0)
+                {
+                    <tr><td colspan="4" class="channels-empty">No groups stored yet. Select fixtures, then Store Group.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private FixtureGroup? _renamingGroup;
+    private string _renameText = "";
+
+    protected override void OnInitialized()
+    {
+        Vm.GroupsVm.PropertyChanged += OnChanged;
+        Vm.GroupsVm.Groups.Groups.CollectionChanged += OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged += OnChanged;
+    }
+
+    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void StartRename(FixtureGroup group)
+    {
+        _renamingGroup = group;
+        _renameText = group.Name;
+    }
+
+    private void OnRenameKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e, FixtureGroup group)
+    {
+        if (e.Key == "Enter")
+        {
+            Vm.GroupsVm.Rename(group, _renameText);
+            _renamingGroup = null;
+        }
+        else if (e.Key == "Escape")
+        {
+            _renamingGroup = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        Vm.GroupsVm.PropertyChanged -= OnChanged;
+        Vm.GroupsVm.Groups.Groups.CollectionChanged -= OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged -= OnChanged;
+    }
+}

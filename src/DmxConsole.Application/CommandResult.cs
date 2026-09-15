@@ -20,6 +20,8 @@ public enum ConsoleActionType
     ClearSelection,
     AddGroupToSelection,
     CreateGroup,
+    StoreGroup,
+    RenameGroup,
     RemoveGroup,
 
     /// <summary>Several commands dispatched and undone together as one transaction.</summary>

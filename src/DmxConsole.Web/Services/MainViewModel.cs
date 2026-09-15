@@ -32,6 +32,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ProgrammerViewModel ProgrammerVm { get; }
     public PresetViewModel PresetVm { get; }
     public ExecutorViewModel ExecutorVm { get; }
+    public GroupsViewModel GroupsVm { get; }
     public CommandSurfaceViewModel CommandSurfaceVm { get; }
 
     private readonly UndoRedoService _undoRedo;
@@ -113,6 +114,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
         PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);
         ExecutorVm = new ExecutorViewModel(consoleContext, dispatcher, cueList);
+        GroupsVm = new GroupsViewModel(consoleContext, dispatcher);
         CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher);
 
         _artNetSender = new ArtNetSender();

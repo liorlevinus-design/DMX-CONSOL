@@ -60,6 +60,7 @@ public sealed class WorkspaceViewModel
         Registry.Register(new ViewDescriptor(ViewKind.CueList, "Cues", typeof(CueListPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.Executors, "Executors", typeof(ExecutorPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.Presets, "Presets", typeof(PresetPanel)));
+        Registry.Register(new ViewDescriptor(ViewKind.Groups, "Groups", typeof(GroupsView)));
         Registry.Register(new ViewDescriptor(ViewKind.Effects, "Effects", typeof(EffectsPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.Programmer, "Programmer", typeof(ProgrammerPanel)));
     }
@@ -77,7 +78,8 @@ public sealed class WorkspaceViewModel
 
         var programmerTab = new ViewInstance { Kind = ViewKind.Programmer, Title = "Programmer" };
         var presetsTab = new ViewInstance { Kind = ViewKind.Presets, Title = "Presets" };
-        var bottomLeft = new TabPaneNode { Tabs = { programmerTab, presetsTab }, ActiveTabId = programmerTab.Id };
+        var groupsTab = new ViewInstance { Kind = ViewKind.Groups, Title = "Groups" };
+        var bottomLeft = new TabPaneNode { Tabs = { programmerTab, presetsTab, groupsTab }, ActiveTabId = programmerTab.Id };
 
         var cueListTab = new ViewInstance { Kind = ViewKind.CueList, Title = "Cues" };
         var topRight = new TabPaneNode { Tabs = { cueListTab }, ActiveTabId = cueListTab.Id };
