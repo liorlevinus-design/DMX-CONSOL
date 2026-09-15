@@ -24,15 +24,33 @@
     </div>
     <div class="field">
         <label>Name</label>
-        <input type="text" @bind="Vm.NewFixtureName" style="flex:1" />
+        <input type="text" @bind="Vm.NewFixtureName" style="flex:1" placeholder="@(Vm.SelectedProfile?.DisplayName)" />
+    </div>
+    <div class="field">
+        <label>Fixture #</label>
+        <input type="number" min="1" @bind="Vm.NewFixtureNumber" style="width:70px" />
+        <label style="min-width:auto">Count</label>
+        <input type="number" min="1" @bind="Vm.NewFixtureCount" style="width:60px" />
     </div>
     <div class="field">
         <label>Universe</label>
         <input type="number" @bind="Vm.NewUniverseId" style="width:70px" />
-        <label style="min-width:auto">Address</label>
+        <label style="min-width:auto">Start Addr</label>
         <input type="number" @bind="Vm.NewStartAddress" style="width:70px" />
     </div>
-    <button class="btn btn-go" style="align-self:flex-start; font-size:15px; min-width:auto" @onclick="() => Vm.AddFixtureCommand.Execute(null)">+ Add Fixture</button>
+    <div class="field">
+        <label>Offset</label>
+        <input type="number" min="1" @bind="Vm.NewAddressOffset" style="width:70px" />
+        <span style="font-size:12px; color:var(--text-dim)">DMX channels between each fixture's start address</span>
+    </div>
+    @if (Vm.NewFixtureCount > 1)
+    {
+        <div class="field" style="font-size:12px; color:var(--text-dim)">
+            Will patch #@(Vm.NewFixtureNumber)–#@(Vm.NewFixtureNumber + Vm.NewFixtureCount - 1),
+            addresses @(Vm.NewStartAddress)–@(Vm.NewStartAddress + (Vm.NewFixtureCount - 1) * (Vm.NewAddressOffset > 0 ? Vm.NewAddressOffset : Vm.SelectedMode?.FootprintSize ?? 0))
+        </div>
+    }
+    <button class="btn btn-go" style="align-self:flex-start; font-size:15px; min-width:auto" @onclick="() => Vm.AddFixtureCommand.Execute(null)">+ Patch</button>
 
     <div class="scroll-y" style="margin-top:10px; flex:1; min-height:0;">
         <table class="data-list">

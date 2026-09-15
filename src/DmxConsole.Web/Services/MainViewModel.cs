@@ -45,8 +45,28 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private FixtureProfile? _selectedProfile;
     [ObservableProperty] private FixtureMode? _selectedMode;
+
+    /// <summary>Explicit, operator-controlled starting fixture Number for the next patch batch -
+    /// pre-filled with a suggestion (the next free number) but never auto-assigned silently;
+    /// see AddFixture's own doc comment for why this is validated up front rather than falling
+    /// back to Patch.Add's own auto-numbering.</summary>
+    [ObservableProperty] private int _newFixtureNumber = 1;
+
+    /// <summary>How many fixtures this single patch action creates, numbered
+    /// NewFixtureNumber..NewFixtureNumber+NewFixtureCount-1 - "fast batch patching" per the
+    /// UX correction, not one form submission per fixture.</summary>
+    [ObservableProperty] private int _newFixtureCount = 1;
+
     [ObservableProperty] private int _newUniverseId;
     [ObservableProperty] private int _newStartAddress = 1;
+
+    /// <summary>Address spacing between consecutive fixtures in a batch - 0 means "pack them
+    /// back-to-back using the mode's own footprint" (today's implicit behavior, now an explicit,
+    /// visible, overridable field instead of a hidden assumption). A truss of movers spaced 20
+    /// channels apart for future expansion is "Offset: 20", not something the operator has no
+    /// way to ask for.</summary>
+    [ObservableProperty] private int _newAddressOffset;
+
     [ObservableProperty] private string _newFixtureName = string.Empty;
 
     public ObservableCollection<FixtureMode> AvailableModes { get; } = new();
@@ -108,8 +128,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (value is null) return;
         foreach (var mode in value.Modes) AvailableModes.Add(mode);
         SelectedMode = AvailableModes.FirstOrDefault();
+        NewFixtureNumber = Patch.SuggestNextNumber();
     }
 
+    partial void OnSelectedModeChanged(FixtureMode? value)
+    {
+        // A visible, overridable default - "pack them back-to-back" - not a silent assumption:
+        // the field is right there in the UI for the operator to change to any spacing.
+        if (value is not null) NewAddressOffset = value.FootprintSize;
+    }
+
+    /// <summary>
+    /// Patches NewFixtureCount fixtures at once, numbered NewFixtureNumber..+Count-1, spaced
+    /// NewAddressOffset DMX channels apart starting at NewStartAddress - all operator-controlled,
+    /// explicit fields (the UX correction: numbering must never appear to "just happen"
+    /// automatically). Every requested fixture Number is validated as free BEFORE any fixture is
+    /// created - Patch.Add's own fallback (silently renumbering onto the next free number if a
+    /// requested one is taken) is deliberately bypassed here, since a console operator asking for
+    /// fixture #105 must get #105 or an explicit conflict, never a silent substitute. The whole
+    /// batch is all-or-nothing: an address-overlap failure partway through rolls back everything
+    /// already patched in this call, so "patch 8" never leaves 3 half-applied on failure.
+    /// </summary>
     [RelayCommand]
     private void AddFixture()
     {
@@ -119,22 +158,54 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        int count = Math.Max(1, NewFixtureCount);
+        int addressOffset = NewAddressOffset > 0 ? NewAddressOffset : SelectedMode.FootprintSize;
+
+        var requestedNumbers = new List<int>(count);
+        for (int i = 0; i < count; i++)
+        {
+            int number = NewFixtureNumber + i;
+            if (Patch.FindByNumber(number) is not null)
+            {
+                StatusMessage = $"Fixture #{number} is already patched - choose a different starting number or count.";
+                return;
+            }
+            requestedNumbers.Add(number);
+        }
+
+        var patchedFixtures = new List<PatchedFixture>(count);
         try
         {
-            var name = string.IsNullOrWhiteSpace(NewFixtureName) ? SelectedProfile.DisplayName : NewFixtureName;
-            var fixture = new PatchedFixture(SelectedProfile, SelectedMode, NewUniverseId, NewStartAddress, name);
-            Patch.Add(fixture);
+            string baseName = string.IsNullOrWhiteSpace(NewFixtureName) ? SelectedProfile.DisplayName : NewFixtureName;
 
-            foreach (var channel in fixture.Mode.Channels)
-                Faders.Add(new ChannelFaderViewModel(fixture, channel, Programmer));
+            for (int i = 0; i < count; i++)
+            {
+                int address = NewStartAddress + i * addressOffset;
+                string name = count == 1 ? baseName : $"{baseName} {i + 1}";
 
-            StatusMessage = $"Patched '{fixture.Name}' at Universe {fixture.UniverseId} / Address {fixture.StartAddress}.";
+                var fixture = new PatchedFixture(SelectedProfile, SelectedMode, NewUniverseId, address, name) { Number = requestedNumbers[i] };
+                Patch.Add(fixture);
+                patchedFixtures.Add(fixture);
 
-            // Bump the suggested next start address past this fixture's footprint, for a faster patch flow.
-            NewStartAddress += fixture.Footprint;
+                foreach (var channel in fixture.Mode.Channels)
+                    Faders.Add(new ChannelFaderViewModel(fixture, channel, Programmer));
+            }
+
+            StatusMessage = count == 1
+                ? $"Patched '{patchedFixtures[0].Name}' (#{patchedFixtures[0].Number}) at Universe {NewUniverseId} / Address {NewStartAddress}."
+                : $"Patched {count} fixtures: #{requestedNumbers[0]}-#{requestedNumbers[^1]}, Universe {NewUniverseId}, addresses {NewStartAddress}-{NewStartAddress + (count - 1) * addressOffset} (offset {addressOffset}).";
+
+            // Bump suggestions for the next batch - fast batch patching stays fast.
+            NewFixtureNumber += count;
+            NewStartAddress += count * addressOffset;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
         {
+            foreach (var fixture in patchedFixtures)
+            {
+                Patch.Remove(fixture);
+                foreach (var f in Faders.Where(fv => fv.Fixture == fixture).ToList()) Faders.Remove(f);
+            }
             StatusMessage = ex.Message;
         }
     }

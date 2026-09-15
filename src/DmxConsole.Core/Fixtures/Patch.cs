@@ -36,6 +36,11 @@ public sealed class Patch : IChannelTypeLookup
 
     private int NextFreeNumber() => _fixtures.Count == 0 ? 1 : _fixtures.Max(f => f.Number) + 1;
 
+    /// <summary>Operator-facing suggestion only (e.g. to pre-fill a "Fixture Number" field) -
+    /// never applied automatically. The operator remains in control of the actual number used
+    /// when patching; this just saves them typing the obvious next one.</summary>
+    public int SuggestNextNumber() => NextFreeNumber();
+
     public bool Remove(PatchedFixture fixture)
     {
         Fixtures.Remove(fixture);
