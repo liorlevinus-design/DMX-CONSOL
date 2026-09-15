@@ -1,16 +1,25 @@
-# ChatGPT UX integration branch
+# ChatGPT integration branch notes
 
-This branch is intentionally isolated from `master` while integrating GUI selection with the shared Command Surface.
+Branch: `chatgpt/ux-integration-fixes`
+Base: `master` @ `7f49ed6`
 
-Current scope:
-- Mirror fixture selections made in Channels/Fixtures views into the existing `CommandComposer`.
-- Keep Fixtures view on the shared `EditorContextStack` path.
-- Preserve existing Application-layer selection commands; no raw DMX or alternate business-logic path.
+## Implemented on this branch
 
-Still deliberately deferred:
-- Full selection-cycle semantics after execution.
-- CLEAR / CLEAR CLEAR / contextual LAST recall.
-- Group semantic-selection history.
-- Broader EditorToolBar object families.
+- Fixtures and Channels GUI selection mirrors into the existing CommandComposer.
+- Fixtures View now enters the same EditorContext path as Channels/Command Surface.
+- Group Apply participates in the shared selection cycle and mirrors its resolved fixture selection into the Command Surface.
+- Fixture is now the default command object: `1 THRU 5` means Fixtures 1 thru 5.
+- Selection-only commands accumulate across Enter without needing `+`.
+- `AT` closes the current selection cycle but leaves the used fixtures visibly selected.
+- The next new Fixture/Group selection after execution starts fresh automatically.
+- Single empty-line `CLEAR` restores the selection state before the last recorded selection gesture.
+- `CLEAR CLEAR` clears the entire selection through the normal undoable command path.
+- Group/range gestures are recorded as one selection step, so single CLEAR can remove the whole gesture rather than only one member fixture.
 
-Do not merge until the branch is built/tested and manually checked in `/workspace-preview`.
+## Still intentionally deferred
+
+- Contextual recall (`Fixture .`, `Group .`, `AT .` / LAST).
+- Parameter-level selection-cycle tracking beyond current Fixture/Group target selection.
+- Full Groups pool/tile redesign and overwrite/update interaction.
+- Local browser verification on `/workspace-preview`.
+- Full `dotnet test` pass: GitHub Actions is not configured and the current ChatGPT container cannot resolve github.com, so this branch remains Draft until tested on the user's machine/Claude environment.
