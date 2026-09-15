@@ -1,33 +1,158 @@
+@using DmxConsole.Core.Engine
 @implements IDisposable
 @inject MainViewModel Vm
 
-<div class="panel selection-bar">
-    <div class="selection-row">
-        <strong style="margin-right:4px">Programmer:</strong>
-        <button class="btn" @onclick="() => Prog.ReleaseCommand.Execute(null)">Release</button>
-        <button class="btn" @onclick="() => Prog.ClearIntensityCommand.Execute(null)">Clear Intensity</button>
-        <button class="btn" @onclick="() => Prog.ClearPositionCommand.Execute(null)">Clear Position</button>
-        <button class="btn" @onclick="() => Prog.ClearColorCommand.Execute(null)">Clear Color</button>
-        <button class="btn" @onclick="() => Prog.ClearBeamCommand.Execute(null)">Clear Beam</button>
-        <button class="btn" @onclick="() => Prog.KnockoutCommand.Execute(null)">Knockout</button>
-        <button class="btn" @onclick="() => Prog.RestoreCommand.Execute(null)">Restore</button>
+@*
+    UX correction #3 (the most important one): Programmer is not just a button row anymore - it's
+    a live semantic display answering "why is this fixture currently at this value". Distinct
+    from Channels/Fixtures (per UX correction #4): those show live effective state; this shows
+    what the PROGRAMMER has captured (Programmer.HasStoredValue - possibly not what's currently
+    winning the merge) alongside what's actually on air right now, filterable by provenance.
+*@
+
+<div class="channels-view">
+    <div class="panel selection-bar" style="flex:none">
+        <div class="selection-row">
+            <strong style="margin-right:4px">Programmer:</strong>
+            <button class="btn" @onclick="() => Prog.ReleaseCommand.Execute(null)">Release</button>
+            <button class="btn" @onclick="() => Prog.ClearIntensityCommand.Execute(null)">Clear Intensity</button>
+            <button class="btn" @onclick="() => Prog.ClearPositionCommand.Execute(null)">Clear Position</button>
+            <button class="btn" @onclick="() => Prog.ClearColorCommand.Execute(null)">Clear Color</button>
+            <button class="btn" @onclick="() => Prog.ClearBeamCommand.Execute(null)">Clear Beam</button>
+            <button class="btn" @onclick="() => Prog.KnockoutCommand.Execute(null)">Knockout</button>
+            <button class="btn" @onclick="() => Prog.RestoreCommand.Execute(null)">Restore</button>
+        </div>
+        <div class="selection-row">
+            <label>Intensity ±</label>
+            <input type="number" min="1" max="100" @bind="Prog.AdjustPercent" style="width:60px" />
+            <label style="min-width:auto">%</label>
+            <button class="btn" @onclick="() => Prog.LowerIntensityCommand.Execute(null)">− Lower</button>
+            <button class="btn" @onclick="() => Prog.RaiseIntensityCommand.Execute(null)">+ Raise</button>
+            <span class="selection-summary">@Prog.StatusMessage</span>
+        </div>
     </div>
-    <div class="selection-row">
-        <label>Intensity ±</label>
-        <input type="number" min="1" max="100" @bind="Prog.AdjustPercent" style="width:60px" />
-        <label style="min-width:auto">%</label>
-        <button class="btn" @onclick="() => Prog.LowerIntensityCommand.Execute(null)">− Lower</button>
-        <button class="btn" @onclick="() => Prog.RaiseIntensityCommand.Execute(null)">+ Raise</button>
-        <span class="selection-summary">@Prog.StatusMessage</span>
+
+    <div class="channels-view-header">
+        <span class="channels-view-title">Live</span>
+        <select class="pane-add-view" @bind="FilterValue">
+            <option value="All">All</option>
+            <option value="Active">Active (on)</option>
+            <option value="Playback">Playback (Cue/Executor)</option>
+            <option value="ProgrammerCaptured">Programmer (captured, unstored)</option>
+            <option value="MainCueList">Main Cue List only</option>
+            <option value="Executor">Executor only</option>
+        </select>
+        <span class="channels-view-count">@FilteredRows().Count() shown</span>
+    </div>
+
+    <div class="channels-table-scroll">
+        <table class="data-list channels-table">
+            <thead>
+                <tr>
+                    <th>CH</th>
+                    <th>Fixture</th>
+                    <th>Attribute</th>
+                    <th>Live Value</th>
+                    <th>Programmer</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var (fader, owner, hasStored, storedValue) in FilteredRows())
+                {
+                    var category = ProvenanceClassifier.Classify(owner);
+                    int levelPercent = (int)Math.Round(Vm.Engine.GetEffectiveValue(fader.UniverseId, fader.ChannelIndex) / 255.0 * 100);
+
+                    <tr class="channels-row @(owner is not null ? "active" : "")">
+                        <td class="ch-cell">@($"{fader.Fixture.Number}.{OrdinalWithin(fader)}")</td>
+                        <td>@fader.FixtureName</td>
+                        <td>@fader.ChannelTypeName</td>
+                        <td class="level-cell">
+                            <div class="level-bar"><div class="level-bar-fill" style="width:@(levelPercent)%"></div></div>
+                            <span>@levelPercent%</span>
+                        </td>
+                        <td class="@(hasStored ? "prog-captured" : "prog-none")">
+                            @(hasStored ? $"{(int)Math.Round(storedValue / 255.0 * 100)}% ({(category == ProvenanceCategory.Programmer ? "live" : "pending")})" : "—")
+                        </td>
+                        <td class="source-cell @ProvenanceClassifier.CssClass(category)">@DescribeOwner(owner)</td>
+                    </tr>
+                }
+                @if (!FilteredRows().Any())
+                {
+                    <tr><td colspan="6" class="channels-empty">Nothing matches this filter.</td></tr>
+                }
+            </tbody>
+        </table>
     </div>
 </div>
 
 @code {
     private ProgrammerViewModel Prog => Vm.ProgrammerVm;
+    private System.Threading.Timer? _liveTimer;
 
-    protected override void OnInitialized() => Prog.PropertyChanged += OnChanged;
+    private string FilterValue
+    {
+        get => Prog.LiveFilter.ToString();
+        set { if (Enum.TryParse<ProgrammerLiveFilter>(value, out var parsed)) Prog.LiveFilter = parsed; }
+    }
+
+    protected override void OnInitialized()
+    {
+        Prog.PropertyChanged += OnChanged;
+        Vm.Faders.CollectionChanged += OnChanged;
+        // Ownership/stored-value state changes continuously while a Cue fades or an Effect runs -
+        // same "poll the engine's live state" approach the Channels/Fixtures Views already use.
+        _liveTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 200, 200);
+    }
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Prog.PropertyChanged -= OnChanged;
+    private IEnumerable<(ChannelFaderViewModel Fader, OutputOwner? Owner, bool HasStored, byte StoredValue)> FilteredRows()
+    {
+        foreach (var fader in Vm.Faders)
+        {
+            var owner = Vm.Engine.GetOwner(fader.UniverseId, fader.ChannelIndex);
+            bool hasStored = Vm.Programmer.HasStoredValue(fader.UniverseId, fader.ChannelIndex, out var storedValue);
+
+            if (!PassesFilter(owner, hasStored)) continue;
+            yield return (fader, owner, hasStored, storedValue);
+        }
+    }
+
+    private bool PassesFilter(OutputOwner? owner, bool hasStored)
+    {
+        var category = ProvenanceClassifier.Classify(owner);
+        return Prog.LiveFilter switch
+        {
+            ProgrammerLiveFilter.All => true,
+            ProgrammerLiveFilter.Active => owner is not null,
+            ProgrammerLiveFilter.Playback => category is ProvenanceCategory.MainCueList or ProvenanceCategory.Executor,
+            ProgrammerLiveFilter.ProgrammerCaptured => hasStored,
+            ProgrammerLiveFilter.MainCueList => category == ProvenanceCategory.MainCueList,
+            ProgrammerLiveFilter.Executor => category == ProvenanceCategory.Executor,
+            _ => true,
+        };
+    }
+
+    private static int OrdinalWithin(ChannelFaderViewModel fader)
+    {
+        var channels = fader.Fixture.Mode.Channels;
+        for (int i = 0; i < channels.Count; i++)
+            if (ReferenceEquals(channels[i], fader.Channel)) return i + 1;
+        return 0;
+    }
+
+    private string DescribeOwner(OutputOwner? owner)
+    {
+        if (owner is null) return "—";
+        if (owner.Kind == OwnerKind.Executor) return ProvenanceClassifier.DescribeExecutorOwner(owner, Vm.ExecutorVm.Bank);
+        return owner.DisplayName;
+    }
+
+    public void Dispose()
+    {
+        Prog.PropertyChanged -= OnChanged;
+        Vm.Faders.CollectionChanged -= OnChanged;
+        _liveTimer?.Dispose();
+    }
 }

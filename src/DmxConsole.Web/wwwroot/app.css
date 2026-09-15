@@ -213,10 +213,14 @@ html, body {
 .source-cell { font-size: 13px; }
 .source-cell.src-none { color: var(--text-dim); }
 .source-cell.src-programmer { color: #e0a030; }
+.source-cell.src-maincue { color: var(--go-active); }
 .source-cell.src-executor { color: var(--accent); }
 .source-cell.src-effect { color: #c77dff; }
 
 .channels-empty { text-align: center; color: var(--text-dim); padding: 20px; }
+
+.prog-captured { color: #e0a030; font-variant-numeric: tabular-nums; font-size: 13px; }
+.prog-none { color: var(--text-dim); font-size: 13px; }
 
 .color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; }
 

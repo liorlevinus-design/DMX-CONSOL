@@ -47,7 +47,7 @@
                             <div class="level-bar"><div class="level-bar-fill" style="width:@(levelPercent)%"></div></div>
                             <span>@levelPercent%</span>
                         </td>
-                        <td class="source-cell @SourceCssClass(owner)">@DescribeOwner(owner)</td>
+                        <td class="source-cell @ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(owner))">@DescribeOwner(owner)</td>
                     </tr>
                 }
                 @if (Vm.Faders.Count == 0)
@@ -90,29 +90,9 @@
     private string DescribeOwner(OutputOwner? owner)
     {
         if (owner is null) return "—";
-
-        if (owner.Kind == OwnerKind.Executor)
-        {
-            var executor = Vm.ExecutorVm.Bank.Executors.FirstOrDefault(e => e.Id == owner.ExecutorId);
-            string label = $"Exec {owner.ExecutorNumber}";
-            if (executor?.GetStatus() is CueListPlaybackStatus { CurrentCue: { } cue })
-            {
-                string cueLabel = string.IsNullOrWhiteSpace(cue.Name) ? $"Cue {cue.Number}" : cue.Name;
-                label += $" / {cueLabel}";
-            }
-            return label;
-        }
-
+        if (owner.Kind == OwnerKind.Executor) return ProvenanceClassifier.DescribeExecutorOwner(owner, Vm.ExecutorVm.Bank);
         return owner.DisplayName;
     }
-
-    private static string SourceCssClass(OutputOwner? owner) => owner?.Kind switch
-    {
-        OwnerKind.Programmer => "src-programmer",
-        OwnerKind.Executor => "src-executor",
-        OwnerKind.Effect => "src-effect",
-        _ => "src-none",
-    };
 
     public void Dispose()
     {
