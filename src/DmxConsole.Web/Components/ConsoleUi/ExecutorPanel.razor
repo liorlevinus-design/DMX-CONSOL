@@ -2,57 +2,107 @@
 @implements IDisposable
 @inject MainViewModel Vm
 
-<div style="display:contents">
-    <div class="scroll-y">
-        <button class="btn btn-go" style="font-size:15px; min-width:auto; width:100%" @onclick="() => Ev.CreateNewCommand.Execute(null)">+ Create Executor</button>
-        <div style="font-size:11px; color:var(--text-dim); margin-top:6px">@Ev.StatusMessage</div>
+@*
+    UX correction E: Executors redesigned as real playback strips/tiles, not CRUD table rows.
+    Each tile answers at a glance: number/label, assigned source, current cue/state, level, and
+    exposes GO/Back/Pause-Resume/Flash directly - the actual operator controls, not a row with an
+    edit form. The existing Source/Handle architecture (Executor/IPlaybackSource/Actions) is
+    unchanged - this is a UI redesign only.
+*@
+
+<div class="executor-view">
+    <div class="channels-view-header">
+        <span class="channels-view-title">Executors</span>
+        <button class="btn" @onclick="() => Ev.CreateNewCommand.Execute(null)">+ Create Executor</button>
+        @if (!string.IsNullOrEmpty(Ev.StatusMessage))
+        {
+            <span class="groups-status">@Ev.StatusMessage</span>
+        }
     </div>
 
-    <div class="scroll-y">
-        <table class="data-list">
-            <thead><tr><th>#</th><th>Name</th><th>Source</th><th>Level</th><th>Flash</th><th></th></tr></thead>
-            <tbody>
-                @foreach (var executor in Ev.Bank.Executors)
-                {
-                    <tr>
-                        <td>@executor.Number</td>
-                        <td>@executor.Name</td>
-                        <td>
-                            @if (executor.Source is null)
-                            {
-                                <button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Ev.AssignCueListCommand.Execute(executor)">Assign Cue List</button>
-                            }
-                            else
-                            {
-                                <span>Cue List</span>
-                                <button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Ev.UnassignCommand.Execute(executor)">✕</button>
-                            }
-                        </td>
-                        <td>
-                            <input type="range" min="0" max="1" step="0.01" value="@executor.FaderLevel"
-                                   @onchange="@(e => Ev.SetLevel(executor, double.Parse((string)e.Value!)))" />
-                        </td>
-                        <td>
-                            <button class="btn @(executor.Flash == FlashMode.Add ? "active-row" : "")" style="min-height:32px;padding:2px 10px"
-                                     @onpointerdown="() => Ev.FlashPressCommand.Execute(executor)"
-                                     @onpointerup="() => Ev.FlashReleaseCommand.Execute(executor)"
-                                     @onpointerleave="() => Ev.FlashReleaseCommand.Execute(executor)">Flash</button>
-                        </td>
-                        <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Ev.RemoveCommand.Execute(executor)">Delete</button></td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+    <div class="executor-tiles">
+        @foreach (var executor in Ev.Bank.Executors)
+        {
+            var status = executor.GetStatus() as CueListPlaybackStatus;
+            bool isRunning = status?.IsRunning == true;
+            bool isPaused = status?.IsPaused == true;
+            bool supportsGo = executor.Source is ISequencedPlayback;
+            bool supportsPause = executor.Source is IPausablePlayback;
+
+            <div class="executor-tile @(isRunning ? "running" : "") @(isPaused ? "paused" : "")">
+                <div class="executor-tile-header">
+                    <span class="executor-tile-number">EXEC @executor.Number</span>
+                    <span class="executor-tile-state">
+                        @if (isPaused) { <span class="state-badge state-paused">PAUSED</span> }
+                        else if (isRunning) { <span class="state-badge state-running">RUNNING</span> }
+                        else if (executor.Source is not null) { <span class="state-badge state-loaded">LOADED</span> }
+                    </span>
+                    <button class="executor-tile-close" title="Delete Executor" @onclick="() => Ev.RemoveCommand.Execute(executor)">✕</button>
+                </div>
+
+                <div class="executor-tile-source">
+                    @if (executor.Source is null)
+                    {
+                        <button class="btn" @onclick="() => Ev.AssignCueListCommand.Execute(executor)">Assign Cue List</button>
+                    }
+                    else
+                    {
+                        <span>Cue List</span>
+                        <button class="executor-unassign" title="Unassign" @onclick="() => Ev.UnassignCommand.Execute(executor)">✕</button>
+                    }
+                </div>
+
+                <div class="executor-tile-cue">
+                    @if (status?.CurrentCue is { } cue)
+                    {
+                        <span class="executor-cue-name">@(string.IsNullOrWhiteSpace(cue.Name) ? $"Cue {cue.Number}" : cue.Name)</span>
+                        <span class="executor-cue-number">#@cue.Number</span>
+                    }
+                    else
+                    {
+                        <span class="executor-cue-none">No cue active</span>
+                    }
+                </div>
+
+                <div class="executor-tile-level">
+                    <input type="range" min="0" max="1" step="0.01" value="@executor.FaderLevel"
+                           @onchange="@(e => Ev.SetLevel(executor, double.Parse((string)e.Value!)))" />
+                    <span class="executor-level-value">@((int)Math.Round(executor.FaderLevel * 100))%</span>
+                </div>
+
+                <div class="executor-tile-transport">
+                    <button class="btn" disabled="@(!supportsGo)" @onclick="() => Ev.BackCommand.Execute(executor)">◀ Back</button>
+                    <button class="btn btn-go" disabled="@(!supportsGo)" @onclick="() => Ev.GoCommand.Execute(executor)">GO</button>
+                    <button class="btn" disabled="@(!supportsGo)" @onclick="() => Ev.StopCommand.Execute(executor)">Stop</button>
+                </div>
+                <div class="executor-tile-transport">
+                    <button class="btn" disabled="@(!supportsPause)" @onclick="() => Ev.TogglePauseCommand.Execute(executor)">@(isPaused ? "▶ Resume" : "⏸ Pause")</button>
+                    <button class="btn key-op executor-flash"
+                             @onpointerdown="() => Ev.FlashPressCommand.Execute(executor)"
+                             @onpointerup="() => Ev.FlashReleaseCommand.Execute(executor)"
+                             @onpointerleave="() => Ev.FlashReleaseCommand.Execute(executor)">Flash</button>
+                </div>
+            </div>
+        }
+
+        @if (Ev.Bank.Executors.Count == 0)
+        {
+            <div class="channels-empty">No executors yet. + Create Executor to get started.</div>
+        }
     </div>
 </div>
 
 @code {
     private ExecutorViewModel Ev => Vm.ExecutorVm;
+    private System.Threading.Timer? _liveTimer;
 
     protected override void OnInitialized()
     {
         Ev.PropertyChanged += OnChanged;
         Ev.Bank.Executors.CollectionChanged += OnChanged;
+        // Running/paused state and the current cue change continuously during playback - same
+        // live-poll approach every other provenance-aware View in this app already uses.
+        _liveTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 200, 200);
     }
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
@@ -61,5 +111,6 @@
     {
         Ev.PropertyChanged -= OnChanged;
         Ev.Bank.Executors.CollectionChanged -= OnChanged;
+        _liveTimer?.Dispose();
     }
 }

@@ -222,6 +222,62 @@ html, body {
 .prog-captured { color: #e0a030; font-variant-numeric: tabular-nums; font-size: 13px; }
 .prog-none { color: var(--text-dim); font-size: 13px; }
 
+/* ---------- Executor playback tiles (UX correction E) ---------- */
+
+.executor-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.executor-tiles {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 10px;
+    padding: 10px;
+}
+
+.executor-tile {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+}
+.executor-tile.running { border-color: var(--go-active); box-shadow: 0 0 0 1px var(--go-active) inset; }
+.executor-tile.paused { border-color: #e0a030; box-shadow: 0 0 0 1px #e0a030 inset; }
+
+.executor-tile-header { display: flex; align-items: center; gap: 6px; }
+.executor-tile-number { font-weight: 700; font-size: 14px; letter-spacing: 0.03em; }
+.executor-tile-state { flex: 1 1 auto; }
+.executor-tile-close { background: transparent; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 4px; }
+.executor-tile-close:hover { color: var(--danger); }
+
+.state-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 3px; }
+.state-running { background: var(--go-active); color: #fff; }
+.state-paused { background: #e0a030; color: #1a1a1a; }
+.state-loaded { background: var(--border); color: var(--text-dim); }
+
+.executor-tile-source { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.executor-unassign { background: transparent; border: none; color: var(--text-dim); cursor: pointer; }
+.executor-unassign:hover { color: var(--danger); }
+
+.executor-tile-cue { min-height: 32px; display: flex; flex-direction: column; font-size: 13px; }
+.executor-cue-name { color: var(--text); font-weight: 600; }
+.executor-cue-number { color: var(--text-dim); font-size: 11px; }
+.executor-cue-none { color: var(--text-dim); font-style: italic; }
+
+.executor-tile-level { display: flex; align-items: center; gap: 6px; }
+.executor-tile-level input[type="range"] { flex: 1 1 auto; }
+.executor-level-value { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-dim); min-width: 32px; text-align: right; }
+
+.executor-tile-transport { display: flex; gap: 4px; }
+.executor-tile-transport .btn { flex: 1 1 0; min-height: 40px; padding: 4px 6px; font-size: 13px; }
+.executor-flash { background: #3a2a1a; }
+.executor-flash:active { background: #e0a030; color: #1a1a1a; }
+
 .color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; }
 
 /* ---------- Groups View ---------- */

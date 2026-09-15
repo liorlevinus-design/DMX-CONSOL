@@ -63,4 +63,39 @@ public partial class ExecutorViewModel : ObservableObject
 
     [RelayCommand]
     private void FlashRelease(Executor executor) => _dispatcher.DispatchAction(new FlashReleaseAction(executor));
+
+    // UX correction E: the operator playback surface (Go/Back/Stop/Pause-Resume) - these
+    // Actions already existed (Step F) but were never wired into any UI; ExecutorPanel was
+    // CRUD-rows-only until now.
+    [RelayCommand]
+    private void Go(Executor executor)
+    {
+        var result = _dispatcher.DispatchAction(new GoAction(executor));
+        if (!result.Success) StatusMessage = result.Error!;
+    }
+
+    [RelayCommand]
+    private void Back(Executor executor)
+    {
+        var result = _dispatcher.DispatchAction(new BackAction(executor));
+        if (!result.Success) StatusMessage = result.Error!;
+    }
+
+    [RelayCommand]
+    private void Stop(Executor executor)
+    {
+        var result = _dispatcher.DispatchAction(new StopAction(executor));
+        if (!result.Success) StatusMessage = result.Error!;
+    }
+
+    /// <summary>One button doing Pause-or-Resume depending on current state - matches how a
+    /// real console's single Pause/Resume key behaves, rather than two separate buttons where
+    /// one is always meaningless.</summary>
+    [RelayCommand]
+    private void TogglePause(Executor executor)
+    {
+        bool isPaused = executor.GetStatus() is CueListPlaybackStatus { IsPaused: true };
+        var result = _dispatcher.DispatchAction(isPaused ? new ResumeAction(executor) : new PauseAction(executor));
+        if (!result.Success) StatusMessage = result.Error!;
+    }
 }
