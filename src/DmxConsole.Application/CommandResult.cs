@@ -36,6 +36,7 @@ public enum ConsoleActionType
     Knockout,
     Restore,
     AdjustIntensity,
+    SetAttributeValue,
 
     StorePreset,
     ApplyPreset,

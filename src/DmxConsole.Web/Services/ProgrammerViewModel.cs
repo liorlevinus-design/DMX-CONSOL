@@ -101,4 +101,10 @@ public partial class ProgrammerViewModel : ObservableObject
                 : fader.Channel.DefaultValue;
         }
     }
+
+    public void SetEncoderValue(ChannelType channelType, byte value)
+    {
+        if (Targets.Count == 0) return;
+        Dispatch(new SetAttributeValueCommand(Targets, channelType, value));
+    }
 }

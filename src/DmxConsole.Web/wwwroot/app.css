@@ -427,10 +427,17 @@ html, body {
 }
 .soft-key:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .soft-key:active:not(:disabled) { background: var(--accent); color: #fff; }
+.soft-key.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .soft-key:disabled { opacity: 0.35; cursor: not-allowed; }
 .soft-key-stub { border-style: dashed; }
 
 .editor-toolbar-empty { font-size: 12px; color: var(--text-dim); font-style: italic; }
+.encoder-bank { display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 7px; padding: 7px 10px 10px; border-top: 1px solid var(--border); background: #11161a; }
+.encoder-slot { min-width: 0; min-height: 64px; display: grid; grid-template-columns: 1fr auto; gap: 5px; align-items: center; padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+.encoder-name { color: var(--text); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.encoder-value { color: var(--accent); font-size: 11px; font-variant-numeric: tabular-nums; }
+.encoder-slot input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.encoder-empty { place-items: center; color: var(--text-dim); }
 
 /* ============================================================
    Command Line / Command Surface (H1.5) - persistent console
