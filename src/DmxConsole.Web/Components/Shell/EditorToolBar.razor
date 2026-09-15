@@ -1,0 +1,57 @@
+@inject MainViewModel Vm
+@implements IDisposable
+
+@*
+    H1.6 - persistent console infrastructure, exactly like ConsoleChrome/CommandLine/
+    CommandSurface: lives outside the pane tree, never a closable View. Purely a presentation
+    layer over the shared EditorContextStack (Vm.EditorContext) - every soft key shown here comes
+    from SoftKeyRegistry.For(currentContextId), nothing hardcoded per object type in this markup.
+*@
+
+<div class="editor-toolbar">
+    <div class="editor-toolbar-breadcrumb">
+        <button class="editor-nav-btn" title="Root" disabled="@Tb.Context.IsAtRoot" @onclick="() => Tb.Root()">⌂ ROOT</button>
+        @foreach (var frame in Tb.Context.Frames)
+        {
+            <span class="breadcrumb-sep">&gt;</span>
+            <span class="breadcrumb-frame">
+                @frame.Label
+                @if (!string.IsNullOrEmpty(frame.SelectedObjectLabel))
+                {
+                    <span class="breadcrumb-object">(@frame.SelectedObjectLabel)</span>
+                }
+            </span>
+        }
+        <button class="editor-nav-btn" title="Back one level" disabled="@Tb.Context.IsAtRoot" @onclick="() => Tb.Back()">◀ BACK</button>
+        @if (!string.IsNullOrEmpty(Tb.StatusMessage))
+        {
+            <span class="editor-toolbar-status">@Tb.StatusMessage</span>
+        }
+    </div>
+
+    <div class="editor-toolbar-keys">
+        @foreach (var key in Tb.Registry.For(Tb.Context.Current.Id))
+        {
+            <button class="soft-key @(key.ActionType == DmxConsole.Web.EditorToolBar.SoftKeyActionType.NotImplemented ? "soft-key-stub" : "")"
+                    disabled="@(!key.Implemented)"
+                    title="@(key.Implemented ? key.Label : $"{key.Label} - not implemented yet")"
+                    @onclick="() => Tb.Press(key)">
+                @key.Label
+            </button>
+        }
+        @if (Tb.Registry.For(Tb.Context.Current.Id).Count == 0)
+        {
+            <span class="editor-toolbar-empty">No actions for this context yet.</span>
+        }
+    </div>
+</div>
+
+@code {
+    private EditorToolBarViewModel Tb => Vm.EditorToolBarVm;
+
+    protected override void OnInitialized() => Tb.Changed += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Tb.Changed -= OnChanged;
+}

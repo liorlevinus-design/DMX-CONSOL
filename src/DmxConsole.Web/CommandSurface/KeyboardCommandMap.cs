@@ -45,6 +45,8 @@ public static class KeyboardCommandMap
         Token("G", CommandTokenKind.Group);
         Token("t", CommandTokenKind.Thru);
         Token("T", CommandTokenKind.Thru);
+        Token("c", CommandTokenKind.Cue);
+        Token("C", CommandTokenKind.Cue);
 
         return map;
     }

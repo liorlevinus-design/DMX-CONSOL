@@ -31,6 +31,9 @@
         <div class="keypad-row">
             <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
             <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Group)">Group</button>
+            <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Cue)">Cue</button>
+        </div>
+        <div class="keypad-row">
             <button class="key" @onclick="() => PressToken(CommandTokenKind.Next)">Next</button>
             <button class="key" @onclick="() => PressToken(CommandTokenKind.Previous)">Prev</button>
         </div>

@@ -35,12 +35,12 @@
             <tbody>
                 @foreach (var group in Vm.GroupsVm.Groups.Groups.OrderBy(g => g.Number))
                 {
-                    <tr>
+                    <tr class="cue-row" title="Click to enter Group context" @onclick="() => SelectForContext(group)">
                         <td class="ch-cell">@group.Number</td>
                         <td>
                             @if (_renamingGroup == group)
                             {
-                                <input class="workspace-rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="@(e => OnRenameKeyDown(e, group))" />
+                                <input class="workspace-rename-input" @bind="_renameText" @bind:event="oninput" @onkeydown="@(e => OnRenameKeyDown(e, group))" @onclick:stopPropagation="true" />
                             }
                             else
                             {
@@ -48,7 +48,7 @@
                             }
                         </td>
                         <td class="groups-members">@string.Join(", ", group.Fixtures.Select(f => f.Number))</td>
-                        <td class="groups-actions">
+                        <td class="groups-actions" @onclick:stopPropagation="true">
                             <button class="btn" @onclick="() => Vm.GroupsVm.ApplyCommand.Execute(group)">Apply</button>
                             <button class="btn" @onclick="() => Vm.GroupsVm.UpdateCommand.Execute(group)">Update</button>
                             <button class="btn" @onclick="() => StartRename(group)">Rename</button>
@@ -77,6 +77,9 @@
     }
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void SelectForContext(FixtureGroup group) =>
+        Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Group, "GROUP", group, $"Group {group.Number} \"{group.Name}\"");
 
     private void StartRename(FixtureGroup group)
     {

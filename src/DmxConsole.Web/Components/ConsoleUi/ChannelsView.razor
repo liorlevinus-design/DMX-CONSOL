@@ -74,8 +74,13 @@
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    private void Toggle(PatchedFixture fixture) =>
+    private void Toggle(PatchedFixture fixture)
+    {
         Vm.SelectionVm.TapFixtureNumberCommand.Execute(fixture);
+        // H1.6 §5/§19 - clicking a Fixture enters the same shared EditorContext a Command
+        // Surface "Fixture N" would, so the Editor Tool Bar reacts without a second click.
+        Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture, "FIXTURE", fixture, $"Fixture {fixture.Number}");
+    }
 
     private void ClearSelection() => Vm.SelectionVm.ClearSelectionCommand.Execute(null);
 

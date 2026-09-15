@@ -1,13 +1,14 @@
 @*
-    Root of the Workspace shell. Per H1.5's Command Surface Architecture:
+    Root of the Workspace shell. Per H1.6's Contextual Command Surface:
 
         ConsoleShell
         +-- WorkspaceHost   (the editable pane tree)
         +-- ConsoleChrome   (persistent - toolbar/status)
+        +-- EditorToolBar   (persistent - contextual soft keys, reacts to the shared EditorContext)
         +-- CommandLine     (persistent - what's being composed right now)
         +-- CommandSurface  (persistent - keypad/soft keys that compose it)
 
-    CommandLine and CommandSurface are persistent console infrastructure, exactly like
+    EditorToolBar/CommandLine/CommandSurface are persistent console infrastructure, exactly like
     ConsoleChrome - never part of the pane tree, never closable/splittable Views. See each
     component's own doc comment for what it owns.
 *@
@@ -17,6 +18,7 @@
     <div class="console-shell-workspace">
         <WorkspaceHost />
     </div>
+    <EditorToolBar />
     <CommandLine />
     <CommandSurface />
 </div>

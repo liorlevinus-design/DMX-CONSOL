@@ -13,6 +13,7 @@ using DmxConsole.Protocols;
 using DmxConsole.Protocols.ArtNet;
 using DmxConsole.Protocols.Sacn;
 using DmxConsole.Protocols.Usb;
+using DmxConsole.Web.EditorToolBar;
 
 namespace DmxConsole.Web.Services;
 
@@ -34,6 +35,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public ExecutorViewModel ExecutorVm { get; }
     public GroupsViewModel GroupsVm { get; }
     public CommandSurfaceViewModel CommandSurfaceVm { get; }
+
+    /// <summary>The ONE shared operator context (H1.6 §19) - View row clicks, the Command
+    /// Surface, and EditorToolBarVm all read/write this same instance. Never construct a second
+    /// one anywhere.</summary>
+    public EditorContextStack EditorContext { get; } = new();
+
+    public EditorToolBarViewModel EditorToolBarVm { get; }
 
     private readonly UndoRedoService _undoRedo;
 
@@ -115,7 +123,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);
         ExecutorVm = new ExecutorViewModel(consoleContext, dispatcher, cueList);
         GroupsVm = new GroupsViewModel(consoleContext, dispatcher);
-        CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher);
+        CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext);
+        EditorToolBarVm = new EditorToolBarViewModel(EditorContext, SoftKeyRegistryBuilder.Build(), this, CueListVm, GroupsVm, SelectionVm);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();

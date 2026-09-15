@@ -299,6 +299,75 @@ html, body {
 .groups-actions .btn { min-height: 32px; padding: 4px 8px; font-size: 12px; }
 
 /* ============================================================
+   Editor Tool Bar (H1.6) - persistent, contextual soft keys.
+   ============================================================ */
+
+.editor-toolbar {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    background: #171b1f;
+    border-top: 1px solid var(--border);
+}
+
+.editor-toolbar-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    min-height: 32px;
+}
+.breadcrumb-sep { color: var(--border); }
+.breadcrumb-frame { color: var(--accent); font-weight: 700; letter-spacing: 0.03em; }
+.breadcrumb-object { color: var(--text-dim); font-weight: 400; margin-left: 4px; }
+
+.editor-nav-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 11px;
+    padding: 3px 8px;
+    cursor: pointer;
+}
+.editor-nav-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.editor-nav-btn:disabled { opacity: 0.35; cursor: default; }
+
+.editor-toolbar-status { margin-left: auto; font-size: 11px; color: #e0a030; font-style: italic; }
+
+.editor-toolbar-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 10px;
+    min-height: 44px;
+    align-items: center;
+}
+
+.soft-key {
+    min-height: 38px;
+    min-width: 64px;
+    padding: 4px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+}
+.soft-key:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.soft-key:active:not(:disabled) { background: var(--accent); color: #fff; }
+.soft-key:disabled { opacity: 0.35; cursor: not-allowed; }
+.soft-key-stub { border-style: dashed; }
+
+.editor-toolbar-empty { font-size: 12px; color: var(--text-dim); font-style: italic; }
+
+/* ============================================================
    Command Line / Command Surface (H1.5) - persistent console
    infrastructure, outside the pane tree, alongside ConsoleChrome.
    ============================================================ */

@@ -37,7 +37,7 @@
                 {
                     <tr class="cue-row @(cue == Cues.CueList.CurrentCue && Cues.IsActive ? "active-row" : "")"
                         title="Click to load into Store/Update fields - double-click to jump playback here"
-                        @onclick="() => Cues.LoadForEditCommand.Execute(cue)"
+                        @onclick="() => SelectForContext(cue)"
                         @ondblclick="() => Cues.GoToCueCommand.Execute(cue)">
                         <td>@cue.Number</td>
                         <td>@cue.Name</td>
@@ -53,6 +53,14 @@
 
 @code {
     private CueListViewModel Cues => Vm.CueListVm;
+
+    private void SelectForContext(DmxConsole.Core.Engine.Cue cue)
+    {
+        Cues.LoadForEditCommand.Execute(cue);
+        // H1.6 §5 - clicking a Cue enters the shared EditorContext automatically (Scenario A) -
+        // the operator never has to press a separate "CUE" key after clicking one in the list.
+        Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Cue, "CUE", cue, $"Cue {cue.Number:0.##}");
+    }
 
     protected override void OnInitialized()
     {

@@ -1,6 +1,7 @@
 using DmxConsole.Application;
 using DmxConsole.Application.CommandSurface;
 using DmxConsole.Application.Commands.Selection;
+using DmxConsole.Web.EditorToolBar;
 
 namespace DmxConsole.Web.Services;
 
@@ -16,6 +17,7 @@ public sealed class CommandSurfaceViewModel
 {
     private readonly ConsoleContext _context;
     private readonly CommandDispatcher _dispatcher;
+    private readonly EditorContextStack _editorContext;
     private CommandComposer _composer;
     private string _pendingDigits = string.Empty;
 
@@ -30,10 +32,11 @@ public sealed class CommandSurfaceViewModel
 
     public event Action? Changed;
 
-    public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher)
+    public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher, EditorContextStack editorContext)
     {
         _context = context;
         _dispatcher = dispatcher;
+        _editorContext = editorContext;
         _composer = new CommandComposer(context);
         Current = _composer.Current;
     }
@@ -62,6 +65,19 @@ public sealed class CommandSurfaceViewModel
     public void PressToken(CommandTokenKind kind)
     {
         CommitPendingDigits();
+
+        // H1.6 §19 - there is ONE shared operator context. Typing an object-type token here
+        // enters the same EditorContextStack a View row click would, so the Editor Tool Bar
+        // reacts identically regardless of which surface the operator used (Scenario D).
+        var objectType = kind switch
+        {
+            CommandTokenKind.Fixture => EditorObjectType.Fixture,
+            CommandTokenKind.Group => EditorObjectType.Group,
+            CommandTokenKind.Cue => EditorObjectType.Cue,
+            _ => (EditorObjectType?)null,
+        };
+        if (objectType is { } type) _editorContext.EnterObject(type, kind.ToString().ToUpperInvariant());
+
         Push(CommandToken.Simple(kind));
     }
 
