@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
+using DmxConsole.Application.Commands;
 using DmxConsole.Application.Commands.Groups;
 using DmxConsole.Application.Commands.Selection;
 using DmxConsole.Core.Fixtures;
@@ -35,18 +36,22 @@ public partial class SelectionViewModel : ObservableObject
         _dispatcher = dispatcher;
     }
 
-    /// <summary>Tapping a fixture number: completes a pending Thru range if armed, otherwise toggles it.</summary>
+    /// <summary>
+    /// Tapping/selecting a new object follows the shared selection-cycle rule: before execution
+    /// selections accumulate; after an execution the existing selection remains visible, but
+    /// the first new selection atomically clears the old cycle and starts a new one.
+    /// </summary>
     [RelayCommand]
     private void TapFixtureNumber(PatchedFixture fixture)
     {
         if (PendingThruStart is int startNumber)
         {
-            _dispatcher.Dispatch(new SelectRangeCommand(startNumber, fixture.Number));
+            DispatchSelectionGesture(new SelectRangeCommand(startNumber, fixture.Number));
             PendingThruStart = null;
         }
         else
         {
-            _dispatcher.Dispatch(new ToggleFixtureCommand(fixture));
+            DispatchSelectionGesture(new ToggleFixtureCommand(fixture));
         }
     }
 
@@ -71,15 +76,35 @@ public partial class SelectionViewModel : ObservableObject
     private void ClearSelection()
     {
         _dispatcher.Dispatch(new ClearSelectionCommand());
+        _context.SelectionCycle.MarkSelectionStarted();
         PendingThruStart = null;
     }
 
-    [RelayCommand] private void Next() => _dispatcher.Dispatch(new NextFixtureCommand());
+    [RelayCommand] private void Next() => DispatchSelectionGesture(new NextFixtureCommand());
 
-    [RelayCommand] private void Previous() => _dispatcher.Dispatch(new PreviousFixtureCommand());
+    [RelayCommand] private void Previous() => DispatchSelectionGesture(new PreviousFixtureCommand());
 
     [RelayCommand]
-    private void AddGroupToSelection(FixtureGroup group) => _dispatcher.Dispatch(new AddGroupToSelectionCommand(group));
+    private void AddGroupToSelection(FixtureGroup group) =>
+        DispatchSelectionGesture(new AddGroupToSelectionCommand(group));
+
+    private void DispatchSelectionGesture(IConsoleCommand command)
+    {
+        IConsoleCommand operation = command;
+        if (_context.SelectionCycle.StartFreshOnNextSelection)
+        {
+            // One transaction: Undo restores the pre-gesture selection, never an intermediate
+            // "cleared but not yet selected" state.
+            operation = new CompositeCommand(new IConsoleCommand[]
+            {
+                new ClearSelectionCommand(),
+                command,
+            });
+        }
+
+        var result = _dispatcher.Dispatch(operation);
+        if (result.Success) _context.SelectionCycle.MarkSelectionStarted();
+    }
 
     [RelayCommand]
     private void SaveGroup()
