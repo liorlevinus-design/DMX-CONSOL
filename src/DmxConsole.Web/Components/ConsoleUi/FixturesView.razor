@@ -22,33 +22,6 @@
         }
     </div>
 
-    @if (Vm.SelectionVm.Selection.Items.Count > 0)
-    {
-        <div class="fixture-attribute-dock">
-            <div class="attribute-control intensity-control">
-                <strong>Intensity</strong>
-                <input type="range" min="0" max="255" value="@SelectedAverage(ChannelType.Dimmer)" @oninput="e => SetSelected(ChannelType.Dimmer, e.Value)" />
-                <span>@Percent(SelectedAverage(ChannelType.Dimmer))%</span>
-            </div>
-            <div class="attribute-control">
-                <strong>Position</strong>
-                <label>Pan <input type="range" min="0" max="255" value="@SelectedAverage(ChannelType.Pan)" @oninput="e => SetSelected(ChannelType.Pan, e.Value)" /></label>
-                <label>Tilt <input type="range" min="0" max="255" value="@SelectedAverage(ChannelType.Tilt)" @oninput="e => SetSelected(ChannelType.Tilt, e.Value)" /></label>
-            </div>
-            <div class="attribute-control color-control">
-                <strong>Color</strong>
-                <label>R <input class="red" type="range" min="0" max="255" value="@SelectedAverage(ChannelType.ColorRed)" @oninput="e => SetSelected(ChannelType.ColorRed, e.Value)" /></label>
-                <label>G <input class="green" type="range" min="0" max="255" value="@SelectedAverage(ChannelType.ColorGreen)" @oninput="e => SetSelected(ChannelType.ColorGreen, e.Value)" /></label>
-                <label>B <input class="blue" type="range" min="0" max="255" value="@SelectedAverage(ChannelType.ColorBlue)" @oninput="e => SetSelected(ChannelType.ColorBlue, e.Value)" /></label>
-            </div>
-            <div class="attribute-control">
-                <strong>Beam</strong>
-                <label>Zoom <input type="range" min="0" max="255" value="@SelectedAverage(ChannelType.Zoom)" @oninput="e => SetSelected(ChannelType.Zoom, e.Value)" /></label>
-                <label>Focus <input type="range" min="0" max="255" value="@SelectedAverage(ChannelType.Focus)" @oninput="e => SetSelected(ChannelType.Focus, e.Value)" /></label>
-            </div>
-        </div>
-    }
-
     <div class="channels-table-scroll">
         <table class="data-list channels-table">
             <thead>
@@ -127,29 +100,6 @@
 
     private byte EffectiveValue(PatchedFixture fixture, FixtureChannel channel) =>
         Vm.Engine.GetEffectiveValue(fixture.UniverseId, fixture.AbsoluteIndex(channel));
-
-    private byte SelectedAverage(ChannelType type)
-    {
-        var values = Vm.SelectionVm.Selection.Items
-            .Select(f => (Fixture: f, Channel: f.FindChannel(type)))
-            .Where(x => x.Channel is not null)
-            .Select(x => EffectiveValue(x.Fixture, x.Channel!))
-            .ToList();
-        return values.Count == 0 ? (byte)0 : (byte)Math.Round(values.Average(v => v));
-    }
-
-    private void SetSelected(ChannelType type, object? rawValue)
-    {
-        if (!byte.TryParse(rawValue?.ToString(), out var value)) return;
-        foreach (var fixture in Vm.SelectionVm.Selection.Items)
-        {
-            var channel = fixture.FindChannel(type);
-            if (channel is not null) Vm.Programmer.SetChannel(fixture.UniverseId, fixture.AbsoluteIndex(channel), value);
-        }
-        Vm.ProgrammerVm.RefreshAllFaders();
-    }
-
-    private static int Percent(byte value) => (int)Math.Round(value / 255.0 * 100);
 
     private string DescribeIntensity(PatchedFixture fixture)
     {

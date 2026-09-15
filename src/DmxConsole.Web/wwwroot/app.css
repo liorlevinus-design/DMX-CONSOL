@@ -312,21 +312,6 @@ html, body {
 
 .color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; }
 
-.fixture-attribute-dock { flex: none; display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: 7px; padding: 7px; background: #181b1e; border-bottom: 1px solid var(--border); }
-.attribute-control { min-width: 0; display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 3px 7px; padding: 7px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
-.attribute-control strong { grid-column: 1 / -1; color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
-.attribute-control label { display: contents; font-size: 11px; color: var(--text-dim); }
-.attribute-control input[type="range"] { min-width: 70px; width: 100%; accent-color: var(--accent); }
-.attribute-control span { font-size: 11px; color: var(--text-dim); text-align: right; }
-.intensity-control { grid-template-columns: 1fr auto; }
-.intensity-control input { grid-column: 1; }
-.color-control input.red { accent-color: #dc5151; }
-.color-control input.green { accent-color: #49b86a; }
-.color-control input.blue { accent-color: #4d85df; }
-
-@container (max-width: 820px) { .fixture-attribute-dock { grid-template-columns: repeat(2, minmax(150px, 1fr)); } }
-@container (max-width: 430px) { .fixture-attribute-dock { grid-template-columns: 1fr; max-height: 220px; overflow: auto; } }
-
 /* ---------- Groups View ---------- */
 
 .groups-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
