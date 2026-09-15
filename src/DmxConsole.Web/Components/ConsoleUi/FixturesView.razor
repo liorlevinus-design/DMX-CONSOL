@@ -85,13 +85,18 @@
     private void Toggle(PatchedFixture fixture)
     {
         Vm.SelectionVm.TapFixtureNumberCommand.Execute(fixture);
+        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
         // Keep the Fixtures View on the same shared EditorContext path as ChannelsView and the
         // Command Surface. H1.6 wired ChannelsView but accidentally left FixturesView behind.
         Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture,
             "FIXTURE", fixture, $"Fixture {fixture.Number}");
     }
 
-    private void ClearSelection() => Vm.SelectionVm.ClearSelectionCommand.Execute(null);
+    private void ClearSelection()
+    {
+        Vm.SelectionVm.ClearSelectionCommand.Execute(null);
+        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
+    }
 
     private byte EffectiveValue(PatchedFixture fixture, FixtureChannel channel) =>
         Vm.Engine.GetEffectiveValue(fixture.UniverseId, fixture.AbsoluteIndex(channel));
