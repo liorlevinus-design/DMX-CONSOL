@@ -8,10 +8,8 @@ namespace DmxConsole.Web.Services;
 
 /// <summary>
 /// Bridges a CommandSurface (touch keypad, physical keyboard, future MIDI/HID) to the
-/// UI-independent CommandComposer. Owns exactly one piece of state the composer itself
-/// deliberately does NOT: the digits the operator is currently typing before they become a
-/// committed CommandToken.Number - a numeric keypad reports individual digit presses, but the
-/// composer's grammar only ever deals in whole tokens.
+/// UI-independent CommandComposer. Touch, keyboard and GUI selection all converge on the same
+/// ConsoleContext selection and SelectionCycleState.
 /// </summary>
 public sealed class CommandSurfaceViewModel
 {
@@ -20,11 +18,11 @@ public sealed class CommandSurfaceViewModel
     private readonly EditorContextStack _editorContext;
     private CommandComposer _composer;
     private string _pendingDigits = string.Empty;
+    private bool _clearArmedForFullSelection;
+    private bool _mirrorsExistingSelection;
 
     public CommandComposition Current { get; private set; }
-
     public string? DispatchError { get; private set; }
-
     public event Action? Changed;
 
     public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher, EditorContextStack editorContext)
@@ -39,25 +37,19 @@ public sealed class CommandSurfaceViewModel
     public string DisplayPreview => _pendingDigits.Length == 0 ? Current.PreviewText : $"{Current.PreviewText} {_pendingDigits}".TrimStart();
 
     /// <summary>
-    /// Mirrors a fixture selection made outside the keypad (mouse/touch Views) into the SAME
-    /// CommandComposer used by the Command Surface. It does not dispatch a second selection
-    /// mutation; it only makes a subsequent keypad action such as AT 50 target the fixtures that
-    /// are already visibly selected.
+    /// Mirrors a fixture selection made outside the keypad into the same CommandComposer. The
+    /// GUI has already mutated Selection, so resolving this mirrored line must be idempotent.
     /// </summary>
     public void SynchronizeFixtureSelection(IEnumerable<PatchedFixture> fixtures)
     {
         _pendingDigits = string.Empty;
         DispatchError = null;
+        _clearArmedForFullSelection = false;
         _composer.Reset();
 
-        var ordered = fixtures
-            .Distinct()
-            .OrderBy(f => f.Number)
-            .ToList();
-
-        // The GUI has already applied this selection. Re-resolving it before AT must be
-        // idempotent and must not clear/toggle the same fixtures away.
+        var ordered = fixtures.Distinct().OrderBy(f => f.Number).ToList();
         _composer.ReplaceSelectionOnResolve = false;
+        _mirrorsExistingSelection = ordered.Count > 0;
 
         if (ordered.Count > 0)
         {
@@ -74,6 +66,13 @@ public sealed class CommandSurfaceViewModel
     public void PressDigit(char digit)
     {
         if (digit is < '0' or > '9') return;
+        _clearArmedForFullSelection = false;
+
+        // A number added to a mirrored selection is a new selection gesture unless it is the
+        // value following AT. This matters for single-CLEAR history.
+        if (_mirrorsExistingSelection && !Current.Tokens.Any(t => t.Kind == CommandTokenKind.At))
+            _mirrorsExistingSelection = false;
+
         _pendingDigits += digit;
         DispatchError = null;
         Changed?.Invoke();
@@ -81,15 +80,15 @@ public sealed class CommandSurfaceViewModel
 
     public void PressDecimalPoint()
     {
+        _clearArmedForFullSelection = false;
         if (_pendingDigits.Contains('.')) return;
         _pendingDigits += _pendingDigits.Length == 0 ? "0." : ".";
         Changed?.Invoke();
     }
 
-    /// <summary>Every non-numeric token (object types, operators, Enter) - commits any pending
-    /// digits as a Number token first, then pushes this one.</summary>
     public void PressToken(CommandTokenKind kind)
     {
+        _clearArmedForFullSelection = false;
         CommitPendingDigits();
 
         var objectType = kind switch
@@ -101,12 +100,15 @@ public sealed class CommandSurfaceViewModel
         };
         if (objectType is { } type) _editorContext.EnterObject(type, kind.ToString().ToUpperInvariant());
 
-        // Fixture/Group selections append while the current cycle is still open. Once an
-        // execution (AT today) closes it, the first new object selection replaces the old cycle.
         if (kind is CommandTokenKind.Fixture or CommandTokenKind.Group)
         {
+            _mirrorsExistingSelection = false;
             _composer.ReplaceSelectionOnResolve =
                 _context.SelectionCycle.StartFreshOnNextSelection || _context.Selection.Items.Count == 0;
+        }
+        else if (kind is CommandTokenKind.Plus or CommandTokenKind.Minus or CommandTokenKind.Thru)
+        {
+            _mirrorsExistingSelection = false;
         }
 
         Push(CommandToken.Simple(kind));
@@ -114,6 +116,9 @@ public sealed class CommandSurfaceViewModel
 
     public void PressBackspace()
     {
+        _clearArmedForFullSelection = false;
+        _mirrorsExistingSelection = false;
+
         if (_pendingDigits.Length > 0)
         {
             _pendingDigits = _pendingDigits[..^1];
@@ -124,10 +129,62 @@ public sealed class CommandSurfaceViewModel
         Push(CommandToken.Simple(CommandTokenKind.Backspace));
     }
 
+    /// <summary>
+    /// CLEAR follows the operator-defined selection semantics when the command line is empty:
+    /// first CLEAR removes the last selection gesture (a whole Group/range counts as one);
+    /// a second consecutive CLEAR clears the entire selection. Both mutations are ordinary
+    /// undoable Application commands. While a command is being composed, CLEAR remains a line
+    /// edit and does not touch live Selection.
+    /// </summary>
     public void PressClear()
     {
         _pendingDigits = string.Empty;
-        Push(CommandToken.Simple(CommandTokenKind.Clear));
+
+        if (Current.Tokens.Count > 0)
+        {
+            _clearArmedForFullSelection = false;
+            _mirrorsExistingSelection = false;
+            Push(CommandToken.Simple(CommandTokenKind.Clear));
+            return;
+        }
+
+        DispatchError = null;
+
+        if (_clearArmedForFullSelection)
+        {
+            var result = _dispatcher.Dispatch(new ClearSelectionCommand());
+            if (result.Success)
+            {
+                _context.SelectionCycle.ClearGestureHistory();
+                _context.SelectionCycle.MarkSelectionStarted();
+            }
+            _clearArmedForFullSelection = false;
+            _composer.Reset();
+            Current = _composer.Current;
+            Changed?.Invoke();
+            return;
+        }
+
+        if (_context.SelectionCycle.TryPopGesture(out var baseline))
+        {
+            var result = _dispatcher.Dispatch(new ReplaceSelectionCommand(baseline));
+            _clearArmedForFullSelection = result.Success;
+        }
+        else if (_context.Selection.Items.LastOrDefault() is { } last)
+        {
+            // Compatibility fallback for a selection that predates gesture tracking.
+            var result = _dispatcher.Dispatch(new RemoveFixtureFromSelectionCommand(last));
+            _clearArmedForFullSelection = result.Success;
+        }
+        else
+        {
+            _clearArmedForFullSelection = true;
+        }
+
+        _composer.Reset();
+        _composer.ReplaceSelectionOnResolve = false;
+        Current = _composer.Current;
+        Changed?.Invoke();
     }
 
     private void CommitPendingDigits()
@@ -144,10 +201,7 @@ public sealed class CommandSurfaceViewModel
 
         if (composition.EmptyClearRequested)
         {
-            // CLEAR semantics are refined in the next slice; for now preserve the existing
-            // explicit empty-line behavior through the same undoable selection command path.
-            _dispatcher.Dispatch(new ClearSelectionCommand());
-            _context.SelectionCycle.MarkSelectionStarted();
+            // Empty-line CLEAR is handled in PressClear so this path is only a defensive fallback.
             Current = _composer.Current;
             Changed?.Invoke();
             return;
@@ -155,23 +209,29 @@ public sealed class CommandSurfaceViewModel
 
         if (composition.IsComplete && composition.ReadyOperation is not null)
         {
+            bool startsFresh = _composer.ReplaceSelectionOnResolve;
+            IReadOnlyList<PatchedFixture> baseline = startsFresh
+                ? Array.Empty<PatchedFixture>()
+                : _context.Selection.Items.ToList();
+
             var result = _dispatcher.Dispatch(composition.ReadyOperation);
             if (result.Success)
             {
+                if (!_mirrorsExistingSelection)
+                    _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+
                 if (composition.EndsSelectionCycle)
                 {
-                    // Selection stays visible. Only the *next* new selection starts fresh.
                     _context.SelectionCycle.MarkExecutionCompleted();
                     _composer.ReplaceSelectionOnResolve = true;
                 }
                 else
                 {
-                    // A selection-only Enter is another element in the same cycle; the next
-                    // Fixture/Group command therefore appends without requiring +.
                     _context.SelectionCycle.MarkSelectionStarted();
                     _composer.ReplaceSelectionOnResolve = false;
                 }
 
+                _mirrorsExistingSelection = false;
                 _composer.Reset();
                 Current = _composer.Current;
             }
