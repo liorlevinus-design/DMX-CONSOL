@@ -24,9 +24,7 @@ public partial class SelectionViewModel : ObservableObject
     public FixtureSelection Selection => _context.Selection;
     public GroupManager Groups => _context.Groups;
 
-    /// <summary>Fixture number a "Thru" is waiting to be completed against, or null if not armed.</summary>
     [ObservableProperty] private int? _pendingThruStart;
-
     [ObservableProperty] private string _newGroupName = string.Empty;
     [ObservableProperty] private string _statusMessage = string.Empty;
 
@@ -36,11 +34,6 @@ public partial class SelectionViewModel : ObservableObject
         _dispatcher = dispatcher;
     }
 
-    /// <summary>
-    /// Tapping/selecting a new object follows the shared selection-cycle rule: before execution
-    /// selections accumulate; after an execution the existing selection remains visible, but
-    /// the first new selection atomically clears the old cycle and starts a new one.
-    /// </summary>
     [RelayCommand]
     private void TapFixtureNumber(PatchedFixture fixture)
     {
@@ -69,19 +62,18 @@ public partial class SelectionViewModel : ObservableObject
     }
 
     [RelayCommand] private void SelectOdd() => _dispatcher.Dispatch(new SelectOddCommand());
-
     [RelayCommand] private void SelectEven() => _dispatcher.Dispatch(new SelectEvenCommand());
 
     [RelayCommand]
     private void ClearSelection()
     {
         _dispatcher.Dispatch(new ClearSelectionCommand());
+        _context.SelectionCycle.ClearGestureHistory();
         _context.SelectionCycle.MarkSelectionStarted();
         PendingThruStart = null;
     }
 
     [RelayCommand] private void Next() => DispatchSelectionGesture(new NextFixtureCommand());
-
     [RelayCommand] private void Previous() => DispatchSelectionGesture(new PreviousFixtureCommand());
 
     [RelayCommand]
@@ -90,11 +82,14 @@ public partial class SelectionViewModel : ObservableObject
 
     private void DispatchSelectionGesture(IConsoleCommand command)
     {
+        bool startsFresh = _context.SelectionCycle.StartFreshOnNextSelection;
+        IReadOnlyList<PatchedFixture> baseline = startsFresh
+            ? Array.Empty<PatchedFixture>()
+            : Selection.Items.ToList();
+
         IConsoleCommand operation = command;
-        if (_context.SelectionCycle.StartFreshOnNextSelection)
+        if (startsFresh)
         {
-            // One transaction: Undo restores the pre-gesture selection, never an intermediate
-            // "cleared but not yet selected" state.
             operation = new CompositeCommand(new IConsoleCommand[]
             {
                 new ClearSelectionCommand(),
@@ -103,7 +98,8 @@ public partial class SelectionViewModel : ObservableObject
         }
 
         var result = _dispatcher.Dispatch(operation);
-        if (result.Success) _context.SelectionCycle.MarkSelectionStarted();
+        if (result.Success)
+            _context.SelectionCycle.RecordGesture(baseline, startsFresh);
     }
 
     [RelayCommand]
