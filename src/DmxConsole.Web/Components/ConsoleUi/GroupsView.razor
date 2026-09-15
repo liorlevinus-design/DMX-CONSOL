@@ -49,7 +49,7 @@
                         </td>
                         <td class="groups-members">@string.Join(", ", group.Fixtures.Select(f => f.Number))</td>
                         <td class="groups-actions" @onclick:stopPropagation="true">
-                            <button class="btn" @onclick="() => Vm.GroupsVm.ApplyCommand.Execute(group)">Apply</button>
+                            <button class="btn" @onclick="() => ApplyGroup(group)">Apply</button>
                             <button class="btn" @onclick="() => Vm.GroupsVm.UpdateCommand.Execute(group)">Update</button>
                             <button class="btn" @onclick="() => StartRename(group)">Rename</button>
                             <button class="btn key-danger" @onclick="() => Vm.GroupsVm.RemoveCommand.Execute(group)">Delete</button>
@@ -80,6 +80,14 @@
 
     private void SelectForContext(FixtureGroup group) =>
         Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Group, "GROUP", group, $"Group {group.Number} \"{group.Name}\"");
+
+    private void ApplyGroup(FixtureGroup group)
+    {
+        Vm.GroupsVm.ApplyCommand.Execute(group);
+        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
+        Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Group,
+            "GROUP", group, $"Group {group.Number} \"{group.Name}\"");
+    }
 
     private void StartRename(FixtureGroup group)
     {
