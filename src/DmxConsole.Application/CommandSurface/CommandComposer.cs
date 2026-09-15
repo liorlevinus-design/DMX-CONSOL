@@ -18,15 +18,15 @@ namespace DmxConsole.Application.CommandSurface;
 /// exact same Commands (SelectRangeCommand, AdjustIntensityCommand, ...) any other frontend
 /// already dispatches through CommandDispatcher - the caller still does the actual Dispatch.
 ///
-/// Grammar supported by this first milestone slice (see CommandTokenKind for the reserved-but-
-/// not-yet-interpreted vocabulary - adding a new token kind never requires rewriting this):
+/// Grammar supported by this slice:
 ///
-///   command    := objectType clause+ (AT number)?
+///   command    := [objectType] clause+ (AT number)?
 ///   objectType := FIXTURE | GROUP
 ///   clause     := number | (PLUS number) | (MINUS number) | (THRU number)
 ///
-/// THRU always pairs with the number immediately before it (the running "last number"), not
-/// necessarily the very first one - "1 Thru 5 + 8 Thru 10" is a valid, if advanced, composition.
+/// Fixture is the default object context, so "1 THRU 5" is exactly equivalent to
+/// "FIXTURE 1 THRU 5". GROUP remains explicit. THRU always pairs with the number immediately
+/// before it (the running "last number"), not necessarily the very first one.
 /// </summary>
 public sealed class CommandComposer
 {
@@ -34,6 +34,14 @@ public sealed class CommandComposer
     private readonly List<CommandToken> _tokens = new();
 
     public CommandComposer(ConsoleContext context) => _context = context;
+
+    /// <summary>
+    /// When true, a finalized selection command begins by clearing the previous Selection.
+    /// The CommandSurfaceViewModel flips this to false while an operator is still building the
+    /// same selection cycle so consecutive Fixture/Group selections accumulate without a + key.
+    /// It becomes true again only after an execution such as AT closes that cycle.
+    /// </summary>
+    public bool ReplaceSelectionOnResolve { get; set; } = true;
 
     /// <summary>Current composition without pushing anything - what a freshly-opened CommandLine renders.</summary>
     public CommandComposition Current => Build(finalize: false);
@@ -80,34 +88,43 @@ public sealed class CommandComposer
             {
                 Tokens = _tokens.ToList(),
                 PreviewText = preview,
-                ExpectedNext = new[] { CommandTokenKind.Fixture, CommandTokenKind.Group },
+                ExpectedNext = new[] { CommandTokenKind.Number, CommandTokenKind.Fixture, CommandTokenKind.Group },
             };
         }
 
         var head = _tokens[0];
-        if (head.Kind is not (CommandTokenKind.Fixture or CommandTokenKind.Group))
-        {
-            return Incomplete(preview, "Expected Fixture or Group.", CommandTokenKind.Fixture, CommandTokenKind.Group);
-        }
+        ObjectType objectType;
+        int i;
 
-        var objectType = head.Kind == CommandTokenKind.Fixture ? ObjectType.Fixture : ObjectType.Group;
+        if (head.Kind == CommandTokenKind.Number)
+        {
+            // Fixture is the console's default object family. A bare number/range therefore
+            // means Fixture without injecting a fake token into the visible command line.
+            objectType = ObjectType.Fixture;
+            i = 0;
+        }
+        else if (head.Kind is CommandTokenKind.Fixture or CommandTokenKind.Group)
+        {
+            objectType = head.Kind == CommandTokenKind.Fixture ? ObjectType.Fixture : ObjectType.Group;
+            i = 1;
+        }
+        else
+        {
+            return Incomplete(preview, "Expected a fixture number, Fixture, or Group.",
+                CommandTokenKind.Number, CommandTokenKind.Fixture, CommandTokenKind.Group);
+        }
 
         var clauses = new List<Clause>();
         double? atValue = null;
         double? lastNumber = null;
 
         // Tiny explicit state machine over the remaining tokens - see the class doc comment for the grammar.
-        int i = 1;
         while (i < _tokens.Count)
         {
             var token = _tokens[i];
 
             if (token.Kind == CommandTokenKind.Number)
             {
-                // A bare number right after the object type (or after another bare number) is
-                // an Anchor/additional target; a number immediately after +/-/Thru is that
-                // operator's operand - both cases already consumed the operator token below,
-                // so a Number reaching here is always a fresh Anchor.
                 clauses.Add(new Clause(ClauseOp.Anchor, token.NumericValue!.Value));
                 lastNumber = token.NumericValue;
                 i++;
@@ -175,7 +192,9 @@ public sealed class CommandComposer
 
     private CommandComposition Resolve(ObjectType objectType, List<Clause> clauses, double? atValue, string preview)
     {
-        var commands = new List<IConsoleCommand> { new ClearSelectionCommand() };
+        var commands = new List<IConsoleCommand>();
+        if (ReplaceSelectionOnResolve) commands.Add(new ClearSelectionCommand());
+
         var targets = new List<PatchedFixture>();
 
         foreach (var clause in clauses)
@@ -190,7 +209,9 @@ public sealed class CommandComposer
 
                     foreach (var fixture in fixtures)
                     {
-                        commands.Add(new ToggleFixtureCommand(fixture));
+                        // Add is intentionally idempotent. A GUI selection mirrored into this
+                        // composer must survive an immediate AT instead of toggling itself off.
+                        commands.Add(new AddFixtureToSelectionCommand(fixture));
                         if (!targets.Contains(fixture)) targets.Add(fixture);
                     }
                     break;
@@ -211,9 +232,6 @@ public sealed class CommandComposer
 
                 case ClauseOp.Thru:
                 {
-                    // Range endpoints are looked up from the clause list itself (the Anchor/Plus/
-                    // Minus immediately before this Thru), never guessed - "1 Thru 5" always means
-                    // the 1 that was just typed.
                     int index = clauses.IndexOf(clause);
                     double from = clauses[index - 1].Number;
                     double to = clause.Number;
@@ -231,7 +249,7 @@ public sealed class CommandComposer
                         for (int n = lo; n <= hi; n++)
                         {
                             var group = _context.Groups.FindByNumber(n);
-                            if (group is null) continue; // gaps in a range are expected, same as Fixture Thru
+                            if (group is null) continue;
                             commands.Add(new AddGroupToSelectionCommand(group));
                             foreach (var fixture in group.Fixtures)
                                 if (!targets.Contains(fixture)) targets.Add(fixture);
@@ -257,6 +275,7 @@ public sealed class CommandComposer
             Tokens = _tokens.ToList(),
             PreviewText = preview,
             IsComplete = true,
+            EndsSelectionCycle = atValue is not null,
             ReadyOperation = operation,
         };
     }
