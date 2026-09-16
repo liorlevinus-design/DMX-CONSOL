@@ -231,6 +231,10 @@ html, body {
 .source-cell.src-maincue { color: var(--go-active); }
 .source-cell.src-executor { color: var(--accent); }
 .source-cell.src-effect { color: #c77dff; }
+/* Fixtures LIVE: a parameter family whose channels are owned by genuinely different sources -
+   same amber used for MIXED everywhere else (Encoder Drawer knob/value-strip/position pad). */
+.source-cell.family-mixed { color: #f2b647; font-weight: 700; }
+.color-swatch.mixed { outline: 2px solid #f2b647; outline-offset: 1px; }
 
 .channels-empty { text-align: center; color: var(--text-dim); padding: 20px; }
 
