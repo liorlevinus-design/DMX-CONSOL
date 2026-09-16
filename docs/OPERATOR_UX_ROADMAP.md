@@ -264,7 +264,7 @@ Required direction:
 - Compatible data is keyed/resolved by semantic attributes and explicit compatibility/translation rules.
 - No Compatible recall may silently coerce incompatible parameter systems.
 - Mixed preset contents may later support different scope behavior per semantic family only if the model remains deterministic and understandable to the operator.
-- Scope should be available from Command Surface, touch UI, future quick-access grids, and future NL/macros through the same Application-layer operation path.
+- Scope should be available from Command Surface, touch UI, Quick Grid, and future NL/macros through the same Application-layer operation path.
 - Default scope per preset pool may be added later, but the current scope must always remain visible to the operator.
 
 ### Preset workflow still required
@@ -275,9 +275,95 @@ Required direction:
 - controlled scope conversion where valid;
 - compatibility reporting when a target cannot use a Fixture Type/Compatible preset;
 - semantic Position/Color/Beam/Image/Shape preset pools;
-- integration with LIVE, Encoder Drawer, quick-access grids, Cue programming, and provenance where relevant.
+- integration with LIVE, Encoder Drawer, Quick Grid, Cue programming, and provenance where relevant.
 
-## 14. Workspace and later roadmap
+## 14. Fixture Calibration / Venue Adaptation
+
+DMX-CONSOL should support fast venue adaptation for moving fixtures so a show can be corrected after re-hang, touring, or fixture replacement without manually editing every Position preset and cue.
+
+The feature must be implemented as a reversible calibration/transform layer, not as bulk rewriting of programmed show data.
+
+### Fixture Alignment / Patch Offset
+
+The fast workflow should support correcting one known position and applying that correction relatively across all programmed positions for the affected fixture(s).
+
+Target workflow:
+
+1. Select one fixture or a fixture group.
+2. Recall a known Position preset or programmed stage position.
+3. Correct the fixture physically on stage using Pan/Tilt.
+4. The console calculates the relative Pan/Tilt correction.
+5. Show a clear preview, for example `Pan +4.2° / Tilt -2.7°` or the equivalent calibrated/raw delta.
+6. Ask the operator whether to apply the correction as a fixture calibration offset.
+7. If confirmed, all existing programmed positions for that fixture resolve through the new calibration transform automatically.
+
+Requirements:
+
+- do not rewrite all Cue or Position preset data;
+- preserve the original programmed semantic position;
+- store the correction as fixture/patch calibration metadata;
+- support one fixture and multiple fixtures/groups;
+- preview before commit;
+- Undo/Revert calibration changes;
+- inspect original value vs corrected output;
+- make the active calibration state visible in Patch and relevant Position tooling;
+- no hidden or destructive correction.
+
+Target signal path:
+
+`Programmed Semantic Position -> Fixture Calibration Transform -> Pan/Tilt Conversion -> DMX`
+
+### Stage Calibration / XYZ alignment
+
+A later advanced layer should support multiple known stage reference points and spatial calibration.
+
+Target direction:
+
+- operator defines or selects known stage reference points;
+- fixture is aimed at multiple references;
+- system derives fixture position/orientation or an equivalent spatial correction model;
+- semantic XYZ positions can then survive venue changes more accurately;
+- support future integration with Stage Layout / 2D / 3D without making full 3D a prerequisite for the basic offset workflow.
+
+### Integration requirements
+
+Fixture Calibration must integrate with:
+
+- Position presets;
+- LIVE effective values and provenance where useful;
+- Patch fixture metadata;
+- Encoder Drawer Position controls;
+- Cue playback without rewriting stored cue data;
+- future Stage Layout / 2D / 3D;
+- future fixture replacement / touring workflows.
+
+The basic Fixture Alignment / Patch Offset workflow should be implemented before full 3D visualization.
+
+## 15. Quick Grid
+
+`Quick Grid` is the DMX-CONSOL name for the touch-oriented quick-access surface inspired by professional Direct Select workflows.
+
+Target:
+
+- workspace view/pane;
+- touch-friendly grid;
+- banks and pages;
+- paging and jump navigation;
+- Fixture targets;
+- Group targets;
+- Preset targets;
+- Effect targets;
+- Macro targets;
+- Executor targets;
+- mixed-target custom banks;
+- one-touch activation;
+- Fixture/Group actions use the shared selection model, not a parallel selection state;
+- tiles expose meaningful live/selected/running/pending state where available;
+- layouts persist at Show/Workspace level.
+
+Quick Grid should adopt the useful workflow concept without cloning another console's visual design or terminology.
+
+## 16. Workspace and later roadmap
 
 Still open:
 
@@ -286,7 +372,6 @@ Still open:
 - Stage Layout / 2D / 3D;
 - diagnostics and DMX/device diagnostics;
 - effects/phasers operator UX;
-- quick-access touch grid inspired by professional Direct Select workflows;
 - remaining show-control roadmap.
 
 ## Current implementation priority
@@ -301,11 +386,14 @@ Unless a blocking regression appears, the current priority order is:
 6. Selection History + CLEAR + Recall completion.
 7. Groups operator pool.
 8. Command Surface + Editor Tool Bar expansion.
-9. Quick-access touch grid inspired by Direct Select workflows.
+9. Quick Grid.
 10. Preset scope model and full preset workflow: Fixture / Fixture Type / Compatible.
 11. Cue Lists + Executors.
 12. Patch.
-13. Effects UX / Workspace polish / Stage / 2D / 3D / diagnostics.
+13. Fixture Calibration / Venue Adaptation.
+14. Effects UX.
+15. Workspace polish.
+16. Stage / 2D / 3D / diagnostics.
 
 ## Definition of done for future UX slices
 
