@@ -512,6 +512,18 @@ html, body {
     outline: none;
 }
 
+.command-surface-collapsed {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    min-height: 44px;
+    cursor: pointer;
+}
+.command-surface-collapsed-label { color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; }
+.command-surface-close { flex: none; align-self: center; margin-top: 4px; }
+
 .context-soft-keys-empty {
     flex: 1 1 auto;
     display: flex;

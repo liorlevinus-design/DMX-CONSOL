@@ -23,7 +23,17 @@ public sealed class CommandSurfaceViewModel
 
     public CommandComposition Current { get; private set; }
     public string? DispatchError { get; private set; }
+
+    /// <summary>Whether the keypad is expanded - fixed console infrastructure (always present),
+    /// same as EncoderDrawerViewModel.IsOpen, just collapsible to reclaim screen space rather
+    /// than conjured/removed by context.</summary>
+    public bool IsOpen { get; private set; } = true;
+
     public event Action? Changed;
+
+    public void Open() { IsOpen = true; Changed?.Invoke(); }
+    public void Close() { IsOpen = false; Changed?.Invoke(); }
+    public void Toggle() { IsOpen = !IsOpen; Changed?.Invoke(); }
 
     public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher, EditorContextStack editorContext)
     {
