@@ -16,6 +16,7 @@ public class CueStoreFilterTests
         private readonly Dictionary<(int, int), byte> _values = new();
         public void Set(int universeId, int channelIndex, byte value) => _values[(universeId, channelIndex)] = value;
         public byte GetEffectiveValue(int universeId, int channelIndex) => _values.GetValueOrDefault((universeId, channelIndex));
+        public OutputOwner? GetOwner(int universeId, int channelIndex) => null;
     }
 
     private static FixtureProfile DimmerAndColor() => new()

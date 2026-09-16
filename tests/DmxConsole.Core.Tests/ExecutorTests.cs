@@ -10,6 +10,7 @@ public class ExecutorTests
     private sealed class StubEffectiveOutputReader : IEffectiveOutputReader
     {
         public byte GetEffectiveValue(int universeId, int channelIndex) => 0;
+        public OutputOwner? GetOwner(int universeId, int channelIndex) => null;
     }
 
     private static readonly FixtureSelection EmptySelection = new();

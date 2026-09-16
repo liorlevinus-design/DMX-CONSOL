@@ -194,6 +194,21 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
     /// question the Store/Update workflow needs to answer explicitly, never guessed.</summary>
     public Cue? FindByNumber(double number) => Cues.FirstOrDefault(c => c.Number == number);
 
+    /// <summary>Every raw (universe, channel) address any Cue in this list stores a value for -
+    /// the "Used in Show" query's raw material (see DmxConsole.Application.Live.ShowUsageQuery).
+    /// A plain union of every Cue's own Levels.Keys, recomputed on every call rather than cached -
+    /// this list can be edited/recorded into at any time and the answer must never go stale.
+    /// Deliberately raw-address, not fixture-aware: resolving back to fixtures is the caller's
+    /// job (via Patch), keeping this type free of any dependency on Patch.</summary>
+    public IReadOnlySet<(int Universe, int Channel)> ReferencedAddresses()
+    {
+        var addresses = new HashSet<(int, int)>();
+        foreach (var cue in Cues)
+            foreach (var key in cue.Levels.Keys)
+                addresses.Add(key);
+        return addresses;
+    }
+
     /// <summary>Replaces an already-recorded Cue's captured levels/name/timing in place - the
     /// "Update Cue N" workflow (as opposed to RecordCue, which always creates a new Cue object).
     /// The Cue's list position and Number are preserved; if it happens to be the cue currently
