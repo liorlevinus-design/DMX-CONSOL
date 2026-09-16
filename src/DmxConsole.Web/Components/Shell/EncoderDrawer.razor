@@ -73,7 +73,7 @@ else
                                     <span class="encoder-touched-badge" title="Value is captured in the Programmer">●</span>
                                 }
                             </div>
-                            <EncoderKnob Slot="slot" OnAdjust="@(newValue => Drawer.SetValue(type, newValue))" />
+                            <EncoderKnob Slot="slot" Type="type" Drawer="Drawer" />
                             @* MIXED and PARTIAL both take precedence over showing a single numeric
                                value - either state means "this number doesn't represent the whole
                                selection", so a plain formatted value is never shown alongside them.
@@ -159,6 +159,7 @@ else
 
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
+        Drawer.CancelActiveGestureIfAny();
         Drawer.RevalidateActiveCategory();
         InvokeAsync(StateHasChanged);
     }
@@ -167,6 +168,7 @@ else
     /// current) - re-sync from whatever THAT workspace's own EncoderDrawer state is.</summary>
     private void OnWorkspaceChanged()
     {
+        Drawer.CancelActiveGestureIfAny();
         Drawer.RestoreState(Wvm.Current.EncoderDrawer);
         Drawer.RevalidateActiveCategory();
         InvokeAsync(StateHasChanged);
@@ -207,6 +209,7 @@ else
 
     public void Dispose()
     {
+        Drawer.CancelActiveGestureIfAny();
         Drawer.PropertyChanged -= OnChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
         Wvm.Changed -= OnWorkspaceChanged;

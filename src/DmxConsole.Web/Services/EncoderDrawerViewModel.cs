@@ -11,11 +11,19 @@ namespace DmxConsole.Web.Services;
 /// EmptySlot for positions with no parameter to show. Partial (only some selected fixtures
 /// support this channel) is orthogonal to Mixed (the fixtures that DO support it disagree on
 /// value) - both can be true at once. Unit/MinValue/MaxValue come from FixtureChannel's own
-/// calibration (default "DMX"/0/255 - see FixtureChannel's own doc comment).</summary>
+/// calibration (default "DMX"/0/255 - see FixtureChannel's own doc comment). MixedRange is
+/// orthogonal to both: it means the fixtures that DO support this channel disagree on the
+/// calibration itself (different Unit/MinValue/MaxValue), so Unit/MinValue/MaxValue above must
+/// not be trusted as "the" range - a UI must show MIXED RANGE instead of one fixture's range
+/// passed off as shared. AllValues is one raw byte per supporting fixture (in selection order) -
+/// what a Mixed Value Strip draws real markers from, never an invented aggregate.</summary>
 public sealed record EncoderSlot(ChannelType? Type, string Label, byte Value, bool Mixed,
-    bool Partial, bool IsProgrammerTouched, string Unit, double MinValue, double MaxValue)
+    bool Partial, bool IsProgrammerTouched, string Unit, double MinValue, double MaxValue,
+    bool MixedRange = false, IReadOnlyList<byte>? AllValues = null)
 {
     public double DisplayValue => MinValue + (Value / 255.0) * (MaxValue - MinValue);
+
+    public IReadOnlyList<byte> AllValuesOrEmpty => AllValues ?? Array.Empty<byte>();
 
     public static readonly EncoderSlot Empty = new(null, string.Empty, 0, false, false, false, "DMX", 0, 255);
 }
@@ -39,6 +47,11 @@ public partial class EncoderDrawerViewModel : ObservableObject
     private readonly ProgrammerViewModel _programmerVm;
     private ConsoleContext Context => _programmerVm.Context;
 
+    /// <summary>At most one gesture may be live at a time across the whole drawer (knob, value
+    /// strip, Position pad, Color Picker all share this). Starting a new one safely cancels
+    /// whatever was in progress first - see BeginGesture.</summary>
+    private EncoderGesture? _activeGesture;
+
     [ObservableProperty] private bool _isOpen = true;
     [ObservableProperty] private EncoderCategory? _activeCategory;
     [ObservableProperty] private int _page;
@@ -50,8 +63,18 @@ public partial class EncoderDrawerViewModel : ObservableObject
     }
 
     public void Open() => IsOpen = true;
-    public void Close() => IsOpen = false;
-    public void Toggle() => IsOpen = !IsOpen;
+
+    public void Close()
+    {
+        CancelActiveGestureIfAny();
+        IsOpen = false;
+    }
+
+    public void Toggle()
+    {
+        if (IsOpen) CancelActiveGestureIfAny();
+        IsOpen = !IsOpen;
+    }
 
     /// <summary>Loads persisted state (the active Workspace's own EncoderDrawerState) - called by
     /// EncoderDrawer.razor on init and whenever the active Workspace itself changes. Applied
@@ -76,6 +99,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
 
     public void SelectCategory(EncoderCategory category)
     {
+        CancelActiveGestureIfAny();
         ActiveCategory = category;
         Page = 0;
     }
@@ -168,20 +192,96 @@ public partial class EncoderDrawerViewModel : ObservableObject
         bool mixed = values.Count > 0 && values.Any(v => v != values[0]);
         bool partial = perFixture.Count < allSelected.Count;
 
-        // Unit/Min/Max come from the first matching fixture's own calibration - if the selection
-        // mixes fixtures with genuinely different calibration for the same ChannelType, Mixed
-        // already flags the value disagreement; the display unit itself isn't re-validated here.
         var firstChannel = perFixture.Count > 0 ? perFixture[0].Channel! : null;
         string unit = firstChannel?.Unit ?? "DMX";
         double min = firstChannel?.MinValue ?? 0;
         double max = firstChannel?.MaxValue ?? 255;
 
-        return new EncoderSlot(type, EncoderLabel(type), value, mixed, partial, touched, unit, min, max);
+        // MIXED RANGE: the fixtures that DO support this channel disagree on the calibration
+        // itself, not just the value - comparing every supporting fixture's own channel, not
+        // just the first one against nothing.
+        bool mixedRange = perFixture.Count > 1 && perFixture.Skip(1)
+            .Any(x => x.Channel!.Unit != unit || x.Channel!.MinValue != min || x.Channel!.MaxValue != max);
+
+        return new EncoderSlot(type, EncoderLabel(type), value, mixed, partial, touched, unit, min, max,
+            mixedRange, values);
     }
 
     private static string EncoderLabel(ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
 
     public void SetValue(ChannelType type, byte value) => _programmerVm.SetEncoderValue(type, value);
+
+    // ---------- Gesture transaction (knob drag, wheel, value strip, Position pad, Color Picker) ----------
+
+    /// <summary>Starts a new gesture for the given channel types (one type = a single knob/value
+    /// strip; two = Position's Pan+Tilt; three = Color's R+G+B). Only one gesture may be live at
+    /// a time across the whole drawer - if one is already in progress, it's safely cancelled
+    /// (restored to its own snapshot) first, never left dangling.</summary>
+    public EncoderGesture BeginGesture(params ChannelType[] types)
+    {
+        CancelActiveGestureIfAny();
+        var gesture = EncoderGesture.Begin(Context, types);
+        _activeGesture = gesture;
+        return gesture;
+    }
+
+    /// <summary>No-op if the given gesture isn't the currently-active one (already superseded by
+    /// a newer BeginGesture, or already committed/cancelled) - this is what makes a stale wheel-
+    /// debounce callback or an out-of-order pointer event harmless instead of corrupting state.</summary>
+    public void PreviewGesture(EncoderGesture gesture, ChannelType type, byte value)
+    {
+        if (!ReferenceEquals(gesture, _activeGesture)) return;
+
+        if (gesture.SelectionChanged(Context))
+        {
+            gesture.RestoreSnapshot(Context);
+            _activeGesture = null;
+            return;
+        }
+
+        gesture.Preview(Context, type, value);
+    }
+
+    /// <summary>finalValues: one final byte per channel type in the gesture. Multiple entries
+    /// (Position/Color) commit as a single CompositeCommand - one Undo step for every channel
+    /// together. Always restores the original per-target snapshot FIRST, so the real Command's
+    /// own before/after capture (ProgrammerChannelCommandBase) sees the true pre-gesture state,
+    /// not the gesture's last live-preview value.</summary>
+    public void CommitGesture(EncoderGesture gesture, IReadOnlyDictionary<ChannelType, byte> finalValues)
+    {
+        if (!ReferenceEquals(gesture, _activeGesture)) return;
+        _activeGesture = null;
+
+        gesture.RestoreSnapshot(Context);
+        if (gesture.SelectionChanged(Context)) return; // changed mid-gesture - never applied to a new selection
+
+        var commands = finalValues
+            .Select(kv => (Targets: gesture.TargetFixtures(Context, kv.Key), kv.Key, kv.Value))
+            .Where(t => t.Targets.Count > 0)
+            .Select(t => (IConsoleCommand)new SetAttributeValueCommand(t.Targets, t.Key, t.Value))
+            .ToList();
+        if (commands.Count == 0) return;
+
+        if (commands.Count == 1) _dispatcher.Dispatch(commands[0]);
+        else _dispatcher.DispatchBatch(commands);
+        _programmerVm.RefreshAllFaders();
+    }
+
+    /// <summary>Restores every target to its own private snapshot - no Command, no Undo entry.</summary>
+    public void CancelGesture(EncoderGesture gesture)
+    {
+        if (ReferenceEquals(gesture, _activeGesture)) _activeGesture = null;
+        gesture.RestoreSnapshot(Context);
+    }
+
+    /// <summary>Called from every exit path that must never leave a live-preview value stranded
+    /// in the Programmer: selection change, workspace switch, category switch, drawer close,
+    /// and (via each Razor component's own Dispose) circuit disconnect/navigation-away. Idempotent
+    /// - safe to call when no gesture is active.</summary>
+    public void CancelActiveGestureIfAny()
+    {
+        if (_activeGesture is { } gesture) CancelGesture(gesture);
+    }
 
     /// <summary>Direct numeric entry - displayValue is in the slot's own display unit (e.g. a
     /// typed "50" for a %-calibrated channel), converted via the first matching selected
