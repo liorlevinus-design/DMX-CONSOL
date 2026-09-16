@@ -9,5 +9,9 @@ window.dmxEncoderKnob = {
     },
     release: function (el, pointerId) {
         try { el.releasePointerCapture(pointerId); } catch (e) { /* already released - ignore */ }
+    },
+    getRect: function (el) {
+        const rect = el.getBoundingClientRect();
+        return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
     }
 };

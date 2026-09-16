@@ -75,6 +75,7 @@ else
                                 }
                             </div>
                             <div class="encoder-slot-control">
+                                <EncoderValueStrip Slot="slot" Type="type" Drawer="Drawer" OnLiveValueChanged="v => OnKnobLiveValueChanged(type, v)" />
                                 <EncoderKnob Slot="slot" Type="type" Drawer="Drawer" OnLiveValueChanged="v => OnKnobLiveValueChanged(type, v)" />
                             </div>
                             @{ var displaySlot = DisplayedSlot(slot, type); }
