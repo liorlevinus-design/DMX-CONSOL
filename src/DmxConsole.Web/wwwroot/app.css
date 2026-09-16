@@ -495,6 +495,8 @@ html, body {
 }
 .encoder-drawer-collapsed-label { color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; }
 .encoder-drawer-collapsed-count { color: var(--text-dim); font-size: 12px; }
+.encoder-drawer-collapsed-preview { display: flex; flex-wrap: wrap; gap: 8px; overflow: hidden; flex: 1 1 auto; min-width: 0; }
+.encoder-drawer-collapsed-chip { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .encoder-drawer-close { margin-left: auto; }
 
 .encoder-drawer-categories { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
