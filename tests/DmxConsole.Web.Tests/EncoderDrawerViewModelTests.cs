@@ -448,6 +448,23 @@ public class EncoderDrawerViewModelTests
         Assert.Equal(33, afterUndo);
     }
 
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void TrySetDisplayValue_NonFiniteInput_ReturnsFalse_NeverThrows_NeverWrites(double invalid)
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        bool applied = drawer.TrySetDisplayValue(ChannelType.Dimmer, invalid);
+
+        Assert.False(applied);
+        Assert.False(context.Programmer.HasStoredValue(0, 0, out _));
+    }
+
     [Fact]
     public void Min_SetsZero_Max_SetsMaxByte()
     {

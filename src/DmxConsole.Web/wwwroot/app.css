@@ -441,7 +441,7 @@ html, body {
 .encoder-value { color: var(--accent); font-size: 11px; font-variant-numeric: tabular-nums; cursor: text; }
 .encoder-value-input { width: 60px; font-size: 11px; background: var(--panel-alt); color: var(--text); border: 1px solid var(--accent); border-radius: 3px; text-align: center; padding: 1px 2px; }
 .encoder-value-mixed { color: #e0a030; font-weight: 700; }
-.encoder-value-partial { color: var(--text-dim); font-size: 9px; font-weight: 700; letter-spacing: 0.04em; border: 1px solid var(--border); border-radius: 3px; padding: 1px 3px; }
+.encoder-value-partial-label { color: var(--text-dim); font-weight: 700; font-style: italic; }
 .encoder-empty { place-items: center; color: var(--text-dim); }
 .encoder-slot-actions { display: flex; flex-wrap: wrap; gap: 3px; }
 .encoder-slot-actions .editor-nav-btn { flex: 1 1 auto; min-height: 28px; min-width: 38px; font-size: 10px; padding: 2px 4px; }

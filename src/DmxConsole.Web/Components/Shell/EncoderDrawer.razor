@@ -74,6 +74,14 @@ else
                                 }
                             </div>
                             <EncoderKnob Slot="slot" OnAdjust="@(newValue => Drawer.SetValue(type, newValue))" />
+                            @* MIXED and PARTIAL both take precedence over showing a single numeric
+                               value - either state means "this number doesn't represent the whole
+                               selection", so a plain formatted value is never shown alongside them.
+                               Mixed wins if both apply (disagreement is the more urgent fact).
+                               Clicking any of the three states still opens numeric entry - typing
+                               an exact value is meaningful even for a partial/mixed selection,
+                               TrySetDisplayValue already only ever writes to fixtures that
+                               actually support the channel. *@
                             <div class="encoder-value-row">
                                 @if (_editingType == type)
                                 {
@@ -84,15 +92,15 @@ else
                                 }
                                 else if (slot.Mixed)
                                 {
-                                    <span class="encoder-value encoder-value-mixed" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">MIXED</span>
+                                    <span class="encoder-value encoder-value-mixed" title="Values differ across the selection - click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">MIXED</span>
+                                }
+                                else if (slot.Partial)
+                                {
+                                    <span class="encoder-value encoder-value-partial-label" title="Only some selected fixtures support this parameter - click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">PARTIAL</span>
                                 }
                                 else
                                 {
                                     <span class="encoder-value" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">@FormatValue(slot)</span>
-                                }
-                                @if (slot.Partial)
-                                {
-                                    <span class="encoder-value-partial" title="Only some selected fixtures support this parameter">PARTIAL</span>
                                 }
                             </div>
                             <div class="encoder-slot-actions">

@@ -186,11 +186,16 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// <summary>Direct numeric entry - displayValue is in the slot's own display unit (e.g. a
     /// typed "50" for a %-calibrated channel), converted via the first matching selected
     /// fixture's own FixtureChannel.FromDisplayValue (clamps to [MinValue,MaxValue] before
-    /// converting, same validation the knob's own range enforces). No-op if no selected fixture
-    /// actually has this channel - never writes to a fixture that doesn't support the
-    /// parameter.</summary>
+    /// converting, same validation the knob's own range enforces). No-op (false) if no selected
+    /// fixture actually has this channel - never writes to a fixture that doesn't support the
+    /// parameter - or if displayValue is NaN/Infinity (e.g. a user literally typing "NaN"/
+    /// "Infinity", which double.TryParse accepts): rejected here, before it would otherwise reach
+    /// FixtureChannel.FromDisplayValue's own defensive throw, so a bad numeric-entry keystroke
+    /// never surfaces an exception up through the Razor layer.</summary>
     public bool TrySetDisplayValue(ChannelType type, double displayValue)
     {
+        if (!double.IsFinite(displayValue)) return false;
+
         var channel = Context.Selection.Items.Select(f => f.FindChannel(type)).FirstOrDefault(c => c is not null);
         if (channel is null) return false;
 
