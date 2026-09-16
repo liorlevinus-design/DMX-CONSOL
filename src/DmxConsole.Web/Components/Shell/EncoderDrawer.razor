@@ -60,24 +60,32 @@ else
                 </div>
             }
 
-            <div class="encoder-bank">
+            <div class="encoder-bank" role="group" aria-label="Five encoder parameter strips">
                 @foreach (var slot in Drawer.SlotsForCurrentPage())
                 {
                     @if (slot.Type is { } type)
                     {
-                        <div class="encoder-slot">
+                        <section class="encoder-slot @(slot.IsProgrammerTouched ? "is-touched" : "")" aria-label="@slot.Label encoder">
                             <div class="encoder-slot-header">
+                                <span class="encoder-slot-number">E@(Array.IndexOf(Drawer.SlotsForCurrentPage().ToArray(), slot) + 1)</span>
                                 <span class="encoder-name">@slot.Label</span>
                                 @if (slot.IsProgrammerTouched)
                                 {
                                     <span class="encoder-touched-badge" title="Value is captured in the Programmer">●</span>
                                 }
                             </div>
-                            <EncoderKnob Slot="slot" Type="type" Drawer="Drawer" />
+                            <div class="encoder-slot-control">
+                                <EncoderKnob Slot="slot" Type="type" Drawer="Drawer" OnLiveValueChanged="v => OnKnobLiveValueChanged(type, v)" />
+                            </div>
+                            @{ var displaySlot = DisplayedSlot(slot, type); }
                             @* MIXED and PARTIAL both take precedence over showing a single numeric
                                value - either state means "this number doesn't represent the whole
                                selection", so a plain formatted value is never shown alongside them.
                                Mixed wins if both apply (disagreement is the more urgent fact).
+                               A live gesture in progress (see DisplayedSlot) resolves Mixed to a
+                               real single value, same as the knob's own needle does, so the number
+                               moves in real time right alongside it - it never waits for the
+                               parent's own poll timer to catch up.
                                Clicking any of the three states still opens numeric entry - typing
                                an exact value is meaningful even for a partial/mixed selection,
                                TrySetDisplayValue already only ever writes to fixtures that
@@ -90,28 +98,30 @@ else
                                            @onkeydown="e => OnNumericEntryKeyDown(e, type)"
                                            @onblur="() => CommitNumericEntry(type)" />
                                 }
-                                else if (slot.Mixed)
+                                else if (displaySlot.Mixed)
                                 {
                                     <span class="encoder-value encoder-value-mixed" title="Values differ across the selection - click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">MIXED</span>
                                 }
-                                else if (slot.Partial)
+                                else if (displaySlot.Partial)
                                 {
                                     <span class="encoder-value encoder-value-partial-label" title="Only some selected fixtures support this parameter - click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">PARTIAL</span>
                                 }
                                 else
                                 {
-                                    <span class="encoder-value" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">@FormatValue(slot)</span>
+                                    <span class="encoder-value" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">@FormatValue(displaySlot)</span>
                                 }
                             </div>
-                            <div class="encoder-slot-actions">
-                                <button class="editor-nav-btn" title="Home" @onclick="() => Drawer.Home(type)">HOME</button>
-                                <button class="editor-nav-btn" title="Min" @onclick="() => Drawer.Min(type)">MIN</button>
-                                <button class="editor-nav-btn" title="Max" @onclick="() => Drawer.Max(type)">MAX</button>
-                                <button class="editor-nav-btn" disabled title="Next - not implemented yet (needs discrete-value metadata)">NEXT</button>
-                                <button class="editor-nav-btn" disabled title="Last - not implemented yet (needs discrete-value metadata)">LAST</button>
-                                <button class="editor-nav-btn" disabled title="Mode - not implemented yet (needs discrete-value metadata)">MODE</button>
+                            <div class="encoder-slot-actions encoder-slot-actions-primary">
+                                <button class="encoder-action-key home" title="Home" @onclick="() => Drawer.Home(type)">HOME</button>
+                                <button class="encoder-action-key" title="Minimum" @onclick="() => Drawer.Min(type)">MIN</button>
+                                <button class="encoder-action-key" title="Maximum" @onclick="() => Drawer.Max(type)">MAX</button>
                             </div>
-                        </div>
+                            <div class="encoder-slot-actions encoder-slot-actions-context">
+                                <button class="encoder-action-key" disabled title="Next - requires discrete-value metadata">NEXT</button>
+                                <button class="encoder-action-key" disabled title="Last - requires discrete-value metadata">LAST</button>
+                                <button class="encoder-action-key more" disabled title="More parameter actions will appear when supported">MORE</button>
+                            </div>
+                        </section>
                     }
                     else
                     {
@@ -128,6 +138,24 @@ else
     private int SelectionCount => Vm.SelectionVm.Selection.Items.Count;
 
     private System.Threading.Timer? _liveTimer;
+
+    /// <summary>Per-channel live-preview override reported by each EncoderKnob's own local drag/
+    /// wheel state (see EncoderKnob.OnLiveValueChanged) - what lets the numeric value display
+    /// here (which otherwise only ever reflects the parent-supplied, poll-refreshed Slot) move in
+    /// real time during a gesture too, not just the knob's own needle.</summary>
+    private readonly Dictionary<ChannelType, byte> _liveOverrides = new();
+
+    private void OnKnobLiveValueChanged(ChannelType type, byte? value)
+    {
+        if (value is { } v) _liveOverrides[type] = v;
+        else _liveOverrides.Remove(type);
+    }
+
+    /// <summary>slot with its Value swapped for the live override when one is active - Mixed is
+    /// also resolved to false in that case, since an active gesture is unifying the whole
+    /// selection onto one real value, same treatment EncoderKnob's own needle gives it.</summary>
+    private EncoderSlot DisplayedSlot(EncoderSlot slot, ChannelType type) =>
+        _liveOverrides.TryGetValue(type, out var live) ? slot with { Value = live, Mixed = false } : slot;
 
     protected override void OnInitialized()
     {
