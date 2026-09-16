@@ -528,6 +528,21 @@ html, body {
     background: var(--panel-alt);
     overflow: auto;
 }
+.encoder-drawer-header { display: flex; align-items: center; min-height: 30px; padding-bottom: 5px; border-bottom: 1px solid #3a444d; }
+.encoder-drawer-heading { display: flex; align-items: baseline; gap: 10px; color: #e8edf1; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.encoder-drawer-heading small { color: #75818b; font-size: 9px; letter-spacing: .06em; }
+.encoder-drawer-workarea { min-height: 0; display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 7px; }
+.encoder-drawer-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.encoder-category-rail { display: grid; align-content: start; gap: 4px; padding-right: 6px; border-right: 1px solid #3a444d; }
+.encoder-category-key { min-height: 39px; display: grid; grid-template-columns: 25px minmax(0, 1fr); align-items: center; gap: 4px; padding: 4px; border: 1px solid #48535d; border-left: 3px solid transparent; border-radius: 2px; background: linear-gradient(#303840, #242a30); color: #b9c2c9; font-size: 8px; font-weight: 750; text-align: left; cursor: pointer; }
+.encoder-category-key:hover:not(:disabled) { color: #fff; border-color: #66737e; }
+.encoder-category-key.active { border-color: #238ac5; border-left-color: #59b9ed; background: linear-gradient(90deg, #154e70, #22343f); color: #fff; box-shadow: inset 0 0 0 1px rgb(79 184 238 / 12%); }
+.encoder-category-key:disabled { opacity: .26; cursor: default; }
+.encoder-category-abbr { color: #f2b647; font: 800 9px/1 "Consolas", monospace; }
+.encoder-category-key.active .encoder-category-abbr { color: #fff; }
+.encoder-drawer-empty-state { min-height: 190px; display: grid; place-content: center; gap: 7px; text-align: center; color: #77838d; border: 1px dashed #3c4650; }
+.encoder-drawer-empty-state strong { color: #a8b1b8; font-size: 12px; letter-spacing: .08em; }
+.encoder-drawer-empty-state span { font-size: 10px; }
 
 .encoder-drawer-collapsed {
     flex: none;
@@ -547,7 +562,6 @@ html, body {
 .encoder-drawer-collapsed-chip { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .encoder-drawer-close { margin-left: auto; }
 
-.encoder-drawer-categories { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .encoder-drawer-paging { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); }
 
 /* ============================================================
