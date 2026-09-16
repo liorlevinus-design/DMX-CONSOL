@@ -3,6 +3,7 @@ using DmxConsole.Application;
 using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Web.Workspaces;
 
 namespace DmxConsole.Web.Services;
 
@@ -51,6 +52,27 @@ public partial class EncoderDrawerViewModel : ObservableObject
     public void Open() => IsOpen = true;
     public void Close() => IsOpen = false;
     public void Toggle() => IsOpen = !IsOpen;
+
+    /// <summary>Loads persisted state (the active Workspace's own EncoderDrawerState) - called by
+    /// EncoderDrawer.razor on init and whenever the active Workspace itself changes. Applied
+    /// directly, no validation - the caller re-validates against the current selection afterward
+    /// if needed (RevalidateActiveCategory), same as any other selection-driven category change.</summary>
+    public void RestoreState(EncoderDrawerState state)
+    {
+        IsOpen = state.IsOpen;
+        ActiveCategory = state.ActiveCategory;
+        Page = state.Page;
+    }
+
+    /// <summary>The inverse of RestoreState - mirrors this ViewModel's current runtime state back
+    /// into the given (mutable, in-place) EncoderDrawerState, e.g. the active Workspace's own
+    /// EncoderDrawer field, so a later explicit Save picks it up like any other layout edit.</summary>
+    public void CopyStateInto(EncoderDrawerState state)
+    {
+        state.IsOpen = IsOpen;
+        state.ActiveCategory = ActiveCategory;
+        state.Page = Page;
+    }
 
     public void SelectCategory(EncoderCategory category)
     {

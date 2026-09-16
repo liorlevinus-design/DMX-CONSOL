@@ -1,5 +1,6 @@
 @using DmxConsole.Core
 @inject MainViewModel Vm
+@inject WorkspaceViewModel Wvm
 @implements IDisposable
 
 @*
@@ -122,8 +123,15 @@ else
 
     protected override void OnInitialized()
     {
+        // Restore persisted state (open/category/page) from the active Workspace before wiring
+        // up live sync - a fresh page load or a workspace switch both need to start from what
+        // was actually saved, not the ViewModel's own just-constructed defaults.
+        Drawer.RestoreState(Wvm.Current.EncoderDrawer);
+        Drawer.RevalidateActiveCategory();
+
         Drawer.PropertyChanged += OnChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged += OnSelectionChanged;
+        Wvm.Changed += OnWorkspaceChanged;
         // Slot values come from the engine's live merged output (Context.EffectiveOutput), which
         // ticks on a background thread with no change notification of its own - same "poll the
         // engine's live state" approach ChannelsView/FixturesView already use, needed so a value
@@ -131,10 +139,27 @@ else
         _liveTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 200, 200);
     }
 
-    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+    private void OnChanged(object? sender, EventArgs e)
+    {
+        // Mirror into the active Workspace's own EncoderDrawer field - not written to disk until
+        // an explicit Save (same as every other layout edit: Lock/Split/Resize), but "reload
+        // preserves state" then falls straight out of Workspace/WorkspaceSerializer's existing
+        // Save/Load round-trip - no separate persistence path needed.
+        Drawer.CopyStateInto(Wvm.Current.EncoderDrawer);
+        InvokeAsync(StateHasChanged);
+    }
 
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
+        Drawer.RevalidateActiveCategory();
+        InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>The active Workspace itself changed (switch/new/save-as/duplicate/delete-of-
+    /// current) - re-sync from whatever THAT workspace's own EncoderDrawer state is.</summary>
+    private void OnWorkspaceChanged()
+    {
+        Drawer.RestoreState(Wvm.Current.EncoderDrawer);
         Drawer.RevalidateActiveCategory();
         InvokeAsync(StateHasChanged);
     }
@@ -176,6 +201,7 @@ else
     {
         Drawer.PropertyChanged -= OnChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
+        Wvm.Changed -= OnWorkspaceChanged;
         _liveTimer?.Dispose();
     }
 }
