@@ -25,7 +25,12 @@ public partial class ProgrammerViewModel : ObservableObject
 
     [ObservableProperty] private string _statusMessage = string.Empty;
     [ObservableProperty] private double _adjustPercent = 10;
-    [ObservableProperty] private LiveFilter _liveFilter = LiveFilter.All;
+    /// <summary>Defaults to EditorOnly exactly once, here at construction - this ViewModel is a
+    /// long-lived singleton (built once by MainViewModel), so this initializer only ever runs
+    /// once for the whole app lifetime. It must NOT be re-applied from the Razor component's own
+    /// OnInitialized - that runs every time the operator switches away from this panel and back,
+    /// which was silently discarding whatever filter they'd actually chosen.</summary>
+    [ObservableProperty] private LiveFilter _liveFilter = LiveFilter.EditorOnly;
 
     public ConsoleContext Context => _context;
 

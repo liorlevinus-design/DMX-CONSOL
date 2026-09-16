@@ -108,10 +108,12 @@
 
     protected override void OnInitialized()
     {
-        // This panel's own reason to exist (per OPERATOR_UX_ROADMAP.md §5, "Editor Only table for
-        // diagnostics") is inspecting pending edits - default to that slice, not the full list.
-        Prog.LiveFilter = LiveFilter.EditorOnly;
-
+        // The EditorOnly default (per OPERATOR_UX_ROADMAP.md §5, "Editor Only table for
+        // diagnostics") lives on ProgrammerViewModel's own field initializer, not here - this
+        // method used to force-reset Prog.LiveFilter on every mount, which silently discarded
+        // whatever filter the operator had actually chosen every time they switched away from
+        // this panel and back. ProgrammerViewModel is a long-lived singleton, so its own default
+        // only ever applies once, for real.
         Prog.PropertyChanged += OnChanged;
         Vm.Faders.CollectionChanged += OnChanged;
         // Ownership/stored-value state changes continuously while a Cue fades or an Effect runs -

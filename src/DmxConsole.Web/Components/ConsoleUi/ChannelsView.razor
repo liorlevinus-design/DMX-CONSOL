@@ -69,12 +69,16 @@
 
 @code {
     private System.Threading.Timer? _liveTimer;
-    private LiveFilter _filter = LiveFilter.All;
 
+    // The filter itself lives on MainViewModel (Vm.ChannelsLiveFilter), not as a field here -
+    // Blazor recreates this component (and any local field) every time the operator switches to
+    // another pane tab and back, which was silently resetting the filter to All. MainViewModel is
+    // the one long-lived singleton every view already shares, so storing it there is "use an
+    // existing ViewModel", not a new parallel state.
     private string Filter
     {
-        get => _filter.ToString();
-        set { if (Enum.TryParse<LiveFilter>(value, out var parsed)) _filter = parsed; }
+        get => Vm.ChannelsLiveFilter.ToString();
+        set { if (Enum.TryParse<LiveFilter>(value, out var parsed)) Vm.ChannelsLiveFilter = parsed; }
     }
 
     protected override void OnInitialized()
@@ -96,7 +100,7 @@
         {
             bool isSelected = Vm.SelectionVm.Selection.Contains(fader.Fixture);
             var state = LiveChannelState.For(Vm.ProgrammerVm.Context, fader.UniverseId, fader.ChannelIndex, isSelected, usedInShow);
-            if (!state.Matches(_filter)) continue;
+            if (!state.Matches(Vm.ChannelsLiveFilter)) continue;
             yield return (fader, state);
         }
     }
