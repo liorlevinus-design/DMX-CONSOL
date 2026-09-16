@@ -184,13 +184,14 @@ public class EncoderDrawerViewModelTests
     }
 
     [Fact]
-    public void RevalidateActiveCategory_ResetsOnlyWhenCategoryNoLongerAvailable()
+    public void RevalidateActiveCategory_WhenCategoryNoLongerAvailable_AutoSelectsFirstAvailable()
     {
         var (context, _, _, drawer) = Build();
         var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
         context.Patch.Add(movingHead);
         context.Selection.Add(movingHead);
         drawer.SelectCategory(EncoderCategory.Image); // Gobo - only on the moving head
+        drawer.NextPage(); // irrelevant here, but confirms Page also resets on the invalidation branch
 
         context.Selection.Clear();
         var dimmerOnly = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 10);
@@ -198,8 +199,50 @@ public class EncoderDrawerViewModelTests
         context.Selection.Add(dimmerOnly);
         drawer.RevalidateActiveCategory();
 
-        Assert.Null(drawer.ActiveCategory); // Image no longer applies - reset
+        // Image no longer applies - resets, then auto-selects Intensity (the only category
+        // available for the dimmer-only fixture), per the "auto-select first available category
+        // when none is active" requirement.
+        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory);
         Assert.Equal(0, drawer.Page);
+    }
+
+    [Fact]
+    public void RevalidateActiveCategory_NoFixturesSelected_LeavesCategoryNull()
+    {
+        var (_, _, _, drawer) = Build();
+
+        drawer.RevalidateActiveCategory();
+
+        Assert.Null(drawer.ActiveCategory); // nothing available to auto-select
+    }
+
+    [Fact]
+    public void RevalidateActiveCategory_AutoSelectsFirstAvailableCategory_OnFirstSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
+        context.Patch.Add(movingHead);
+
+        Assert.Null(drawer.ActiveCategory); // nothing selected yet
+
+        context.Selection.Add(movingHead);
+        drawer.RevalidateActiveCategory();
+
+        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory); // first in Vector-bank order
+    }
+
+    [Fact]
+    public void RevalidateActiveCategory_DoesNotOverride_AlreadyChosenValidCategory()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
+        context.Patch.Add(movingHead);
+        context.Selection.Add(movingHead);
+        drawer.SelectCategory(EncoderCategory.Shape); // operator explicitly picked something other than the first
+
+        drawer.RevalidateActiveCategory();
+
+        Assert.Equal(EncoderCategory.Shape, drawer.ActiveCategory); // untouched - still valid
     }
 
     [Fact]
@@ -218,6 +261,121 @@ public class EncoderDrawerViewModelTests
         drawer.RevalidateActiveCategory();
 
         Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory);
+    }
+
+    [Fact]
+    public void BuildSlot_Partial_TrueWhenOnlySomeSelectedFixturesSupportChannel()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1); // has Gobo (Image)
+        var dimmerOnly = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 10);       // no Gobo
+        context.Patch.Add(movingHead);
+        context.Patch.Add(dimmerOnly);
+        context.Selection.Add(movingHead);
+        context.Selection.Add(dimmerOnly);
+        drawer.SelectCategory(EncoderCategory.Image);
+
+        var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Gobo);
+
+        Assert.True(slot.Partial);
+    }
+
+    [Fact]
+    public void BuildSlot_NotPartial_WhenAllSelectedFixturesSupportChannel()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixtureA = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        var fixtureB = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 1, 1);
+        context.Patch.Add(fixtureA);
+        context.Patch.Add(fixtureB);
+        context.Selection.Add(fixtureA);
+        context.Selection.Add(fixtureB);
+        drawer.SelectCategory(EncoderCategory.Intensity);
+
+        var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Dimmer);
+
+        Assert.False(slot.Partial);
+    }
+
+    [Fact]
+    public void BuildSlot_UsesFixtureChannelsCalibratedUnitAndRange()
+    {
+        var (context, _, _, drawer) = Build();
+        var profile = new FixtureProfile
+        {
+            Id = "test-calibrated-dimmer", Manufacturer = "Test", Model = "CalibratedDimmer",
+            Modes = new[] { new FixtureMode { Name = "1ch", Channels = new[] { new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0, Unit = "%", MinValue = 0, MaxValue = 100 } } } },
+        };
+        var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 255);
+        ((DmxOutputEngine)context.EffectiveOutput).AddLayer(context.Programmer);
+        ((DmxOutputEngine)context.EffectiveOutput).Tick(); // BuildSlot reads live merged output, not Programmer directly
+        drawer.SelectCategory(EncoderCategory.Intensity);
+
+        var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Dimmer);
+
+        Assert.Equal("%", slot.Unit);
+        Assert.Equal(100.0, slot.DisplayValue);
+    }
+
+    [Fact]
+    public void GroupSelection_PopulatesEncodersForGroupMembers()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
+        context.Patch.Add(movingHead);
+        var group = new FixtureGroup("Movers", new[] { movingHead });
+
+        context.Selection.AddGroup(group);
+        drawer.RevalidateActiveCategory();
+
+        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory); // auto-selected
+        Assert.Contains(EncoderCategory.Position, drawer.AvailableCategories());
+        Assert.Contains(EncoderCategory.Image, drawer.AvailableCategories());
+    }
+
+    [Fact]
+    public void SetValue_SupportsUndoAndRedo()
+    {
+        var (context, _, undoRedo, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 10);
+
+        drawer.SetValue(ChannelType.Dimmer, 200);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterSet));
+        Assert.Equal(200, afterSet);
+
+        var undone = undoRedo.Undo();
+        Assert.True(undone.Performed);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterUndo));
+        Assert.Equal(10, afterUndo);
+
+        undoRedo.Redo();
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterRedo));
+        Assert.Equal(200, afterRedo);
+    }
+
+    [Fact]
+    public void MinMax_SupportUndo()
+    {
+        var (context, _, undoRedo, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 77);
+
+        drawer.Max(ChannelType.Dimmer);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterMax));
+        Assert.Equal(255, afterMax);
+
+        var undone = undoRedo.Undo();
+        Assert.True(undone.Performed);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterUndo));
+        Assert.Equal(77, afterUndo);
     }
 
     [Fact]

@@ -7,10 +7,16 @@ using DmxConsole.Core.Fixtures;
 namespace DmxConsole.Web.Services;
 
 /// <summary>One fixed encoder slot's display state - always exactly 5 of these per page,
-/// EmptySlot for positions with no parameter to show.</summary>
-public sealed record EncoderSlot(ChannelType? Type, string Label, byte Value, bool Mixed, bool IsProgrammerTouched)
+/// EmptySlot for positions with no parameter to show. Partial (only some selected fixtures
+/// support this channel) is orthogonal to Mixed (the fixtures that DO support it disagree on
+/// value) - both can be true at once. Unit/MinValue/MaxValue come from FixtureChannel's own
+/// calibration (default "DMX"/0/255 - see FixtureChannel's own doc comment).</summary>
+public sealed record EncoderSlot(ChannelType? Type, string Label, byte Value, bool Mixed,
+    bool Partial, bool IsProgrammerTouched, string Unit, double MinValue, double MaxValue)
 {
-    public static readonly EncoderSlot Empty = new(null, string.Empty, 0, false, false);
+    public double DisplayValue => MinValue + (Value / 255.0) * (MaxValue - MinValue);
+
+    public static readonly EncoderSlot Empty = new(null, string.Empty, 0, false, false, false, "DMX", 0, 255);
 }
 
 /// <summary>
@@ -79,12 +85,22 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// <summary>Called after anything that might invalidate ActiveCategory (selection changes) -
     /// resets to null only if the current category is no longer available; never resets Page
     /// unless ActiveCategory itself actually changes, per the "open/close never loses
-    /// category/page" acceptance criterion.</summary>
+    /// category/page" acceptance criterion. Also auto-selects the first available category when
+    /// none is active yet (e.g. the very first selection after an empty one) - but never
+    /// overrides a category the operator already picked while it's still valid.</summary>
     public void RevalidateActiveCategory()
     {
-        if (ActiveCategory is { } current && !AvailableCategories().Contains(current))
+        var available = AvailableCategories();
+
+        if (ActiveCategory is { } current && !available.Contains(current))
         {
             ActiveCategory = null;
+            Page = 0;
+        }
+
+        if (ActiveCategory is null && available.Count > 0)
+        {
+            ActiveCategory = available[0];
             Page = 0;
         }
     }
@@ -117,7 +133,8 @@ public partial class EncoderDrawerViewModel : ObservableObject
 
     private EncoderSlot BuildSlot(ChannelType type)
     {
-        var perFixture = Context.Selection.Items
+        var allSelected = Context.Selection.Items;
+        var perFixture = allSelected
             .Select(f => (Fixture: f, Channel: f.FindChannel(type)))
             .Where(x => x.Channel is not null)
             .ToList();
@@ -127,8 +144,17 @@ public partial class EncoderDrawerViewModel : ObservableObject
 
         byte value = values.Count == 0 ? (byte)0 : values[0];
         bool mixed = values.Count > 0 && values.Any(v => v != values[0]);
+        bool partial = perFixture.Count < allSelected.Count;
 
-        return new EncoderSlot(type, EncoderLabel(type), value, mixed, touched);
+        // Unit/Min/Max come from the first matching fixture's own calibration - if the selection
+        // mixes fixtures with genuinely different calibration for the same ChannelType, Mixed
+        // already flags the value disagreement; the display unit itself isn't re-validated here.
+        var firstChannel = perFixture.Count > 0 ? perFixture[0].Channel! : null;
+        string unit = firstChannel?.Unit ?? "DMX";
+        double min = firstChannel?.MinValue ?? 0;
+        double max = firstChannel?.MaxValue ?? 255;
+
+        return new EncoderSlot(type, EncoderLabel(type), value, mixed, partial, touched, unit, min, max);
     }
 
     private static string EncoderLabel(ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
