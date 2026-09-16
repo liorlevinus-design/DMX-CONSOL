@@ -33,7 +33,7 @@ public static class GenericFixtureLibrary
                 Name = "1-channel",
                 Channels = new[]
                 {
-                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0 },
+                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0, Unit = "%", MinValue = 0, MaxValue = 100 },
                 },
             },
         },
@@ -92,11 +92,14 @@ public static class GenericFixtureLibrary
                 Name = "8-channel",
                 Channels = new[]
                 {
-                    new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 0 },
+                    // Generic-profile pan/tilt range (±270°/±135°) - a plausible default for a
+                    // typical moving head, not a measured calibration; a real fixture profile
+                    // should declare its own actual range.
+                    new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 0, Unit = "°", MinValue = -270, MaxValue = 270 },
                     new FixtureChannel { Name = "Pan Fine", Type = ChannelType.PanFine, Offset = 1 },
-                    new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 2 },
+                    new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 2, Unit = "°", MinValue = -135, MaxValue = 135 },
                     new FixtureChannel { Name = "Tilt Fine", Type = ChannelType.TiltFine, Offset = 3 },
-                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 4 },
+                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 4, Unit = "%", MinValue = 0, MaxValue = 100 },
                     new FixtureChannel { Name = "Shutter/Strobe", Type = ChannelType.Shutter, Offset = 5 },
                     new FixtureChannel { Name = "Color Wheel", Type = ChannelType.ColorWheel, Offset = 6 },
                     new FixtureChannel { Name = "Gobo", Type = ChannelType.Gobo, Offset = 7 },
