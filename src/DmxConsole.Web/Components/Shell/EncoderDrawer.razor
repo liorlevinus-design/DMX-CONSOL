@@ -60,13 +60,20 @@ else
                         </div>
                         <EncoderKnob Slot="slot" OnAdjust="@(newValue => Drawer.SetValue(type, newValue))" />
                         <div class="encoder-value-row">
-                            @if (slot.Mixed)
+                            @if (_editingType == type)
                             {
-                                <span class="encoder-value encoder-value-mixed">MIXED</span>
+                                <input class="encoder-value-input" type="number" step="any" autofocus
+                                       @bind="_editingText" @bind:event="oninput"
+                                       @onkeydown="e => OnNumericEntryKeyDown(e, type)"
+                                       @onblur="() => CommitNumericEntry(type)" />
+                            }
+                            else if (slot.Mixed)
+                            {
+                                <span class="encoder-value encoder-value-mixed" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">MIXED</span>
                             }
                             else
                             {
-                                <span class="encoder-value">@FormatValue(slot)</span>
+                                <span class="encoder-value" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">@FormatValue(slot)</span>
                             }
                             @if (slot.Partial)
                             {
@@ -122,6 +129,33 @@ else
     /// (%, °) shows one decimal place.</summary>
     private static string FormatValue(EncoderSlot slot) =>
         slot.Unit == "DMX" ? $"{(int)Math.Round(slot.DisplayValue)} DMX" : $"{slot.DisplayValue:0.#}{slot.Unit}";
+
+    // ---------- Direct numeric entry ----------
+    private ChannelType? _editingType;
+    private string _editingText = string.Empty;
+
+    private void StartNumericEntry(ChannelType type, EncoderSlot slot)
+    {
+        _editingType = type;
+        _editingText = slot.Mixed ? string.Empty : Math.Round(slot.DisplayValue, 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private void CancelNumericEntry() => _editingType = null;
+
+    private void CommitNumericEntry(ChannelType type)
+    {
+        if (_editingType != type) return; // already committed/cancelled (e.g. Enter fired before blur)
+        _editingType = null;
+
+        if (double.TryParse(_editingText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            Drawer.TrySetDisplayValue(type, parsed);
+    }
+
+    private void OnNumericEntryKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e, ChannelType type)
+    {
+        if (e.Key == "Enter") CommitNumericEntry(type);
+        else if (e.Key == "Escape") CancelNumericEntry();
+    }
 
     public void Dispose()
     {

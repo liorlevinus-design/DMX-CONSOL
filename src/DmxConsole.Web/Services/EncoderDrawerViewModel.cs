@@ -161,6 +161,21 @@ public partial class EncoderDrawerViewModel : ObservableObject
 
     public void SetValue(ChannelType type, byte value) => _programmerVm.SetEncoderValue(type, value);
 
+    /// <summary>Direct numeric entry - displayValue is in the slot's own display unit (e.g. a
+    /// typed "50" for a %-calibrated channel), converted via the first matching selected
+    /// fixture's own FixtureChannel.FromDisplayValue (clamps to [MinValue,MaxValue] before
+    /// converting, same validation the knob's own range enforces). No-op if no selected fixture
+    /// actually has this channel - never writes to a fixture that doesn't support the
+    /// parameter.</summary>
+    public bool TrySetDisplayValue(ChannelType type, double displayValue)
+    {
+        var channel = Context.Selection.Items.Select(f => f.FindChannel(type)).FirstOrDefault(c => c is not null);
+        if (channel is null) return false;
+
+        SetValue(type, channel.FromDisplayValue(displayValue));
+        return true;
+    }
+
     public void Min(ChannelType type) => _programmerVm.SetEncoderValue(type, 0);
 
     public void Max(ChannelType type) => _programmerVm.SetEncoderValue(type, 255);

@@ -379,6 +379,76 @@ public class EncoderDrawerViewModelTests
     }
 
     [Fact]
+    public void TrySetDisplayValue_ConvertsThroughFixtureChannelCalibration()
+    {
+        var (context, _, _, drawer) = Build();
+        var profile = new FixtureProfile
+        {
+            Id = "test-calibrated-dimmer-2", Manufacturer = "Test", Model = "CalibratedDimmer2",
+            Modes = new[] { new FixtureMode { Name = "1ch", Channels = new[] { new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0, Unit = "%", MinValue = 0, MaxValue = 100 } } } },
+        };
+        var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        bool applied = drawer.TrySetDisplayValue(ChannelType.Dimmer, 100);
+
+        Assert.True(applied);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var raw));
+        Assert.Equal((byte)255, raw);
+    }
+
+    [Fact]
+    public void TrySetDisplayValue_ClampsOutOfRangeInput()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1); // default "DMX" unit, 0..255
+
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        drawer.TrySetDisplayValue(ChannelType.Dimmer, 9999);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var tooHigh));
+        Assert.Equal((byte)255, tooHigh);
+
+        drawer.TrySetDisplayValue(ChannelType.Dimmer, -50);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var tooLow));
+        Assert.Equal((byte)0, tooLow);
+    }
+
+    [Fact]
+    public void TrySetDisplayValue_ReturnsFalse_WhenNoSelectedFixtureSupportsChannel()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1); // no Pan channel
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        bool applied = drawer.TrySetDisplayValue(ChannelType.Pan, 50);
+
+        Assert.False(applied);
+    }
+
+    [Fact]
+    public void TrySetDisplayValue_SupportsUndo()
+    {
+        var (context, _, undoRedo, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 33);
+
+        drawer.TrySetDisplayValue(ChannelType.Dimmer, 200);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterSet));
+        Assert.Equal(200, afterSet);
+
+        var undone = undoRedo.Undo();
+        Assert.True(undone.Performed);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterUndo));
+        Assert.Equal(33, afterUndo);
+    }
+
+    [Fact]
     public void Min_SetsZero_Max_SetsMaxByte()
     {
         var (context, _, _, drawer) = Build();

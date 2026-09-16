@@ -438,7 +438,8 @@ html, body {
 .encoder-name { color: var(--text); font-size: 11px; font-weight: 700; text-transform: uppercase; }
 .encoder-touched-badge { color: #e0a030; font-size: 10px; }
 .encoder-value-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
-.encoder-value { color: var(--accent); font-size: 11px; font-variant-numeric: tabular-nums; }
+.encoder-value { color: var(--accent); font-size: 11px; font-variant-numeric: tabular-nums; cursor: text; }
+.encoder-value-input { width: 60px; font-size: 11px; background: var(--panel-alt); color: var(--text); border: 1px solid var(--accent); border-radius: 3px; text-align: center; padding: 1px 2px; }
 .encoder-value-mixed { color: #e0a030; font-weight: 700; }
 .encoder-value-partial { color: var(--text-dim); font-size: 9px; font-weight: 700; letter-spacing: 0.04em; border: 1px solid var(--border); border-radius: 3px; padding: 1px 3px; }
 .encoder-empty { place-items: center; color: var(--text-dim); }
