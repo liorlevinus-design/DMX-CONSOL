@@ -222,7 +222,62 @@ Still required later:
 - Position Flip/Invert only when real calibration metadata exists;
 - broader hardware/touch verification.
 
-## 13. Workspace and later roadmap
+## 13. Preset scope model — Selective / Global / Universal
+
+The Preset system must support scope semantics inspired by professional console workflows, especially grandMA-style Selective / Global / Universal presets.
+
+### Selective
+
+A **Selective** preset is fixture-specific.
+
+- It applies only to the specific fixtures whose data was stored into the preset.
+- Recalling it on other fixtures must not silently invent or transfer data.
+- This is the safest scope for fixture-specific looks, positions, and special-case values.
+
+### Global
+
+A **Global** preset is fixture-type-specific.
+
+- Storing a preset from one representative fixture of a fixture type must allow that preset to be recalled on other fixtures of the same fixture type.
+- The stored data must be semantic/profile-aware data for that fixture type, not copied raw DMX addresses from the originally selected fixture.
+- Example: store a Color preset from one ESPIT fixture as Global; every ESPIT of the same fixture type can recall it even if only one ESPIT was selected when the preset was created.
+
+### Universal
+
+A **Universal** preset is attribute-compatible across fixture types.
+
+- It should be applicable to different fixture types when the relevant semantic parameters can be translated safely.
+- The system must use semantic attribute/profile metadata rather than raw DMX copying.
+- Universal translation must never guess when compatibility is ambiguous.
+- Color is a major target use case, but translation rules must be explicit for RGB/RGBW/other color systems before those combinations are allowed.
+
+### Preset architecture requirements
+
+Preset storage and recall must therefore become profile-aware and semantic.
+
+Required direction:
+
+- Preset scope enum/model: `Selective`, `Global`, `Universal`.
+- Store/Update preserves and exposes the selected scope.
+- Preset tiles/pools clearly indicate scope, for example `S`, `G`, `U` or an equivalent visual treatment.
+- Global data is keyed/resolved by fixture type/profile semantics rather than fixture DMX address.
+- Universal data is keyed/resolved by semantic attributes and explicit compatibility/translation rules.
+- No Universal recall may silently coerce incompatible parameter systems.
+- Mixed preset contents may later support different scope behavior per semantic family only if the model remains deterministic and understandable to the operator.
+- Scope should be available from Command Surface, Direct Select, touch UI, and future NL/macros through the same Application-layer operation path.
+- Default scope per preset pool may be added later, but the current scope must always remain visible to the operator.
+
+### Preset workflow still required
+
+- full Store / Update / Delete / Move / Copy workflow;
+- scope selection during Store;
+- scope-preserving Update;
+- controlled scope conversion where valid;
+- compatibility reporting when a target cannot use a Global/Universal preset;
+- semantic Position/Color/Beam/Image/Shape preset pools;
+- integration with LIVE, Encoder Drawer, Direct Selects, Cue programming, and provenance where relevant.
+
+## 14. Workspace and later roadmap
 
 Still open:
 
@@ -231,7 +286,7 @@ Still open:
 - Stage Layout / 2D / 3D;
 - diagnostics and DMX/device diagnostics;
 - effects/phasers operator UX;
-- presets workflow;
+- Direct Selects operator surface;
 - remaining show-control roadmap.
 
 ## Current implementation priority
@@ -246,9 +301,11 @@ Unless a blocking regression appears, the current priority order is:
 6. Selection History + CLEAR + Recall completion.
 7. Groups operator pool.
 8. Command Surface + Editor Tool Bar expansion.
-9. Cue Lists + Executors.
-10. Patch.
-11. Presets / Effects UX / Workspace polish / Stage / 2D / 3D / diagnostics.
+9. Direct Selects operator surface.
+10. Preset scope model and full preset workflow: Selective / Global / Universal.
+11. Cue Lists + Executors.
+12. Patch.
+13. Effects UX / Workspace polish / Stage / 2D / 3D / diagnostics.
 
 ## Definition of done for future UX slices
 
