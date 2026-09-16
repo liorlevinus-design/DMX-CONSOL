@@ -195,9 +195,11 @@ Executor work still required:
 - integration with `Used in Show` and LIVE provenance;
 - Submaster as a first-class operator concept when implemented.
 
-## 11. Patch
+## 11. Patch and Fixture Library / Device Profiles
 
-Still required:
+Patch is the natural home for fixture/device management. The Fixture Library should be a subsystem inside Patch rather than a separate primary workspace screen.
+
+### Patch workflow still required
 
 - compact creation/edit workflow;
 - sticky headers;
@@ -207,6 +209,54 @@ Still required:
 - Patch / Repatch / Unpatch / Delete as separate operations;
 - fixture-profile and mode editing;
 - safety around destructive operations.
+
+### Fixture Library / Device Profiles
+
+The operator workflow should be:
+
+`Patch -> Add Fixture -> Search Manufacturer / Model -> Select Mode -> Quantity / Fixture Numbers -> Universe / Address -> Patch`
+
+The library must represent three distinct concepts:
+
+- **Fixture Model** — the physical product, for example a manufacturer/model combination;
+- **Fixture Mode** — one DMX personality/mode for that model, with its own footprint and channel map;
+- **Patched Fixture Instance** — the fixture number/address used in the current show.
+
+The internal profile model must be DMX-CONSOL-native and semantic. External libraries are import sources, not runtime business models.
+
+Target import path:
+
+`GDTF / Open Fixture Library / Manual Profile -> Importer -> DMX-CONSOL Fixture Profile`
+
+Required profile metadata should include, where available:
+
+- Manufacturer, Model, Mode and footprint;
+- semantic parameter families and attribute mapping;
+- coarse/fine channel relationships and resolution;
+- channel defaults, Home and Highlight values;
+- physical Pan/Tilt ranges and other calibrated physical ranges;
+- capability ranges and discrete values such as gobo, prism, shutter/strobe and color-wheel slots;
+- color-system metadata such as RGB/RGBW/other emitters;
+- source/version information and validation status.
+
+Patch should expose management actions such as:
+
+- `Manage Fixture Library`;
+- `Edit Profile`;
+- `Import GDTF`;
+- `Import OFL`;
+- `Create Custom Fixture`.
+
+A Custom Fixture/Profile editor is required because some real fixtures will not have a reliable library entry.
+
+### Profile integrity rules
+
+- Never invent calibration, physical range or capability metadata.
+- If semantic metadata is missing, fall back honestly to raw DMX rather than guessing.
+- Profile validation should detect invalid channel overlap, missing fine/coarse relationships, impossible capability ranges and footprint inconsistencies where feasible.
+- Imported profiles must be normalized into the internal model before being consumed by Patch, Encoder Drawer, Presets, Calibration, LIVE, Quick Grid or future 2D/3D.
+
+This profile system is a dependency for richer discrete Encoder behavior, Fixture Type/Compatible presets, fixture calibration, reliable patch footprint handling and future visualization.
 
 ## 12. Encoder Drawer follow-up
 
@@ -389,7 +439,7 @@ Unless a blocking regression appears, the current priority order is:
 9. Quick Grid.
 10. Preset scope model and full preset workflow: Fixture / Fixture Type / Compatible.
 11. Cue Lists + Executors.
-12. Patch.
+12. Patch + Fixture Library / Device Profiles.
 13. Fixture Calibration / Venue Adaptation.
 14. Effects UX.
 15. Workspace polish.
