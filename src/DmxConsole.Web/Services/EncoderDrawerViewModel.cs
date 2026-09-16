@@ -168,6 +168,56 @@ public partial class EncoderDrawerViewModel : ObservableObject
         return count == 0 ? 1 : (count + 4) / 5;
     }
 
+    /// <summary>Builds the live aggregate state for a specific channel type, including Mixed,
+    /// Partial and MixedRange. Special controls (Position pad and Color Picker) use the exact
+    /// same source of truth as the five encoder strips rather than maintaining parallel state.</summary>
+    public EncoderSlot SlotFor(ChannelType type) => BuildSlot(type);
+
+    // ---------- Position pad ----------
+
+    /// <summary>Shown only when the active category is Position and the selection actually has
+    /// BOTH Pan and Tilt as real channel types - never invented for a fixture that lacks one of
+    /// them.</summary>
+    public bool ShowsPositionPad() =>
+        ActiveCategory == EncoderCategory.Position
+        && ChannelTypesForActiveCategory().Contains(ChannelType.Pan)
+        && ChannelTypesForActiveCategory().Contains(ChannelType.Tilt);
+
+    /// <summary>Pan-vs-Pan and Tilt-vs-Tilt uniformity are checked completely separately (per the
+    /// review correction) - Pan and Tilt are unrelated physical axes and are never required to
+    /// share a range with EACH OTHER, only with themselves across the selected fixtures.</summary>
+    public bool PositionPadHasMixedRange() => SlotFor(ChannelType.Pan).MixedRange || SlotFor(ChannelType.Tilt).MixedRange;
+
+    /// <summary>True only when every selected fixture that has Pan/Tilt declares a real
+    /// calibration (Unit != "DMX") for BOTH axes - otherwise the pad still renders, but in an
+    /// explicitly-labeled raw-normalized space (0..255 on each axis), never pretending a
+    /// meaningless byte range is degrees.</summary>
+    public bool PositionPadIsCalibrated() => SlotFor(ChannelType.Pan).Unit != "DMX" && SlotFor(ChannelType.Tilt).Unit != "DMX";
+
+    // ---------- Color Picker ----------
+
+    /// <summary>Shown only when EVERY selected fixture (not just some) has the full ColorRed/
+    /// ColorGreen/ColorBlue triple - a partial match must never render a picker that silently
+    /// ignores a fixture, or pretends a ColorWheel-only fixture has RGB.</summary>
+    public bool ShowsColorPicker() =>
+        ActiveCategory == EncoderCategory.Color
+        && Context.Selection.Items.Count > 0
+        && Context.Selection.Items.All(HasFullRgb);
+
+    /// <summary>Some but not all of the selection has full RGB - the picker is withheld and the
+    /// caller shows an explicit PARTIAL label instead, per the same principle Slot.Partial already
+    /// uses elsewhere in this drawer.</summary>
+    public bool ColorPickerIsPartial() =>
+        ActiveCategory == EncoderCategory.Color
+        && Context.Selection.Items.Count > 0
+        && Context.Selection.Items.Any(HasFullRgb)
+        && !ShowsColorPicker();
+
+    private static bool HasFullRgb(PatchedFixture fixture) =>
+        fixture.FindChannel(ChannelType.ColorRed) is not null
+        && fixture.FindChannel(ChannelType.ColorGreen) is not null
+        && fixture.FindChannel(ChannelType.ColorBlue) is not null;
+
     private List<ChannelType> ChannelTypesForActiveCategory()
     {
         if (ActiveCategory is not { } category) return new List<ChannelType>();

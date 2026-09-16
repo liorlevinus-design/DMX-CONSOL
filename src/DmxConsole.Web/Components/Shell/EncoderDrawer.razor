@@ -78,6 +78,33 @@ else
                     </div>
                 }
 
+                @if (Drawer.ActiveCategory == EncoderCategory.Position)
+                {
+                    if (Drawer.ShowsPositionPad())
+                    {
+                        <EncoderPositionPad Pan="Drawer.SlotFor(ChannelType.Pan)"
+                                            Tilt="Drawer.SlotFor(ChannelType.Tilt)"
+                                            Drawer="Drawer" />
+                    }
+                }
+                else if (Drawer.ActiveCategory == EncoderCategory.Color)
+                {
+                    if (Drawer.ShowsColorPicker())
+                    {
+                        <EncoderColorPicker Red="Drawer.SlotFor(ChannelType.ColorRed)"
+                                            Green="Drawer.SlotFor(ChannelType.ColorGreen)"
+                                            Blue="Drawer.SlotFor(ChannelType.ColorBlue)"
+                                            Drawer="Drawer" />
+                    }
+                    else if (Drawer.ColorPickerIsPartial())
+                    {
+                        <div class="encoder-special-panel unavailable">
+                            <strong>COLOR PICKER · PARTIAL</strong>
+                            <span>Select only fixtures with a complete RGB engine to use the picker.</span>
+                        </div>
+                    }
+                }
+
             <div class="encoder-bank" role="group" aria-label="Five encoder parameter strips">
                 @foreach (var slot in Drawer.SlotsForCurrentPage())
                 {

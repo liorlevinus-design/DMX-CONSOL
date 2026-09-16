@@ -564,6 +564,43 @@ html, body {
 
 .encoder-drawer-paging { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); }
 
+/* ---------- Context panels: Position + Color ---------- */
+.encoder-special-panel { min-height: 142px; display: grid; grid-template-rows: 26px minmax(95px, 1fr) 22px; border: 1px solid #3b4650; border-radius: 3px; background: #171c20; overflow: hidden; }
+.encoder-special-panel > header { display: flex; align-items: center; gap: 10px; padding: 0 8px; border-bottom: 1px solid #343d45; color: #7f8b94; font-size: 9px; letter-spacing: .05em; }
+.encoder-special-panel > header strong { color: #e5ebef; font-size: 10px; }
+.encoder-panel-warning { margin-left: auto; color: #f2b647; font-weight: 800; }
+.encoder-special-panel > footer { display: flex; align-items: center; gap: 12px; padding: 0 8px; border-top: 1px solid #343d45; color: #b5bec5; font: 700 9px/1 "Consolas", monospace; }
+.encoder-special-panel.unavailable { min-height: 72px; grid-template-rows: auto auto; place-content: center; gap: 5px; padding: 12px; color: #7f8b94; text-align: center; }
+.encoder-special-panel.unavailable strong { color: #f2b647; font-size: 11px; }
+.encoder-special-panel.unavailable span { font-size: 10px; }
+
+.encoder-position-pad { position: relative; min-height: 112px; margin: 7px; border: 1px solid #46515b; background-color: #11161a; background-image: linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px); background-size: 20% 20%; touch-action: none; cursor: crosshair; overflow: hidden; }
+.position-axis { position: absolute; background: #53606a; pointer-events: none; }
+.position-axis.horizontal { left: 0; right: 0; top: 50%; height: 1px; }
+.position-axis.vertical { top: 0; bottom: 0; left: 50%; width: 1px; }
+.position-marker { position: absolute; width: 10px; height: 10px; translate: -50% -50%; border: 2px solid #f4f7f9; border-radius: 50%; background: #238ac5; box-shadow: 0 0 0 1px #0c1013, 0 0 5px rgb(35 138 197 / 70%); pointer-events: none; }
+.position-marker.mixed-marker { width: 6px; height: 6px; border-width: 1px; border-color: #f2b647; background: transparent; box-shadow: none; }
+
+.encoder-color-picker { position: relative; min-height: 112px; margin: 7px; border: 1px solid #46515b; background-image: linear-gradient(to top, #fff, transparent), linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%); touch-action: none; cursor: crosshair; }
+.color-picker-marker { position: absolute; width: 12px; height: 12px; translate: -50% -50%; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000, 0 1px 4px #000; pointer-events: none; }
+.color-preview { width: 18px; height: 12px; border: 1px solid #78848e; }
+
+/* Component wrappers keep the five physical strips visible below the contextual panel. */
+.encoder-position-pad-wrap, .encoder-color-picker-wrap { display: grid; grid-template-rows: 25px minmax(112px, 1fr); border: 1px solid #3b4650; border-radius: 3px; background: #171c20; overflow: hidden; }
+.encoder-position-pad-label, .encoder-color-picker-label { display: flex; align-items: center; gap: 8px; padding: 0 8px; border-bottom: 1px solid #343d45; color: #e5ebef; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.encoder-position-pad-badge { margin-left: auto; padding: 2px 5px; border: 1px solid #816323; color: #f2b647; font: 800 8px/1 "Consolas", monospace; }
+.encoder-position-pad-wrap .encoder-position-pad { margin: 7px; }
+.encoder-position-pad-crosshair-h, .encoder-position-pad-crosshair-v { position: absolute; background: #53606a; pointer-events: none; }
+.encoder-position-pad-crosshair-h { left: 0; right: 0; top: 50%; height: 1px; }
+.encoder-position-pad-crosshair-v { top: 0; bottom: 0; left: 50%; width: 1px; }
+.encoder-position-pad-dot { position: absolute; width: 11px; height: 11px; translate: -50% -50%; border: 2px solid #f4f7f9; border-radius: 50%; background: #238ac5; box-shadow: 0 0 0 1px #0c1013, 0 0 5px rgb(35 138 197 / 70%); pointer-events: none; }
+.encoder-position-pad.mixed .encoder-position-pad-dot { border-color: #f2b647; background: transparent; }
+.encoder-position-pad-mixed-range { display: grid; place-items: center; color: #f2b647; font-size: 12px; font-weight: 800; letter-spacing: .08em; cursor: default; }
+
+.encoder-color-picker-plane { position: relative; min-height: 112px; margin: 7px; border: 1px solid #46515b; background-image: linear-gradient(to bottom, transparent, #fff), linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%); touch-action: none; cursor: crosshair; }
+.encoder-color-picker-dot { position: absolute; width: 12px; height: 12px; translate: -50% -50%; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000, 0 1px 4px #000; pointer-events: none; }
+.encoder-color-picker-partial { display: grid; place-items: center; background: #11161a; color: #f2b647; font-size: 12px; font-weight: 800; letter-spacing: .08em; cursor: default; }
+
 /* ============================================================
    Command Line / Command Surface (H1.5) - persistent console
    infrastructure, outside the pane tree, alongside ConsoleChrome.
@@ -789,6 +826,19 @@ html, body {
 @media (max-width: 900px) {
     .console-input-row { flex-direction: column; }
     .console-input-row .encoder-drawer { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+    .encoder-drawer-workarea { grid-template-columns: 1fr; }
+    .encoder-category-rail { grid-template-columns: repeat(6, minmax(70px, 1fr)); overflow-x: auto; padding: 0 0 5px; border-right: none; border-bottom: 1px solid #3a444d; }
+    .encoder-category-key { grid-template-columns: 1fr; place-items: center; text-align: center; min-height: 36px; }
+    .encoder-bank { grid-template-columns: repeat(5, minmax(124px, 1fr)); overflow-x: auto; padding-bottom: 4px; }
+    .encoder-special-panel { min-height: 130px; }
+}
+
+@media (max-width: 620px) {
+    .encoder-drawer { padding: 6px; }
+    .encoder-bank { grid-template-columns: repeat(5, 118px); }
+    .encoder-slot { min-height: 222px; }
+    .encoder-category-key span:last-child { display: none; }
+    .encoder-category-rail { grid-template-columns: repeat(6, minmax(48px, 1fr)); }
 }
 
 .workspace-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }

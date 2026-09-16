@@ -1,0 +1,150 @@
+@using DmxConsole.Core
+@using DmxConsole.Web.Services
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using System.Globalization
+@implements IDisposable
+@inject IJSRuntime JS
+
+@*
+    Shown above the five strips (never replacing them) whenever the active category is Color and
+    EVERY selected fixture has the full ColorRed/ColorGreen/ColorBlue triple - EncoderDrawer.razor
+    withholds this component (showing PARTIAL text instead) when only some fixtures qualify, so a
+    picker never silently ignores a fixture or pretends a ColorWheel-only fixture has RGB.
+
+    Drag inside changes R+G+B together as ONE gesture (same EncoderGesture pipeline) - a single
+    Undo reverts all three. R/G/B still also appear as ordinary encoder strips in the grid below
+    for precise single-channel control. Hue/Saturation only (fixed full Value) - EncoderColorMath
+    owns the pure HSV<->RGB math over these real channels, never an invented parameter.
+*@
+
+<div class="encoder-color-picker-wrap">
+    <div class="encoder-color-picker-label"><span>COLOR</span></div>
+
+    <div class="encoder-color-picker-plane"
+         @ref="_planeRef"
+         @onpointerdown="OnPointerDown"
+         @onpointermove="OnPointerMove"
+         @onpointerup="OnPointerUp"
+         @onpointercancel="OnPointerCancel">
+        <span class="encoder-color-picker-dot" style="left: @Pct(CurrentHue / 360.0); top: @Pct(1 - CurrentSaturation);"></span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EncoderSlot Red { get; set; } = null!;
+    [Parameter, EditorRequired] public EncoderSlot Green { get; set; } = null!;
+    [Parameter, EditorRequired] public EncoderSlot Blue { get; set; } = null!;
+    [Parameter, EditorRequired] public EncoderDrawerViewModel Drawer { get; set; } = null!;
+
+    private Microsoft.AspNetCore.Components.ElementReference _planeRef;
+    private EncoderGesture? _gesture;
+    private long? _pointerId;
+    private double _top, _left, _width = 1, _height = 1;
+    private double? _liveHue, _liveSat;
+    private byte _startR, _startG, _startB;
+    private long _lastPreviewAt;
+    private (byte R, byte G, byte B)? _lastPreviewed;
+
+    /// <summary>Live drag position while dragging, otherwise derived from the fixtures' actual
+    /// current RGB values (real data, never an invented default).</summary>
+    private double CurrentHue => _liveHue ?? EncoderColorMath.RgbToHs(Red.Value, Green.Value, Blue.Value).HueDegrees;
+    private double CurrentSaturation => _liveSat ?? EncoderColorMath.RgbToHs(Red.Value, Green.Value, Blue.Value).Saturation;
+
+    private static string Pct(double v) => (Math.Clamp(v, 0, 1) * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
+
+    private async Task OnPointerDown(PointerEventArgs e)
+    {
+        var rect = await JS.InvokeAsync<PlaneRect>("dmxEncoderKnob.getRect", _planeRef);
+        _top = rect.Top; _left = rect.Left; _width = Math.Max(1, rect.Width); _height = Math.Max(1, rect.Height);
+
+        _startR = Red.Value; _startG = Green.Value; _startB = Blue.Value;
+        _gesture = Drawer.BeginGesture(ChannelType.ColorRed, ChannelType.ColorGreen, ChannelType.ColorBlue);
+        _pointerId = e.PointerId;
+        _lastPreviewAt = 0;
+        _lastPreviewed = null;
+
+        await JS.InvokeVoidAsync("dmxEncoderKnob.capture", _planeRef, e.PointerId);
+        await UpdateFromPointer(e.ClientX, e.ClientY);
+    }
+
+    private Task OnPointerMove(PointerEventArgs e) => _gesture is null ? Task.CompletedTask : UpdateFromPointer(e.ClientX, e.ClientY);
+
+    private async Task UpdateFromPointer(double clientX, double clientY)
+    {
+        double nx = Math.Clamp((clientX - _left) / _width, 0, 1);
+        double ny = Math.Clamp((clientY - _top) / _height, 0, 1);
+        double hue = nx * 360.0;
+        double sat = 1 - ny;
+        _liveHue = hue;
+        _liveSat = sat;
+
+        var (r, g, b) = EncoderColorMath.HsToRgb(hue, sat);
+
+        if (_gesture is null) return;
+        if (_lastPreviewed == (r, g, b)) return;
+        long now = Environment.TickCount64;
+        if (_lastPreviewAt != 0 && now - _lastPreviewAt < 20) return;
+        _lastPreviewAt = now;
+        _lastPreviewed = (r, g, b);
+
+        Drawer.PreviewGesture(_gesture, ChannelType.ColorRed, r);
+        Drawer.PreviewGesture(_gesture, ChannelType.ColorGreen, g);
+        Drawer.PreviewGesture(_gesture, ChannelType.ColorBlue, b);
+    }
+
+    private async Task OnPointerUp(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+        var gesture = _gesture;
+        var (r, g, b) = _lastPreviewed ?? (_startR, _startG, _startB);
+        _gesture = null;
+        await ReleasePointer();
+
+        if (r == _startR && g == _startG && b == _startB) Drawer.CancelGesture(gesture);
+        else Drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte>
+        {
+            [ChannelType.ColorRed] = r,
+            [ChannelType.ColorGreen] = g,
+            [ChannelType.ColorBlue] = b,
+        });
+    }
+
+    private async Task OnPointerCancel(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+        var gesture = _gesture;
+        _gesture = null;
+        await ReleasePointer();
+        Drawer.CancelGesture(gesture);
+    }
+
+    private async Task ReleasePointer()
+    {
+        _liveHue = null;
+        _liveSat = null;
+        _lastPreviewed = null;
+        if (_pointerId is { } pid)
+        {
+            _pointerId = null;
+            await JS.InvokeVoidAsync("dmxEncoderKnob.release", _planeRef, pid);
+        }
+    }
+
+    private sealed class PlaneRect
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+
+    public void Dispose()
+    {
+        if (_gesture is { } gesture)
+        {
+            _gesture = null;
+            Drawer.CancelGesture(gesture);
+        }
+    }
+}
