@@ -19,7 +19,7 @@ public static class RevisionClock
 /// content, exactly like grandMA3's Render-Style/Fix-Executor settings belong to the handle-to-
 /// object relationship rather than the object.
 /// </summary>
-public sealed class Executor : IOutputLayer, IMergeAwareLayer
+public sealed class Executor : IOutputLayer, IMergeAwareLayer, ITickable
 {
     public Guid Id { get; } = Guid.NewGuid();   // stable identity - never changes, survives renumber/rename
     public int Number { get; set; }             // operator-facing, renumberable later without touching Id
@@ -136,4 +136,8 @@ public sealed class Executor : IOutputLayer, IMergeAwareLayer
     }
 
     public PlaybackStatus? GetStatus() => Source?.GetStatus();
+
+    /// <summary>Forwards to the assigned Source if it's itself ITickable (CueList is, for
+    /// Vector's FOLLOW ON auto-advance) - the handle has no ticking behavior of its own.</summary>
+    public void Tick(TimeSpan elapsed) => (Source as ITickable)?.Tick(elapsed);
 }

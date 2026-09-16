@@ -1,11 +1,20 @@
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Selection;
 using Xunit;
 
 namespace DmxConsole.Core.Tests;
 
 public class ExecutorTests
 {
+    private sealed class StubEffectiveOutputReader : IEffectiveOutputReader
+    {
+        public byte GetEffectiveValue(int universeId, int channelIndex) => 0;
+    }
+
+    private static readonly FixtureSelection EmptySelection = new();
+    private static readonly IEffectiveOutputReader Stub = new StubEffectiveOutputReader();
+
     private static FixtureProfile DimmerAndPan() => new()
     {
         Id = "test-dimmer-pan",
@@ -39,8 +48,10 @@ public class ExecutorTests
         var programmer = new Programmer();
         programmer.SetChannel(0, 0, dimmer);
         programmer.SetChannel(0, 1, pan);
+        var zeroOptions = new CueStoreOptions(new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+            CueTriggerMode.Manual, TimeSpan.Zero, CueStoreFilter.AllStage);
         var cueList = new CueList();
-        cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        cueList.RecordCue(patch, programmer, EmptySelection, Stub, "Cue 1", 1, zeroOptions);
         cueList.Go();
         return cueList;
     }
@@ -208,6 +219,8 @@ public class ExecutorTests
         }
 
         public PlaybackStatus GetStatus() => new CueListPlaybackStatus(null, null, true, false,
-            new TimingProgress(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero), new Dictionary<AttributeClass, TimingProgress>());
+            new TimingProgress(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+            new TimingProgress(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+            new TimingProgress(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero));
     }
 }

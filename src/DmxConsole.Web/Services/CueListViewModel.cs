@@ -4,6 +4,7 @@ using DmxConsole.Application;
 using DmxConsole.Application.Commands.Playback;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Selection;
 
 namespace DmxConsole.Web.Services;
 
@@ -20,6 +21,8 @@ public partial class CueListViewModel : ObservableObject, IDisposable
 {
     private readonly Patch _patch;
     private readonly Programmer _programmer;
+    private readonly FixtureSelection _selection;
+    private readonly IEffectiveOutputReader _effectiveOutput;
     private readonly CommandDispatcher _dispatcher;
     private readonly Executor _executor;
     private readonly Timer _pollTimer;
@@ -30,8 +33,13 @@ public partial class CueListViewModel : ObservableObject, IDisposable
 
     [ObservableProperty] private string _newCueName = string.Empty;
     [ObservableProperty] private double _newCueNumber = 1;
-    [ObservableProperty] private double _newFadeInSeconds = 3;
-    [ObservableProperty] private double _newFadeOutSeconds = 3;
+    [ObservableProperty] private double _newTimeInSeconds = 3;
+    [ObservableProperty] private double _newTimeOutSeconds = 3;
+    [ObservableProperty] private double _newDelayInSeconds;
+    [ObservableProperty] private double _newDelayOutSeconds;
+    [ObservableProperty] private double _newWaitSeconds;
+    [ObservableProperty] private CueTriggerMode _newTriggerMode = CueTriggerMode.Manual;
+    [ObservableProperty] private CueStoreFilter _storeFilter = CueStoreFilter.AllStage;
 
     [ObservableProperty] private Cue? _selectedCue;
 
@@ -42,10 +50,13 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _currentCueLabel = "(none)";
     [ObservableProperty] private string _statusMessage = string.Empty;
 
-    public CueListViewModel(Patch patch, Programmer programmer, CueList cueList, CommandDispatcher dispatcher, Executor executor)
+    public CueListViewModel(Patch patch, Programmer programmer, FixtureSelection selection,
+        IEffectiveOutputReader effectiveOutput, CueList cueList, CommandDispatcher dispatcher, Executor executor)
     {
         _patch = patch;
         _programmer = programmer;
+        _selection = selection;
+        _effectiveOutput = effectiveOutput;
         _dispatcher = dispatcher;
         _executor = executor;
         CueList = cueList;
@@ -71,6 +82,11 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         CurrentCueLabel = CueList.CurrentCue is { } c ? $"{c.Number:0.##} - {c.Name}" : "(none)";
     }
 
+    private CueStoreOptions BuildStoreOptions(CueStoreFilter filter) => new(
+        new CueTiming(TimeSpan.FromSeconds(NewTimeInSeconds), TimeSpan.FromSeconds(NewTimeOutSeconds),
+            TimeSpan.FromSeconds(NewDelayInSeconds), TimeSpan.FromSeconds(NewDelayOutSeconds)),
+        NewTriggerMode, TimeSpan.FromSeconds(NewWaitSeconds), filter);
+
     /// <summary>
     /// UX correction F: Store creates a brand-new Cue at the explicit NewCueNumber - and only
     /// that. A number already in use is an explicit, blocking conflict (never a silent
@@ -79,7 +95,19 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     /// this milestone already applied to Patch fixture numbering and Group numbers.
     /// </summary>
     [RelayCommand]
-    private void StoreCue()
+    private void StoreCue() => StoreWithFilter(StoreFilter);
+
+    /// <summary>H1.6 Slice 2 - the five STORE OPTIONS soft keys (EditorToolBar) each set the
+    /// filter and store in one press, same as pressing STORE would with that filter already
+    /// selected in the panel's dropdown.</summary>
+    [RelayCommand]
+    private void StoreCueWithFilter(CueStoreFilter filter)
+    {
+        StoreFilter = filter;
+        StoreWithFilter(filter);
+    }
+
+    private void StoreWithFilter(CueStoreFilter filter)
     {
         if (CueList.FindByNumber(NewCueNumber) is not null)
         {
@@ -88,10 +116,9 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         }
 
         var name = string.IsNullOrWhiteSpace(NewCueName) ? $"Cue {NewCueNumber:0.##}" : NewCueName;
-        CueList.RecordCue(_patch, _programmer, name, NewCueNumber,
-            TimeSpan.FromSeconds(NewFadeInSeconds), TimeSpan.FromSeconds(NewFadeOutSeconds));
+        CueList.RecordCue(_patch, _programmer, _selection, _effectiveOutput, name, NewCueNumber, BuildStoreOptions(filter));
 
-        StatusMessage = $"Stored Cue {NewCueNumber:0.##}.";
+        StatusMessage = $"Stored Cue {NewCueNumber:0.##} ({filter}).";
         NewCueNumber = Math.Floor(NewCueNumber) + 1;
         NewCueName = string.Empty;
     }
@@ -111,10 +138,23 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         }
 
         var name = string.IsNullOrWhiteSpace(NewCueName) ? existing.Name : NewCueName;
-        CueList.UpdateCue(existing, _patch, _programmer, name,
-            TimeSpan.FromSeconds(NewFadeInSeconds), TimeSpan.FromSeconds(NewFadeOutSeconds));
+        CueList.UpdateCue(existing, _patch, _programmer, _selection, _effectiveOutput, name, BuildStoreOptions(StoreFilter));
 
         StatusMessage = $"Updated Cue {NewCueNumber:0.##}.";
+    }
+
+    /// <summary>H1.6 Slice 2 - toggles an already-stored Cue's FOLLOW ON / MANUAL trigger mode
+    /// directly (EditorToolBar's Cue &gt; Time &gt; FOLLOW ON / MANUAL keys), independent of the
+    /// Store/Update form.</summary>
+    [RelayCommand]
+    private void SetTriggerMode((Cue Cue, CueTriggerMode Mode) arg)
+    {
+        if (!CueList.SetTriggerMode(arg.Cue, arg.Mode))
+        {
+            StatusMessage = $"Cue {arg.Cue.Number:0.##} is no longer in this list.";
+            return;
+        }
+        StatusMessage = $"Cue {arg.Cue.Number:0.##}: {(arg.Mode == CueTriggerMode.Follow ? "FOLLOW ON" : "MANUAL")}.";
     }
 
     /// <summary>Loads an existing Cue's number/name/timing into the Store/Update form fields, so
@@ -126,8 +166,12 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         if (cue is null) return;
         NewCueNumber = cue.Number;
         NewCueName = cue.Name;
-        NewFadeInSeconds = cue.GeneralTiming.FadeInTime.TotalSeconds;
-        NewFadeOutSeconds = cue.GeneralTiming.FadeOutTime.TotalSeconds;
+        NewTimeInSeconds = cue.Timing.TimeIn.TotalSeconds;
+        NewTimeOutSeconds = cue.Timing.TimeOut.TotalSeconds;
+        NewDelayInSeconds = cue.Timing.DelayIn.TotalSeconds;
+        NewDelayOutSeconds = cue.Timing.DelayOut.TotalSeconds;
+        NewWaitSeconds = cue.WaitTime.TotalSeconds;
+        NewTriggerMode = cue.TriggerMode;
     }
 
     [RelayCommand]

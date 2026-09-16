@@ -116,7 +116,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _undoRedo = new UndoRedoService(consoleContext);
         var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
 
-        CueListVm = new CueListViewModel(Patch, Programmer, cueList, dispatcher, mainExecutor);
+        CueListVm = new CueListViewModel(Patch, Programmer, consoleContext.Selection, Engine, cueList, dispatcher, mainExecutor);
         EffectsVm = new EffectsViewModel(Patch, effects, dispatcher);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
         ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);

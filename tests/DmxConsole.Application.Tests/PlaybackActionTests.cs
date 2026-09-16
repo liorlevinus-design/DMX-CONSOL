@@ -15,8 +15,9 @@ public class PlaybackActionTests
         var cueList = new CueList();
         var patch = context.Patch;
         var programmer = new Core.Engine.Programmer();
-        cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
-        cueList.RecordCue(patch, programmer, "Cue 2", 2, TimeSpan.Zero, TimeSpan.Zero);
+        var options = CueStoreOptions.Default;
+        cueList.RecordCue(patch, programmer, context.Selection, context.EffectiveOutput, "Cue 1", 1, options);
+        cueList.RecordCue(patch, programmer, context.Selection, context.EffectiveOutput, "Cue 2", 2, options);
         executor.Assign(cueList);
         return (context, dispatcher, undoRedo, executor);
     }
