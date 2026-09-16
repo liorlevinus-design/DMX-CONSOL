@@ -31,24 +31,14 @@
     </div>
 
     <div class="editor-toolbar-keys">
-        @if (HasFixtureSelection)
-        {
-            @foreach (var attribute in AvailableAttributes())
-            {
-                <button class="soft-key @(Tb.SelectedFixtureAttribute == attribute ? "active" : "")" @onclick="() => Tb.SelectFixtureAttribute(attribute)">@AttributeLabel(attribute)</button>
-            }
-        }
         @foreach (var key in Tb.Registry.For(Tb.Context.Current.Id))
         {
-            @if (!(HasFixtureSelection && key.Id.StartsWith("fixture.") && key.Label is "INTENSITY" or "POSITION" or "COLOR" or "BEAM"))
-            {
             <button class="soft-key @(key.ActionType == DmxConsole.Web.EditorToolBar.SoftKeyActionType.NotImplemented ? "soft-key-stub" : "")"
                     disabled="@(!key.Implemented)"
                     title="@(key.Implemented ? key.Label : $"{key.Label} - not implemented yet")"
                     @onclick="() => Tb.Press(key)">
                 @key.Label
             </button>
-            }
         }
         @if (Tb.Registry.For(Tb.Context.Current.Id).Count == 0)
         {
@@ -59,34 +49,10 @@
 
 @code {
     private EditorToolBarViewModel Tb => Vm.EditorToolBarVm;
-    private bool HasFixtureSelection => Vm.SelectionVm.Selection.Items.Count > 0;
 
-    protected override void OnInitialized()
-    {
-        Tb.Changed += OnChanged;
-        Vm.SelectionVm.Selection.Items.CollectionChanged += OnSelectionChanged;
-    }
+    protected override void OnInitialized() => Tb.Changed += OnChanged;
 
     private void OnChanged() => InvokeAsync(StateHasChanged);
 
-    private void OnSelectionChanged(object? sender, EventArgs e)
-    {
-        InvokeAsync(StateHasChanged);
-    }
-
-    private IEnumerable<DmxConsole.Core.AttributeClass> AvailableAttributes()
-    {
-        var fixtures = Vm.SelectionVm.Selection.Items;
-        if (fixtures.Count == 0) return Array.Empty<DmxConsole.Core.AttributeClass>();
-        var common = fixtures[0].Mode.Channels.Select(c => c.Type.ToAttributeClass()).Where(c => c != DmxConsole.Core.AttributeClass.Other).Distinct();
-        return common.Where(cls => fixtures.All(f => f.Mode.Channels.Any(c => c.Type.ToAttributeClass() == cls)));
-    }
-
-    private static string AttributeLabel(DmxConsole.Core.AttributeClass value) => value.ToString().ToUpperInvariant();
-
-    public void Dispose()
-    {
-        Tb.Changed -= OnChanged;
-        Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
-    }
+    public void Dispose() => Tb.Changed -= OnChanged;
 }

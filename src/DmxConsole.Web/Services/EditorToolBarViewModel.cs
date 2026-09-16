@@ -28,7 +28,6 @@ public sealed class EditorToolBarViewModel
     public SoftKeyRegistry Registry { get; }
 
     public string? StatusMessage { get; private set; }
-    public AttributeClass? SelectedFixtureAttribute { get; private set; }
 
     public event Action? Changed;
 
@@ -68,16 +67,6 @@ public sealed class EditorToolBarViewModel
     public void Back() => Context.Back();
 
     public void Root() => Context.Root();
-
-    public void SelectFixtureAttribute(AttributeClass attribute)
-    {
-        var objectFrame = Context.Frames.FirstOrDefault();
-        if (objectFrame is null) return;
-        SelectedFixtureAttribute = attribute;
-        Context.EnterObject(objectFrame.ObjectType, objectFrame.Label, objectFrame.SelectedObject, objectFrame.SelectedObjectLabel);
-        Context.Push(attribute.ToString(), attribute.ToString().ToUpperInvariant());
-        Changed?.Invoke();
-    }
 
     private void EnterContext(SoftKeyDefinition key)
     {
