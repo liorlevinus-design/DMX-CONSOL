@@ -1,0 +1,121 @@
+@using DmxConsole.Web.Services
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
+@*
+    A single rotary encoder - vertical-drag/wheel driven, "infinite rotary" (Ableton/DAW-knob
+    style): the pointer never has to travel a literal circular path (EncoderMath owns the actual
+    drag/wheel-to-value formulas, kept pure/testable there). Purely presentational + gesture
+    capture - never touches Commands/Undo itself; emits OnAdjust(newValue) and the caller
+    (EncoderDrawer.razor) decides what to do with it, same separation as every other soft-key
+    in this app being a thin proxy to a ViewModel.
+*@
+
+<div class="encoder-knob-wrap">
+    <svg class="encoder-knob-svg" viewBox="0 0 100 100"
+         @ref="_svgRef"
+         @onpointerdown="OnPointerDown"
+         @onpointermove="OnPointerMove"
+         @onpointerup="OnPointerUp"
+         @onpointercancel="OnPointerUp"
+         @onwheel="OnWheel" @onwheel:preventDefault="true">
+        @* Tick marks around the 270° sweep (-135°..135°). *@
+        @foreach (var tickAngle in TickAngles)
+        {
+            var (x1, y1) = PointOnCircle(50, 50, 40, tickAngle);
+            var (x2, y2) = PointOnCircle(50, 50, 45, tickAngle);
+            <line class="encoder-knob-tick" x1="@F(x1)" y1="@F(y1)" x2="@F(x2)" y2="@F(y2)" />
+        }
+
+        @* Track (full sweep) + value arc (from -135° to the current value's angle). *@
+        <path class="encoder-knob-track" d="@ArcPath(50, 50, 36, -135, 135)" />
+        @if (!Slot.Mixed)
+        {
+            <path class="encoder-knob-value-arc" d="@ArcPath(50, 50, 36, -135, ValueAngle)" />
+        }
+
+        <circle class="encoder-knob-body @(Slot.Mixed ? "mixed" : "") @(Slot.Partial ? "partial" : "")" cx="50" cy="50" r="28" />
+
+        @* Needle - not drawn at all in Mixed state (no single value to point at). *@
+        @if (!Slot.Mixed)
+        {
+            var (nx, ny) = PointOnCircle(50, 50, 24, ValueAngle);
+            <line class="encoder-knob-needle" x1="50" y1="50" x2="@F(nx)" y2="@F(ny)" />
+        }
+
+        @if (Slot.IsProgrammerTouched)
+        {
+            <circle class="encoder-knob-touched-dot" cx="50" cy="14" r="3" />
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EncoderSlot Slot { get; set; } = null!;
+    [Parameter] public EventCallback<byte> OnAdjust { get; set; }
+
+    private Microsoft.AspNetCore.Components.ElementReference _svgRef;
+    private bool _dragging;
+    private byte _dragStartValue;
+    private double _dragStartClientY;
+    private byte _lastEmitted;
+
+    /// <summary>-135°..135°, matching a typical rotary-knob sweep (0° = straight up).</summary>
+    private double ValueAngle => -135 + (Slot.Value / 255.0) * 270;
+
+    private static readonly double[] TickAngles = Enumerable.Range(0, 11).Select(i => -135.0 + i * 27.0).ToArray();
+
+    private async Task OnPointerDown(PointerEventArgs e)
+    {
+        _dragging = true;
+        _dragStartValue = Slot.Value;
+        _lastEmitted = Slot.Value;
+        _dragStartClientY = e.ClientY;
+        await JS.InvokeVoidAsync("dmxEncoderKnob.capture", _svgRef, e.PointerId);
+    }
+
+    private async Task OnPointerMove(PointerEventArgs e)
+    {
+        if (!_dragging) return;
+
+        double deltaPixelsUp = _dragStartClientY - e.ClientY;
+        byte newValue = EncoderMath.ApplyDrag(_dragStartValue, deltaPixelsUp, e.ShiftKey);
+        if (newValue == _lastEmitted) return;
+
+        _lastEmitted = newValue;
+        await OnAdjust.InvokeAsync(newValue);
+    }
+
+    private async Task OnPointerUp(PointerEventArgs e)
+    {
+        if (!_dragging) return;
+        _dragging = false;
+        await JS.InvokeVoidAsync("dmxEncoderKnob.release", _svgRef, e.PointerId);
+    }
+
+    private async Task OnWheel(WheelEventArgs e)
+    {
+        byte newValue = EncoderMath.ApplyWheel(Slot.Value, e.DeltaY, e.ShiftKey);
+        if (newValue == Slot.Value) return;
+        await OnAdjust.InvokeAsync(newValue);
+    }
+
+    private static (double X, double Y) PointOnCircle(double cx, double cy, double r, double angleDeg)
+    {
+        double rad = (angleDeg - 90) * Math.PI / 180.0; // -90 so 0° points straight up
+        return (cx + r * Math.Cos(rad), cy + r * Math.Sin(rad));
+    }
+
+    private static string ArcPath(double cx, double cy, double r, double startAngleDeg, double endAngleDeg)
+    {
+        var (x1, y1) = PointOnCircle(cx, cy, r, startAngleDeg);
+        var (x2, y2) = PointOnCircle(cx, cy, r, endAngleDeg);
+        double sweep = endAngleDeg - startAngleDeg;
+        int largeArc = Math.Abs(sweep) > 180 ? 1 : 0;
+        int sweepFlag = sweep >= 0 ? 1 : 0;
+        return $"M {F(x1)} {F(y1)} A {F(r)} {F(r)} 0 {largeArc} {sweepFlag} {F(x2)} {F(y2)}";
+    }
+
+    private static string F(double value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+}

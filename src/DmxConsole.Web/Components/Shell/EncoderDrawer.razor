@@ -58,15 +58,28 @@ else
                                 <span class="encoder-touched-badge" title="Value is captured in the Programmer">●</span>
                             }
                         </div>
-                        <input type="range" min="0" max="255" value="@slot.Value" @oninput="e => SetEncoder(type, e.Value)" />
-                        <span class="encoder-value">@(slot.Mixed ? "MIXED" : $"{Percent(slot.Value)}%")</span>
+                        <EncoderKnob Slot="slot" OnAdjust="@(newValue => Drawer.SetValue(type, newValue))" />
+                        <div class="encoder-value-row">
+                            @if (slot.Mixed)
+                            {
+                                <span class="encoder-value encoder-value-mixed">MIXED</span>
+                            }
+                            else
+                            {
+                                <span class="encoder-value">@FormatValue(slot)</span>
+                            }
+                            @if (slot.Partial)
+                            {
+                                <span class="encoder-value-partial" title="Only some selected fixtures support this parameter">PARTIAL</span>
+                            }
+                        </div>
                         <div class="encoder-slot-actions">
                             <button class="editor-nav-btn" title="Home" @onclick="() => Drawer.Home(type)">HOME</button>
                             <button class="editor-nav-btn" title="Min" @onclick="() => Drawer.Min(type)">MIN</button>
                             <button class="editor-nav-btn" title="Max" @onclick="() => Drawer.Max(type)">MAX</button>
-                            <button class="editor-nav-btn" disabled title="Next - not implemented yet">NEXT</button>
-                            <button class="editor-nav-btn" disabled title="Last - not implemented yet">LAST</button>
-                            <button class="editor-nav-btn" disabled title="Mode - not implemented yet">MODE</button>
+                            <button class="editor-nav-btn" disabled title="Next - not implemented yet (needs discrete-value metadata)">NEXT</button>
+                            <button class="editor-nav-btn" disabled title="Last - not implemented yet (needs discrete-value metadata)">LAST</button>
+                            <button class="editor-nav-btn" disabled title="Mode - not implemented yet (needs discrete-value metadata)">MODE</button>
                         </div>
                     </div>
                 }
@@ -104,12 +117,11 @@ else
         InvokeAsync(StateHasChanged);
     }
 
-    private void SetEncoder(ChannelType type, object? raw)
-    {
-        if (byte.TryParse(raw?.ToString(), out var value)) Drawer.SetValue(type, value);
-    }
-
-    private static int Percent(byte value) => (int)Math.Round(value / 255d * 100);
+    /// <summary>"DMX" is the honest default unit (no calibration) - shown as a bare integer with
+    /// the "DMX" label, since a raw byte has no meaningful decimal places. A calibrated unit
+    /// (%, °) shows one decimal place.</summary>
+    private static string FormatValue(EncoderSlot slot) =>
+        slot.Unit == "DMX" ? $"{(int)Math.Round(slot.DisplayValue)} DMX" : $"{slot.DisplayValue:0.#}{slot.Unit}";
 
     public void Dispose()
     {
