@@ -237,7 +237,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void ClearProgrammer()
     {
         Programmer.ClearAll();
-        foreach (var fader in Faders) fader.Value = fader.Channel.DefaultValue;
+        foreach (var fader in Faders) fader.RefreshFromProgrammer(fader.Channel.DefaultValue);
         StatusMessage = "Programmer cleared.";
     }
 

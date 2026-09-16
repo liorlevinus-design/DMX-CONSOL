@@ -1,13 +1,14 @@
 @using DmxConsole.Core.Engine
+@using DmxConsole.Application.Live
 @implements IDisposable
 @inject MainViewModel Vm
 
 @*
-    UX correction #3 (the most important one): Programmer is not just a button row anymore - it's
-    a live semantic display answering "why is this fixture currently at this value". Distinct
-    from Channels/Fixtures (per UX correction #4): those show live effective state; this shows
-    what the PROGRAMMER has captured (Programmer.HasStoredValue - possibly not what's currently
-    winning the merge) alongside what's actually on air right now, filterable by provenance.
+    OPERATOR_UX_ROADMAP.md §5: Programmer is de-emphasized as a primary workflow - LIVE is - but
+    this panel remains a secondary Editor inspector (its own filter defaults to Editor Only, see
+    OnInitialized) for diagnosing exactly what the Programmer currently holds. Uses the SAME
+    LiveFilter/LiveChannelState model as Channels/Fixtures (DmxConsole.Application.Live) - no
+    parallel business logic, per the roadmap's explicit "don't duplicate business logic" rule.
 *@
 
 <div class="channels-view">
@@ -33,15 +34,14 @@
     </div>
 
     <div class="channels-view-header">
-        <span class="channels-view-title">Live</span>
+        <span class="channels-view-title">Editor Inspector</span>
         <select class="pane-add-view" @bind="FilterValue">
             <option value="All">All</option>
-            <option value="Active">Active (on)</option>
-            <option value="Playback">Playback (Cue/Executor)</option>
-            <option value="ProgrammerCaptured">Programmer (captured, unstored)</option>
-            <option value="Pending">Pending (not winning live)</option>
-            <option value="MainCueList">Main Cue List only</option>
-            <option value="Executor">Executor only</option>
+            <option value="EditorOnly">Editor Only</option>
+            <option value="Patched">Patched</option>
+            <option value="UsedInShow">Used in Show</option>
+            <option value="LiveOnStage">Live on Stage</option>
+            <option value="Selected">Selected</option>
         </select>
         <span class="channels-view-count">@FilteredRows().Count() shown</span>
     </div>
@@ -54,19 +54,18 @@
                     <th>Fixture</th>
                     <th>Attribute</th>
                     <th>Effective Live</th>
-                    <th>Pending / Programmer</th>
-                    <th>Winning Source</th>
+                    <th>Editor / Pending</th>
+                    <th>Provenance</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach (var (fader, owner, hasStored, storedValue) in FilteredRows())
+                @foreach (var (fader, state) in FilteredRows())
                 {
-                    var category = ProvenanceClassifier.Classify(owner);
-                    int levelPercent = Percent(Vm.Engine.GetEffectiveValue(fader.UniverseId, fader.ChannelIndex));
-                    bool programmerWins = category == ProvenanceCategory.Programmer;
-                    bool pending = hasStored && !programmerWins;
+                    var category = ProvenanceClassifier.Classify(state.Owner);
+                    int levelPercent = Percent(state.EffectiveValue);
+                    bool pending = state.HasEditorValue && !state.EditorValueIsLive;
 
-                    <tr class="channels-row @(owner is not null ? "active" : "") @(hasStored ? "programmer" : "") @(pending ? "pending" : "")">
+                    <tr class="channels-row @(state.Owner is not null ? "active" : "") @(state.HasEditorValue ? "programmer" : "") @(pending ? "pending" : "")">
                         <td class="ch-cell">@($"{fader.Fixture.Number}.{OrdinalWithin(fader)}")</td>
                         <td>@fader.FixtureName</td>
                         <td>@fader.ChannelTypeName</td>
@@ -74,10 +73,10 @@
                             <div class="level-bar"><div class="level-bar-fill" style="width:@(levelPercent)%"></div></div>
                             <span>@levelPercent%</span>
                         </td>
-                        <td class="@(hasStored ? "prog-captured" : "prog-none")">
-                            @if (hasStored)
+                        <td class="@(state.HasEditorValue ? "prog-captured" : "prog-none")">
+                            @if (state.HasEditorValue)
                             {
-                                <span>@Percent(storedValue)%</span>
+                                <span>@Percent(state.EditorValue!.Value)%</span>
                                 <span class="programmer-state @(pending ? "state-pending" : "state-live")">@(pending ? "PENDING" : "LIVE")</span>
                             }
                             else
@@ -85,7 +84,7 @@
                                 <span>—</span>
                             }
                         </td>
-                        <td class="source-cell @ProvenanceClassifier.CssClass(category)">@DescribeOwner(owner)</td>
+                        <td class="source-cell @ProvenanceClassifier.CssClass(category)">@DescribeOwner(state.Owner)</td>
                     </tr>
                 }
                 @if (!FilteredRows().Any())
@@ -104,11 +103,15 @@
     private string FilterValue
     {
         get => Prog.LiveFilter.ToString();
-        set { if (Enum.TryParse<ProgrammerLiveFilter>(value, out var parsed)) Prog.LiveFilter = parsed; }
+        set { if (Enum.TryParse<LiveFilter>(value, out var parsed)) Prog.LiveFilter = parsed; }
     }
 
     protected override void OnInitialized()
     {
+        // This panel's own reason to exist (per OPERATOR_UX_ROADMAP.md §5, "Editor Only table for
+        // diagnostics") is inspecting pending edits - default to that slice, not the full list.
+        Prog.LiveFilter = LiveFilter.EditorOnly;
+
         Prog.PropertyChanged += OnChanged;
         Vm.Faders.CollectionChanged += OnChanged;
         // Ownership/stored-value state changes continuously while a Cue fades or an Effect runs -
@@ -118,32 +121,16 @@
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    private IEnumerable<(ChannelFaderViewModel Fader, OutputOwner? Owner, bool HasStored, byte StoredValue)> FilteredRows()
+    private IEnumerable<(ChannelFaderViewModel Fader, LiveChannelState State)> FilteredRows()
     {
+        var usedInShow = ShowUsageQuery.ReferencedAddresses(Prog.Context);
         foreach (var fader in Vm.Faders)
         {
-            var owner = Vm.Engine.GetOwner(fader.UniverseId, fader.ChannelIndex);
-            bool hasStored = Vm.Programmer.HasStoredValue(fader.UniverseId, fader.ChannelIndex, out var storedValue);
-
-            if (!PassesFilter(owner, hasStored)) continue;
-            yield return (fader, owner, hasStored, storedValue);
+            bool isSelected = Vm.SelectionVm.Selection.Contains(fader.Fixture);
+            var state = LiveChannelState.For(Prog.Context, fader.UniverseId, fader.ChannelIndex, isSelected, usedInShow);
+            if (!state.Matches(Prog.LiveFilter)) continue;
+            yield return (fader, state);
         }
-    }
-
-    private bool PassesFilter(OutputOwner? owner, bool hasStored)
-    {
-        var category = ProvenanceClassifier.Classify(owner);
-        return Prog.LiveFilter switch
-        {
-            ProgrammerLiveFilter.All => true,
-            ProgrammerLiveFilter.Active => owner is not null,
-            ProgrammerLiveFilter.Playback => category is ProvenanceCategory.MainCueList or ProvenanceCategory.Executor,
-            ProgrammerLiveFilter.ProgrammerCaptured => hasStored,
-            ProgrammerLiveFilter.Pending => hasStored && category != ProvenanceCategory.Programmer,
-            ProgrammerLiveFilter.MainCueList => category == ProvenanceCategory.MainCueList,
-            ProgrammerLiveFilter.Executor => category == ProvenanceCategory.Executor,
-            _ => true,
-        };
     }
 
     private static int Percent(byte value) => (int)Math.Round(value / 255.0 * 100);

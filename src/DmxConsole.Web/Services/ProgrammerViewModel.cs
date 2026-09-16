@@ -3,36 +3,19 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
 using DmxConsole.Application.Commands.Programmer;
+using DmxConsole.Application.Live;
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
 
 namespace DmxConsole.Web.Services;
 
 /// <summary>
-/// UX correction #3/#4: the operator-facing filters for the Programmer's live provenance table -
-/// "why is this fixture currently at this value" needs to be answerable for different slices of
-/// the show, not just one flat list. Playback/MainCueList/Executor read DmxOutputEngine.GetOwner
-/// (who's WINNING right now); ProgrammerCaptured reads Programmer.HasStoredValue (what the
-/// Programmer has recorded, independent of whether it's currently winning) - a channel can be
-/// both "captured by Programmer" AND "currently shown from the Main Cue List" at once, if
-/// something with higher priority is temporarily overriding an unreleased Programmer edit.
-/// </summary>
-public enum ProgrammerLiveFilter
-{
-    All,
-    Active,
-    Playback,
-    ProgrammerCaptured,
-    Pending,
-    MainCueList,
-    Executor,
-}
-
-/// <summary>
 /// Drives Programmer-level operations (Release/Clear/Knockout/Restore/Adjust Intensity) on
-/// the console's current selection, plus the live provenance table's filter state. Every button
-/// here just builds the matching IConsoleCommand and dispatches it - this class holds no DMX
-/// logic of its own.
+/// the console's current selection, plus the shared LIVE filter state
+/// (DmxConsole.Application.Live.LiveFilter) - the same enum and Matches() logic Channels/
+/// Fixtures use, per OPERATOR_UX_ROADMAP.md §1-2: "don't duplicate business logic by building a
+/// separate live model and programmer model in the UI." Every button here just builds the
+/// matching IConsoleCommand and dispatches it - this class holds no DMX logic of its own.
 /// </summary>
 public partial class ProgrammerViewModel : ObservableObject
 {
@@ -42,7 +25,7 @@ public partial class ProgrammerViewModel : ObservableObject
 
     [ObservableProperty] private string _statusMessage = string.Empty;
     [ObservableProperty] private double _adjustPercent = 10;
-    [ObservableProperty] private ProgrammerLiveFilter _liveFilter = ProgrammerLiveFilter.All;
+    [ObservableProperty] private LiveFilter _liveFilter = LiveFilter.All;
 
     public ConsoleContext Context => _context;
 
@@ -96,9 +79,9 @@ public partial class ProgrammerViewModel : ObservableObject
     {
         foreach (var fader in _faders)
         {
-            fader.Value = _context.Programmer.HasStoredValue(fader.UniverseId, fader.ChannelIndex, out var stored)
+            fader.RefreshFromProgrammer(_context.Programmer.HasStoredValue(fader.UniverseId, fader.ChannelIndex, out var stored)
                 ? stored
-                : fader.Channel.DefaultValue;
+                : fader.Channel.DefaultValue);
         }
     }
 
