@@ -77,6 +77,26 @@ public class EncoderDrawerViewModelTests
         },
     };
 
+    private static FixtureProfile RgbFixture(string id = "test-rgb") => new()
+    {
+        Id = id,
+        Manufacturer = "Test",
+        Model = "RGB",
+        Modes = new[]
+        {
+            new FixtureMode
+            {
+                Name = "3ch",
+                Channels = new[]
+                {
+                    new FixtureChannel { Name = "Red", Type = ChannelType.ColorRed, Offset = 0 },
+                    new FixtureChannel { Name = "Green", Type = ChannelType.ColorGreen, Offset = 1 },
+                    new FixtureChannel { Name = "Blue", Type = ChannelType.ColorBlue, Offset = 2 },
+                },
+            },
+        },
+    };
+
     private static (ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo, EncoderDrawerViewModel Drawer) Build()
     {
         var patch = new Patch();
@@ -515,5 +535,79 @@ public class EncoderDrawerViewModelTests
         Assert.Equal(200, restoredA);
         Assert.True(context.Programmer.HasStoredValue(1, 0, out var restoredB));
         Assert.Equal(200, restoredB);
+    }
+
+    [Fact]
+    public void ShowsPositionPad_RequiresRealPanAndTiltAndPositionCategory()
+    {
+        var (context, _, _, drawer) = Build();
+        var profile = MovingHead();
+        var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        drawer.SelectCategory(EncoderCategory.Intensity);
+        Assert.False(drawer.ShowsPositionPad());
+
+        drawer.SelectCategory(EncoderCategory.Position);
+        Assert.True(drawer.ShowsPositionPad());
+    }
+
+    [Fact]
+    public void PositionPadHasMixedRange_ComparesEachAxisAcrossFixtures()
+    {
+        var (context, _, _, drawer) = Build();
+        FixtureProfile PositionProfile(string id, double panMax) => new()
+        {
+            Id = id, Manufacturer = "Test", Model = id,
+            Modes = new[]
+            {
+                new FixtureMode
+                {
+                    Name = "2ch",
+                    Channels = new[]
+                    {
+                        new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 0, Unit = "°", MinValue = -panMax, MaxValue = panMax },
+                        new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 1, Unit = "°", MinValue = -135, MaxValue = 135 },
+                    },
+                },
+            },
+        };
+
+        var profileA = PositionProfile("position-a", 270);
+        var profileB = PositionProfile("position-b", 360);
+        var fixtureA = new PatchedFixture(profileA, profileA.Modes[0], 0, 1);
+        var fixtureB = new PatchedFixture(profileB, profileB.Modes[0], 1, 1);
+        context.Patch.Add(fixtureA);
+        context.Patch.Add(fixtureB);
+        context.Selection.Add(fixtureA);
+        context.Selection.Add(fixtureB);
+        drawer.SelectCategory(EncoderCategory.Position);
+
+        Assert.True(drawer.SlotFor(ChannelType.Pan).MixedRange);
+        Assert.False(drawer.SlotFor(ChannelType.Tilt).MixedRange);
+        Assert.True(drawer.PositionPadHasMixedRange());
+    }
+
+    [Fact]
+    public void ShowsColorPicker_OnlyWhenEverySelectedFixtureHasFullRgb()
+    {
+        var (context, _, _, drawer) = Build();
+        var rgbProfile = RgbFixture();
+        var rgb = new PatchedFixture(rgbProfile, rgbProfile.Modes[0], 0, 1);
+        context.Patch.Add(rgb);
+        context.Selection.Add(rgb);
+        drawer.SelectCategory(EncoderCategory.Color);
+
+        Assert.True(drawer.ShowsColorPicker());
+        Assert.False(drawer.ColorPickerIsPartial());
+
+        var dimmerProfile = Dimmer1();
+        var dimmer = new PatchedFixture(dimmerProfile, dimmerProfile.Modes[0], 1, 1);
+        context.Patch.Add(dimmer);
+        context.Selection.Add(dimmer);
+
+        Assert.False(drawer.ShowsColorPicker());
+        Assert.True(drawer.ColorPickerIsPartial());
     }
 }
