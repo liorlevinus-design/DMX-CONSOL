@@ -127,6 +127,44 @@ public class CommandSurfaceViewModelTests
         Assert.Contains(fixture, context.Selection.Items); // Selection untouched
     }
 
+    /// <summary>4a. FAMILY RELEASE must never arm the RELEASE ENTER escalation - only bare
+    /// RELEASE (empty command line) does that. If it did, this test's untouched second fixture's
+    /// value would be wiped by the immediately-following Enter.</summary>
+    [Fact]
+    public void FamilyRelease_DoesNotArmReleaseEnterEscalation()
+    {
+        var (context, _, surface, fixture) = BuildRig();
+        context.Selection.Add(fixture);
+        var other = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 10);
+        context.Patch.Add(other);
+        int otherIndex = other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!);
+        context.Programmer.SetChannel(other.UniverseId, otherIndex, 150);
+
+        surface.PressToken(CommandTokenKind.Intensity);
+        surface.PressToken(CommandTokenKind.Release); // family RELEASE - self-terminates, must not arm escalation
+        surface.PressToken(CommandTokenKind.Enter); // if escalation had armed, this would clear every patched fixture
+
+        Assert.True(context.Programmer.HasStoredValue(other.UniverseId, otherIndex, out _)); // untouched - proves no escalation happened
+    }
+
+    /// <summary>4b. PARAMETER RELEASE must likewise never arm the escalation.</summary>
+    [Fact]
+    public void ParameterRelease_DoesNotArmReleaseEnterEscalation()
+    {
+        var (context, _, surface, fixture) = BuildRig();
+        context.Selection.Add(fixture);
+        var other = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 10);
+        context.Patch.Add(other);
+        int otherIndex = other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!);
+        context.Programmer.SetChannel(other.UniverseId, otherIndex, 150);
+
+        surface.PressParameter(ChannelType.Dimmer);
+        surface.PressToken(CommandTokenKind.Release); // parameter RELEASE - self-terminates, must not arm escalation
+        surface.PressToken(CommandTokenKind.Enter);
+
+        Assert.True(context.Programmer.HasStoredValue(other.UniverseId, otherIndex, out _)); // untouched - proves no escalation happened
+    }
+
     [Fact]
     public void ShiftArmed_IsConsumedByTheVeryNextKey_EvenIfUndefined()
     {

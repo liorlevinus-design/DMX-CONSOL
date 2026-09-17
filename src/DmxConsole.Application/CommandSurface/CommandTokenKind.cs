@@ -42,6 +42,12 @@ public enum CommandTokenKind
     /// <summary>Bare, or family-qualified (e.g. COLOR HOME) - self-terminating, see §6.</summary>
     Home,
 
+    /// <summary>Addresses one semantic parameter (e.g. PAN, ZOOM) rather than a whole family -
+    /// carries the specific ChannelType via CommandToken.SemanticPayload (see CommandToken.Parameter).
+    /// Only "&lt;Parameter&gt; RELEASE" is defined in v1 (docs/COMMAND_SURFACE_KEY_SPEC.md §7) -
+    /// there is no PARAMETER HOME.</summary>
+    Parameter,
+
     // Editing verbs (not yet interpreted by CommandComposer - reserved)
     Store,
     Update,

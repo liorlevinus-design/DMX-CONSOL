@@ -1,3 +1,5 @@
+using DmxConsole.Core;
+
 namespace DmxConsole.Application.CommandSurface;
 
 /// <summary>
@@ -36,6 +38,13 @@ public sealed record CommandToken
 
     public static CommandToken Number(double value) =>
         new() { Kind = CommandTokenKind.Number, NumericValue = value, DisplayText = FormatNumber(value) };
+
+    /// <summary>PARAMETER RELEASE's addressed channel (docs/COMMAND_SURFACE_KEY_SPEC.md §7) -
+    /// carries the specific DmxConsole.Core.ChannelType via SemanticPayload since ChannelType
+    /// isn't itself a CommandTokenKind (there are far too many for a dedicated enum member each,
+    /// unlike the six fixed family keys).</summary>
+    public static CommandToken Parameter(ChannelType channelType) =>
+        new() { Kind = CommandTokenKind.Parameter, SemanticPayload = channelType, DisplayText = channelType.ToString().ToUpperInvariant() };
 
     public static CommandToken Simple(CommandTokenKind kind, string? displayText = null) =>
         new() { Kind = kind, DisplayText = displayText ?? DefaultDisplay(kind) };

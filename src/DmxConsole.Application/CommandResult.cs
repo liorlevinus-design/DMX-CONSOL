@@ -33,6 +33,11 @@ public enum ConsoleActionType
     /// <summary>Released Programmer values for one attribute class only.</summary>
     ClearAttribute,
 
+    /// <summary>Released Programmer values for one semantic parameter only (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// §7 - PARAMETER RELEASE, e.g. "PAN RELEASE" leaves Tilt untouched). Distinct from
+    /// ClearAttribute (a whole family) - a third, finer granularity.</summary>
+    ReleaseParameter,
+
     Knockout,
     Restore,
     AdjustIntensity,

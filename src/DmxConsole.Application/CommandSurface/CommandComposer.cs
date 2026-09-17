@@ -155,6 +155,31 @@ public sealed class CommandComposer
             };
         }
 
+        // PAN RELEASE / ZOOM RELEASE (§7 PARAMETER RELEASE) - a lone Parameter token is waiting
+        // for RELEASE (there is no PARAMETER HOME in v1). Self-terminating like family RELEASE,
+        // resolved against the current Selection via ReleaseParameterCommand - a third, finer
+        // granularity than family RELEASE, never conflated with it.
+        if (_tokens.Count == 1 && _tokens[0].Kind == CommandTokenKind.Parameter)
+        {
+            return new CommandComposition
+            {
+                Tokens = _tokens.ToList(), PreviewText = preview,
+                ExpectedNext = new[] { CommandTokenKind.Release },
+            };
+        }
+
+        if (_tokens.Count == 2 && _tokens[0].Kind == CommandTokenKind.Parameter && _tokens[1].Kind == CommandTokenKind.Release)
+        {
+            var channelType = (ChannelType)_tokens[0].SemanticPayload!;
+            var targets = _context.Selection.Items.ToList();
+            if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
+            return new CommandComposition
+            {
+                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true,
+                ReadyOperation = new ReleaseParameterCommand(targets, channelType),
+            };
+        }
+
         // COLOR PRESET 5 [ENTER] (§4) - family-qualified Preset recall against the current
         // Selection. Ends in a numeric/reference token, so per §14 it needs ENTER to commit,
         // same as any other numeric-terminated command.

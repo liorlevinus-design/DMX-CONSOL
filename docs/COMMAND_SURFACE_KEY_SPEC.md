@@ -223,6 +223,24 @@ It does NOT mean:
 
 Example: if Editor owns Color=Blue but Cue playback underneath owns Amber, `COLOR RELEASE` removes the Editor Color values and LIVE should show Amber again with Cue/Executor provenance.
 
+### PARAMETER RELEASE (third granularity, below RELEASE and FAMILY RELEASE)
+
+A third, finer level: releasing one explicitly addressed semantic parameter, leaving every other parameter — including siblings in the same family — untouched.
+
+```
+PAN RELEASE
+= release Pan only, leaving Tilt and other Position parameters untouched.
+
+ZOOM RELEASE
+= release Zoom only, leaving Focus/Iris/etc. untouched.
+```
+
+PARAMETER means the complete semantic fixture parameter, not necessarily one raw DMX byte — a coarse/fine parameter (e.g. 16-bit Pan = Pan + PanFine) releases as one atomic unit; addressing either half releases the whole parameter.
+
+`RELEASE`, `FAMILY RELEASE`, and `PARAMETER RELEASE` are three structurally distinct granularities — never collapsed into one another. Only bare `RELEASE` (§ below) arms the `RELEASE ENTER` escalation; `FAMILY RELEASE` and `PARAMETER RELEASE` are self-terminating like any other unambiguous action and never arm it.
+
+Implemented via `ReleaseParameterCommand` (`DmxConsole.Application.Commands.Programmer`), reusing `ProgrammerChannelCommandBase`'s existing snapshot/undo machinery through a new `SelectChannels` override point rather than duplicating it. The parameter's full component set comes from `ChannelTypeExtensions.SemanticComponents` (`DmxConsole.Core`). Keypad entry point: `CommandSurfaceViewModel.PressParameter(ChannelType)` → `CommandToken.Parameter(ChannelType)` → `CommandComposer`'s `"<Parameter> RELEASE"` grammar. No visual keypad button exists yet for picking an individual parameter (the six fixed family keys are the only parameter-family selectors in the current layout) — the Application/grammar layer is complete and tested; a parameter-picker UI (e.g. listing the ChannelTypes actually present on the current selection) is a follow-up UI slice, not built here.
+
 ### Special commands
 
 ```

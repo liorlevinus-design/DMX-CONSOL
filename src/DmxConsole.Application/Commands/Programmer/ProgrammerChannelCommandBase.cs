@@ -41,6 +41,14 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
     /// <summary>Hook for a subclass to add its own fields to the result (e.g. ApplyPresetCommand attaching the Preset it applied) via a `with` expression.</summary>
     protected virtual CommandResult DecorateResult(CommandResult result) => result;
 
+    /// <summary>Which of the fixture's channels this command considers. Defaults to the
+    /// AttributeFilter-based family scoping every existing subclass already used before this was
+    /// extracted; a subclass needing finer granularity (e.g. ReleaseParameterCommand, scoped to
+    /// one semantic parameter's ChannelType(s) rather than a whole family) overrides this instead
+    /// of duplicating Execute()'s snapshot/undo machinery.</summary>
+    protected virtual IEnumerable<FixtureChannel> SelectChannels(PatchedFixture fixture) =>
+        AttributeFilter is { } cls ? fixture.ChannelsForAttribute(cls) : fixture.Mode.Channels;
+
     public CommandResult Execute(ConsoleContext context)
     {
         var snapshots = new List<ChannelSnapshot>();
@@ -50,7 +58,7 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
 
         foreach (var fixture in _targets)
         {
-            var channels = AttributeFilter is { } cls ? fixture.ChannelsForAttribute(cls) : fixture.Mode.Channels;
+            var channels = SelectChannels(fixture);
             bool touchedAny = false;
 
             foreach (var channel in channels)

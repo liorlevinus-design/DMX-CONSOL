@@ -116,6 +116,19 @@ public static class ChannelTypeExtensions
         _ => AttributeClass.Other, // Macro, ControlFunction, Generic
     };
 
+    /// <summary>The full set of ChannelTypes that make up one semantic operator-facing parameter
+    /// (docs/COMMAND_SURFACE_KEY_SPEC.md §7 - PARAMETER RELEASE: "means semantic fixture
+    /// parameter, not necessarily one raw DMX byte"). A coarse/fine pair (Pan+PanFine,
+    /// Tilt+TiltFine - the only such pairs this ChannelType enum has today) is one parameter;
+    /// releasing/addressing either half must affect both. Every other ChannelType is its own
+    /// single-member parameter.</summary>
+    public static IReadOnlyList<ChannelType> SemanticComponents(this ChannelType type) => type switch
+    {
+        ChannelType.Pan or ChannelType.PanFine => new[] { ChannelType.Pan, ChannelType.PanFine },
+        ChannelType.Tilt or ChannelType.TiltFine => new[] { ChannelType.Tilt, ChannelType.TiltFine },
+        _ => new[] { type },
+    };
+
     /// <summary>The six real operator-facing families, in the fixed Vector-bank display order
     /// (docs/COMMAND_SURFACE_KEY_SPEC.md §4) - excludes <see cref="AttributeClass.Other"/>, which
     /// is never offered as a selectable family anywhere in the UI.</summary>

@@ -3,6 +3,7 @@ using DmxConsole.Application.CommandSurface;
 using DmxConsole.Application.Commands.Playback;
 using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Application.Commands.Selection;
+using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Web.EditorToolBar;
 
@@ -175,6 +176,24 @@ public sealed class CommandSurfaceViewModel
         }
 
         Push(CommandToken.Simple(kind));
+    }
+
+    /// <summary>
+    /// PARAMETER RELEASE's addressed-channel key (docs/COMMAND_SURFACE_KEY_SPEC.md §7, e.g. "PAN")
+    /// - the Command Surface's entry point for a Parameter token, mirroring PressToken but for a
+    /// token that carries a ChannelType payload rather than being a bare CommandTokenKind. Like
+    /// pressing any other composing key, this disarms both two-press gestures (RELEASE ENTER,
+    /// Shift) - only bare RELEASE itself ever arms the escalation, never a Parameter/Family key.
+    /// </summary>
+    public void PressParameter(ChannelType channelType)
+    {
+        _clearArmedForFullSelection = false;
+        _releaseArmedForFullClear = false;
+        ShiftArmed = false;
+        CommitPendingDigits();
+        _mirrorsExistingSelection = false;
+
+        Push(CommandToken.Parameter(channelType));
     }
 
     /// <summary>
