@@ -663,8 +663,15 @@ html, body {
     padding: 10px;
 }
 
-.command-keypad { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 280px; }
+/* docs/COMMAND_SURFACE_KEY_SPEC.md §20: LEFT action bank (object keys, Shift, Release, Clear)
+   and RIGHT command bank (family keys/Preset, Home/Full, Next/Last, numeric cluster) side by
+   side - a spatial concept, not a pixel-exact template. .command-keypad kept as an alias so
+   nothing else referencing the old single-column class breaks. */
+.command-keypad, .command-bank { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.command-bank-left { width: 150px; border-right: 1px solid var(--border); }
+.command-bank-right { width: 280px; }
 .keypad-row { display: flex; gap: 4px; }
+.keypad-row-spacer { flex: 1 1 auto; min-height: 4px; }
 
 .key {
     flex: 1 1 0;
@@ -680,14 +687,21 @@ html, body {
 }
 .key:hover { border-color: var(--accent); }
 .key:active { background: var(--accent); color: #fff; }
+.key:disabled, .key.key-disabled { opacity: 0.4; cursor: not-allowed; }
+.key:disabled:hover, .key.key-disabled:hover { border-color: var(--border); }
 
 .key-num { font-variant-numeric: tabular-nums; }
 .key-wide { flex: 2 1 0; }
 .key-op { color: var(--accent); }
 .key-object { font-size: 13px; color: var(--text-dim); }
+.key-family { font-size: 12px; }
 .key-danger { color: var(--danger); border-color: var(--danger); }
 .key-enter { flex: 2 1 0; background: var(--go); color: #fff; border-color: var(--go); }
 .key-enter:hover { background: var(--go-active); }
+
+/* SHIFT armed (docs/COMMAND_SURFACE_KEY_SPEC.md §18) - visibly distinct so the operator can see
+   the modifier is waiting to be consumed by the next key press. */
+.key-shift-armed { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 /* ---------- Fader bank ---------- */
 .fader-bank {
@@ -843,6 +857,14 @@ html, body {
     .encoder-slot { min-height: 222px; }
     .encoder-category-key span:last-child { display: none; }
     .encoder-category-rail { grid-template-columns: repeat(6, minmax(48px, 1fr)); }
+
+    /* Command Surface's two side-by-side banks (§20) don't fit a narrow phone width - stack
+       LEFT above RIGHT instead, same "stack on narrow, side by side on wide" rule the
+       Encoder Drawer/Command Surface row itself already follows at 900px. */
+    .command-surface { flex-direction: column; }
+    .command-bank-left { width: auto; border-right: none; border-bottom: 1px solid var(--border); flex-direction: row; flex-wrap: wrap; }
+    .command-bank-left .keypad-row-spacer { display: none; }
+    .command-bank-right { width: auto; }
 }
 
 .workspace-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }

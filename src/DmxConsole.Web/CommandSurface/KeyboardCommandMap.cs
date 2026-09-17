@@ -48,6 +48,17 @@ public static class KeyboardCommandMap
         Token("c", CommandTokenKind.Cue);
         Token("C", CommandTokenKind.Cue);
 
+        // RELEASE and HOME (docs/COMMAND_SURFACE_KEY_SPEC.md §6/§7) - Shift is deliberately NOT
+        // bound to a physical key here: the browser's own Shift key fires on every keystroke
+        // (including ordinary capital-letter typing elsewhere on the page), so treating it as our
+        // toggle-arm modifier would be surprising rather than useful. Shift stays touch-only for
+        // v1, same as the six family keys/Preset/Full (no safe, non-colliding mnemonic chosen yet
+        // - a provisional choice deferred rather than guessed, per this project's own rule).
+        Token("r", CommandTokenKind.Release);
+        Token("R", CommandTokenKind.Release);
+        Token("h", CommandTokenKind.Home);
+        Token("H", CommandTokenKind.Home);
+
         return map;
     }
 }
