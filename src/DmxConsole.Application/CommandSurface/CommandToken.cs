@@ -54,8 +54,10 @@ public sealed record CommandToken
         CommandTokenKind.Odd => "Odd",
         CommandTokenKind.Even => "Even",
         CommandTokenKind.Next => "Next",
-        CommandTokenKind.Previous => "Previous",
+        CommandTokenKind.Previous => "Last",
         CommandTokenKind.GoTo => "GoTo",
+        CommandTokenKind.Full => "Full",
+        CommandTokenKind.Home => "Home",
         _ => kind.ToString(),
     };
 }

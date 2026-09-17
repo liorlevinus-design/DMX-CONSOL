@@ -34,6 +34,14 @@ public enum CommandTokenKind
     Clear,
     Backspace,
 
+    /// <summary>Semantic 100% (docs/COMMAND_SURFACE_KEY_SPEC.md §12) - never raw DMX 255 in the
+    /// grammar itself (the underlying command still ends up writing byte 255, same as any other
+    /// Absolute 100% AdjustIntensityCommand would).</summary>
+    Full,
+
+    /// <summary>Bare, or family-qualified (e.g. COLOR HOME) - self-terminating, see §6.</summary>
+    Home,
+
     // Editing verbs (not yet interpreted by CommandComposer - reserved)
     Store,
     Update,
@@ -44,11 +52,15 @@ public enum CommandTokenKind
     Release,
     Knockout,
 
-    // Attribute classes (not yet interpreted by CommandComposer - reserved)
+    // Attribute classes/families - the six real, selectable families (docs/COMMAND_SURFACE_KEY_SPEC.md
+    // §23.1's unified AttributeClass model). Image/Shape added alongside Full/Home since HOME/RELEASE
+    // now need to address all six families, not just the original four.
     Intensity,
     Position,
     Color,
     Beam,
+    Image,
+    Shape,
 
     // Cue/timing vocabulary (not yet interpreted by CommandComposer - reserved)
     Timing,

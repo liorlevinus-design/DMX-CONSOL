@@ -62,6 +62,12 @@ public enum ConsoleActionType
     StartEffect,
     StopEffect,
     SetEffectRate,
+
+    /// <summary>SHIFT+RELEASE (docs/COMMAND_SURFACE_KEY_SPEC.md §7/§18) - stops every currently
+    /// active playback source (Executors, playback-driven Effects). Operational/runtime
+    /// (IConsoleAction - never enters Undo history), never touches Editor values or Selection,
+    /// never deletes show data.</summary>
+    ReleaseAllPlaybacks,
 }
 
 /// <summary>
