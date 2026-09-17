@@ -258,11 +258,14 @@ public partial class EncoderDrawerViewModel : ObservableObject
         bool mixedRange = perFixture.Count > 1 && perFixture.Skip(1)
             .Any(x => x.Channel!.Unit != unit || x.Channel!.MinValue != min || x.Channel!.MaxValue != max);
 
-        return new EncoderSlot(type, EncoderLabel(type), value, mixed, partial, touched, unit, min, max,
+        return new EncoderSlot(type, ParameterLabel(type), value, mixed, partial, touched, unit, min, max,
             mixedRange, values);
     }
 
-    private static string EncoderLabel(ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
+    /// <summary>Shared display-label formatting for a semantic ChannelType - used here and by
+    /// ParameterPickerViewModel, so the same parameter reads with the same label on every UI
+    /// surface rather than two independently-maintained label vocabularies.</summary>
+    public static string ParameterLabel(ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
 
     public void SetValue(ChannelType type, byte value) => _programmerVm.SetEncoderValue(type, value);
 

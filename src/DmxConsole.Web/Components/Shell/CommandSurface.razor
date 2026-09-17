@@ -35,7 +35,9 @@
 }
 else
 {
-    <div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
+    <div class="command-surface-column">
+        <ParameterPicker />
+        <div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
         <div class="command-bank command-bank-left">
             <div class="keypad-row">
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
@@ -124,6 +126,7 @@ else
             <div class="keypad-row">
                 <button class="editor-nav-btn command-surface-close" title="Close keypad" @onclick="Sfc.Close">▼ CLOSE</button>
             </div>
+        </div>
         </div>
     </div>
 }

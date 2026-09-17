@@ -480,8 +480,11 @@ public sealed class CommandComposer
     private static string FormatNumber(double value) => value == Math.Floor(value) ? ((long)value).ToString() : value.ToString("0.##");
 
     /// <summary>Maps a family-keyword token to its AttributeClass, or null if this token isn't
-    /// one of the six family keywords (docs/COMMAND_SURFACE_KEY_SPEC.md §4/§23.1's unified model).</summary>
-    private static AttributeClass? FamilyFor(CommandTokenKind kind) => kind switch
+    /// one of the six family keywords (docs/COMMAND_SURFACE_KEY_SPEC.md §4/§23.1's unified model).
+    /// Public so other UI-independent state readers (e.g. the PARAMETER PICKER's "which family is
+    /// currently armed" query) can reuse this exact mapping instead of re-declaring a second one -
+    /// this composer's own grammar remains the sole place the mapping is DEFINED.</summary>
+    public static AttributeClass? FamilyFor(CommandTokenKind kind) => kind switch
     {
         CommandTokenKind.Intensity => AttributeClass.Intensity,
         CommandTokenKind.Position => AttributeClass.Position,

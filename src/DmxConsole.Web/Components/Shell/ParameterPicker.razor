@@ -1,0 +1,59 @@
+@using DmxConsole.Core
+@using DmxConsole.Web.Services
+@inject MainViewModel Vm
+@implements IDisposable
+
+@*
+    PARAMETER PICKER (docs/COMMAND_SURFACE_KEY_SPEC.md PARAMETER PICKER slice) - a compact
+    horizontal rail, not a new screen/modal. Appears only while the Command Surface has a lone
+    family token armed (POSITION/BEAM/COLOR/.../waiting for HOME/RELEASE/PRESET), showing the
+    semantic parameters ParameterPickerViewModel resolves from the CURRENT Selection for that
+    family. Every button is a thin proxy to ParameterPickerViewModel.SelectParameter, which itself
+    only calls CommandSurfaceViewModel.PressParameter - no duplicated command logic here.
+*@
+
+@if (Picker.IsVisible)
+{
+    <div class="parameter-picker">
+        <span class="parameter-picker-family">@Picker.ArmedFamily</span>
+        @foreach (var option in Picker.Options)
+        {
+            <button class="parameter-picker-tile @(option.Partial ? "partial" : "common")"
+                    title="@(option.Partial ? $"{option.Label} - only some selected fixtures support this" : option.Label)"
+                    @onclick="() => SelectParameter(option.Type)">
+                @option.Label
+                @if (option.Partial)
+                {
+                    <span class="parameter-picker-partial-dot"></span>
+                }
+            </button>
+        }
+    </div>
+}
+else if (Picker.IsEmptyForArmedFamily)
+{
+    <div class="parameter-picker parameter-picker-empty">No @Picker.ArmedFamily parameters</div>
+}
+
+@code {
+    private ParameterPickerViewModel Picker => Vm.ParameterPickerVm;
+
+    protected override void OnInitialized()
+    {
+        Vm.CommandSurfaceVm.Changed += OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged += OnSelectionChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnSelectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) =>
+        InvokeAsync(StateHasChanged);
+
+    private void SelectParameter(ChannelType type) => Picker.SelectParameter(type);
+
+    public void Dispose()
+    {
+        Vm.CommandSurfaceVm.Changed -= OnChanged;
+        Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
+    }
+}

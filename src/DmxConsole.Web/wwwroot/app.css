@@ -655,12 +655,68 @@ html, body {
 }
 .macro-recording-cancel:hover { background: #ff6b6b; color: #1a1a1a; }
 
+/* Wraps ParameterPicker + .command-surface as one flex child of .console-input-row, so the
+   picker's rail sits directly above the keypad without disturbing the row's own layout. */
+.command-surface-column { flex: none; display: flex; flex-direction: column; }
+
 .command-surface {
     flex: none;
     display: flex;
     background: var(--panel-alt);
     border-top: 1px solid var(--border);
     outline: none;
+}
+
+/* PARAMETER PICKER - a compact horizontal rail, not a new screen (docs/COMMAND_SURFACE_KEY_SPEC.md
+   PARAMETER PICKER slice). Appears above the keypad only while a family is armed. */
+.parameter-picker {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+}
+.parameter-picker-family {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    margin-right: 4px;
+}
+.parameter-picker-tile {
+    position: relative;
+    min-height: 36px;
+    min-width: 44px;
+    padding: 0 12px;
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.parameter-picker-tile:hover { border-color: var(--accent); }
+.parameter-picker-tile:active { background: var(--accent); color: #fff; }
+.parameter-picker-tile.partial { border-color: #f2b647; color: #f2b647; }
+.parameter-picker-partial-dot {
+    display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #f2b647;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.parameter-picker-empty {
+    flex: none;
+    padding: 8px 10px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-style: italic;
 }
 
 .command-surface-collapsed {

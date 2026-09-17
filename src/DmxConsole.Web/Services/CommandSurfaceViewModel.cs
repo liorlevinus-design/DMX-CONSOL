@@ -203,6 +203,21 @@ public sealed class CommandSurfaceViewModel
 
         CommitPendingDigits();
 
+        // A lone family token acts as a pure context selector (armed, waiting for HOME/RELEASE/
+        // PRESET/a Parameter Picker choice) - pressing a DIFFERENT family key while in exactly
+        // that state replaces it instead of appending, so the operator never needs an explicit
+        // CLEAR just to switch which family is armed (PARAMETER PICKER follow-up). Scoped
+        // narrowly: this only fires when the family token is standing entirely ALONE - a family
+        // token that is already part of a real, further-built command (e.g. mid Preset-recall
+        // composition) is left completely alone, preserving existing grammar/Backspace-to-correct
+        // behavior untouched.
+        if (CommandComposer.FamilyFor(kind) is not null
+            && Current.Tokens.Count == 1
+            && CommandComposer.FamilyFor(Current.Tokens[0].Kind) is not null)
+        {
+            _composer.Reset();
+        }
+
         var objectType = kind switch
         {
             CommandTokenKind.Fixture => EditorObjectType.Fixture,
@@ -272,6 +287,13 @@ public sealed class CommandSurfaceViewModel
     /// token that carries a ChannelType payload rather than being a bare CommandTokenKind. Like
     /// pressing any other composing key, this disarms both two-press gestures (RELEASE ENTER,
     /// Shift) - only bare RELEASE itself ever arms the escalation, never a Parameter/Family key.
+    ///
+    /// Always starts a fresh, self-contained "&lt;Parameter&gt; RELEASE" composition, discarding
+    /// whatever was in progress first (same "instant, self-contained trigger" idiom as
+    /// PressCaptureAll/PressMacroSlot) - this is what makes the PARAMETER PICKER's documented
+    /// workflow literal: "POSITION, PAN, RELEASE" resolves to exactly "PAN RELEASE", never
+    /// "POSITION PAN RELEASE" (which the composer's grammar doesn't and shouldn't recognize -
+    /// there is no family+parameter combined rule, only the parameter's own).
     /// </summary>
     public void PressParameter(ChannelType channelType)
     {
@@ -279,8 +301,9 @@ public sealed class CommandSurfaceViewModel
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
-        CommitPendingDigits();
+        _pendingDigits = string.Empty;
         _mirrorsExistingSelection = false;
+        _composer.Reset();
 
         Push(CommandToken.Parameter(channelType));
     }
