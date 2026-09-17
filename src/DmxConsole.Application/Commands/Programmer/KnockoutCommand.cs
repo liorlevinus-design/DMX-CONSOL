@@ -29,4 +29,6 @@ public sealed class KnockoutCommand : ProgrammerChannelCommandBase
         context.Programmer.Knockout(fixture.UniverseId, idx);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new KnockoutCommand(Targets, AttributeFilter);
 }

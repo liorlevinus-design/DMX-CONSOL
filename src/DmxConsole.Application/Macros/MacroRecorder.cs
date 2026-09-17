@@ -1,3 +1,5 @@
+using DmxConsole.Application.Commands;
+
 namespace DmxConsole.Application.Macros;
 
 /// <summary>
@@ -10,12 +12,20 @@ namespace DmxConsole.Application.Macros;
 /// step - workspace/pane/tab UI, hover/focus, and soft-key navigation that performs no console
 /// operation never call Dispatch/DispatchAction at all (see CommandDispatcher's own "single entry
 /// point" doc comment), so they are excluded by construction, not by a maintained filter list.
+///
+/// REPLAY INSTANCE SAFETY: a dispatched IConsoleCommand is only ever recorded if it (or, for a
+/// CompositeCommand, every one of its children, recursively) implements IReplayableCommand - see
+/// that type's own doc comment for why. A command that doesn't is explicitly reported as skipped
+/// (surfaced on Stop()'s CommandResult.Warning) rather than stored/replayed unsafely. IConsoleAction
+/// needs no such check - Actions hold no per-execution mutable state and are never pushed onto
+/// the Undo stack, so redispatching the same instance is inherently safe.
 /// </summary>
 public sealed class MacroRecorder
 {
     private readonly CommandDispatcher _dispatcher;
     private readonly MacroBank _bank;
     private readonly List<MacroStep> _steps = new();
+    private readonly List<string> _skippedOperationTypeNames = new();
     private bool _attached;
 
     public bool IsRecording { get; private set; }
@@ -56,6 +66,7 @@ public sealed class MacroRecorder
         IsRecording = true;
         RecordingSlot = slot;
         _steps.Clear();
+        _skippedOperationTypeNames.Clear();
         _dispatcher.CommandExecuted += OnCommandExecuted;
         _dispatcher.ActionExecuted += OnActionExecuted;
         _attached = true;
@@ -63,14 +74,31 @@ public sealed class MacroRecorder
         return new CommandResult { ActionType = ConsoleActionType.LearnMacroStart, Success = true };
     }
 
-    private void OnCommandExecuted(IConsoleCommand command) => _steps.Add(MacroStep.ForCommand(command));
+    private void OnCommandExecuted(IConsoleCommand command)
+    {
+        if (IsSafelyReplayable(command)) _steps.Add(MacroStep.ForCommand(command));
+        else _skippedOperationTypeNames.Add(command.GetType().Name);
+    }
+
     private void OnActionExecuted(IConsoleAction action) => _steps.Add(MacroStep.ForAction(action));
+
+    /// <summary>A CompositeCommand (e.g. "Fixture 1 THRU 5 AT 70" - one atomic transaction) is
+    /// safely recordable only if EVERY child is, recursively - a partially-fresh composite would
+    /// still share mutable Undo state via any non-replayable member.</summary>
+    private static bool IsSafelyReplayable(IConsoleCommand command) => command switch
+    {
+        CompositeCommand composite => composite.Commands.Count > 0 && composite.Commands.All(IsSafelyReplayable),
+        IReplayableCommand => true,
+        _ => false,
+    };
 
     /// <summary>
     /// Stops recording and saves - even a zero-step recording is saved as a valid, empty Macro
     /// (an intentional recording where nothing happened to be executed), never silently
     /// discarded. Playing an empty Macro is handled separately by <see cref="MacroPlaybackService"/>
-    /// (§4's "clear structured Macro empty result").
+    /// (§4's "clear structured Macro empty result"). If any dispatched operation could not be
+    /// safely recorded (REPLAY INSTANCE SAFETY), CommandResult.Warning names it explicitly rather
+    /// than silently dropping it.
     /// </summary>
     public CommandResult Stop()
     {
@@ -82,14 +110,19 @@ public sealed class MacroRecorder
         macro.Steps.AddRange(_steps);
         _bank.Set(slot, macro);
 
+        string? warning = _skippedOperationTypeNames.Count == 0 ? null
+            : $"{_skippedOperationTypeNames.Count} operation(s) could not be recorded (not macro-safe): {string.Join(", ", _skippedOperationTypeNames.Distinct())}";
+
         IsRecording = false;
         RecordingSlot = null;
         _steps.Clear();
+        _skippedOperationTypeNames.Clear();
 
         return new CommandResult
         {
             ActionType = ConsoleActionType.LearnMacroStop,
             Macro = macro,
+            Warning = warning,
             Message = $"Macro {slot} saved ({macro.Steps.Count} step(s)).",
         };
     }
@@ -105,6 +138,7 @@ public sealed class MacroRecorder
         IsRecording = false;
         RecordingSlot = null;
         _steps.Clear();
+        _skippedOperationTypeNames.Clear();
 
         return new CommandResult
         {

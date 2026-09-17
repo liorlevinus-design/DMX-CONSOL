@@ -9,6 +9,13 @@ namespace DmxConsole.Application.Macros;
 /// non-undoable. This type is deliberately NOT itself an IConsoleCommand/IConsoleAction dispatched
 /// through CommandDispatcher - it is its own small orchestration on top of it, exactly so it never
 /// invents a new Undo model.
+///
+/// REPLAY INSTANCE SAFETY: a Command step's stored template is NEVER dispatched directly - each
+/// playback calls MacroStep.CreateCommandForPlayback() to get a brand-new IConsoleCommand
+/// instance first (see IReplayableCommand/MacroStep's own doc comments). This is what makes
+/// "record once, play the same Macro N times, Undo N times" restore each execution's own state
+/// correctly - two Undo-stack entries never share one mutable snapshot object. An Action step's
+/// instance IS dispatched directly - Actions hold no per-execution mutable state.
 /// </summary>
 public sealed class MacroPlaybackService
 {
@@ -51,7 +58,7 @@ public sealed class MacroPlaybackService
             foreach (var step in macro.Steps)
             {
                 var result = step.Kind == MacroStepKind.Command
-                    ? _dispatcher.Dispatch(step.Command!)
+                    ? _dispatcher.Dispatch(step.CreateCommandForPlayback()) // fresh instance every time - never the template
                     : _dispatcher.DispatchAction(step.Action!);
                 childResults.Add(result);
             }

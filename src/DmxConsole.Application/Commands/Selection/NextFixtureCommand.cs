@@ -6,4 +6,6 @@ public sealed class NextFixtureCommand : SelectionCommandBase
     protected override ConsoleActionType ActionType => ConsoleActionType.Next;
 
     protected override void Apply(ConsoleContext context) => context.Selection.Next(context.Patch);
+
+    public override IConsoleCommand CreateFreshInstance() => new NextFixtureCommand();
 }

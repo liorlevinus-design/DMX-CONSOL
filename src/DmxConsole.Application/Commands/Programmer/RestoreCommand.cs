@@ -21,4 +21,6 @@ public sealed class RestoreCommand : ProgrammerChannelCommandBase
         context.Programmer.Restore(fixture.UniverseId, idx);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new RestoreCommand(Targets, AttributeFilter);
 }

@@ -15,11 +15,13 @@ namespace DmxConsole.Application.Commands.Programmer;
 /// </summary>
 public sealed class ReleaseParameterCommand : ProgrammerChannelCommandBase
 {
+    private readonly ChannelType _parameter;
     private readonly IReadOnlyList<ChannelType> _components;
 
     public ReleaseParameterCommand(IReadOnlyList<PatchedFixture> targets, ChannelType parameter)
         : base(targets, parameter.ToAttributeClass())
     {
+        _parameter = parameter;
         _components = parameter.SemanticComponents();
     }
 
@@ -37,4 +39,6 @@ public sealed class ReleaseParameterCommand : ProgrammerChannelCommandBase
         context.Programmer.ClearChannel(fixture.UniverseId, idx);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new ReleaseParameterCommand(Targets, _parameter);
 }

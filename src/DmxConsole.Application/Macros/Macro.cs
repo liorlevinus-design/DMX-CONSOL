@@ -10,12 +10,23 @@ public enum MacroStepKind
     Action,
 }
 
-/// <summary>One recorded console operation - the exact <see cref="IConsoleCommand"/> or
-/// <see cref="IConsoleAction"/> instance that was already dispatched once when it was recorded
-/// (see <see cref="MacroRecorder"/>). Exactly one of <see cref="Command"/>/<see cref="Action"/>
-/// is set, matching <see cref="Kind"/>. Never a raw button click, Razor callback, or string -
-/// the same structured Application-layer object every other Command Surface path already
-/// constructs and dispatches.</summary>
+/// <summary>
+/// One recorded console operation. For a Command (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS
+/// follow-up "REPLAY INSTANCE SAFETY"), <see cref="Command"/> is a TEMPLATE only - the exact
+/// <see cref="IConsoleCommand"/> instance that was dispatched once at record time, kept purely
+/// for inspection (type/DisplayLabel, and future EXAM). It must NEVER be dispatched again
+/// directly: many commands hold mutable per-execution Undo snapshot state (e.g.
+/// ProgrammerChannelCommandBase's own captured "before" values), so the SAME instance entering
+/// the Undo stack twice would silently corrupt one execution's Undo with another's snapshot.
+/// <see cref="CreateCommandForPlayback"/> is the only sanctioned way to get something to
+/// actually dispatch - it always returns a brand-new instance via <see cref="IReplayableCommand.CreateFreshInstance"/>.
+/// For an Action, <see cref="Action"/> IS dispatched directly - IConsoleAction implementations
+/// hold no per-execution mutable state (they are never pushed onto the Undo stack in the first
+/// place), so redispatching the same instance is inherently safe.
+/// Exactly one of <see cref="Command"/>/<see cref="Action"/> is set, matching <see cref="Kind"/>.
+/// Never a raw button click, Razor callback, or string - the same structured Application-layer
+/// object every other Command Surface path already constructs and dispatches.
+/// </summary>
 public sealed class MacroStep
 {
     public MacroStepKind Kind { get; }
@@ -29,8 +40,22 @@ public sealed class MacroStep
         Action = action;
     }
 
-    public static MacroStep ForCommand(IConsoleCommand command) => new(MacroStepKind.Command, command, null);
+    /// <summary><paramref name="command"/> must implement <see cref="IReplayableCommand"/> - see
+    /// MacroRecorder's own recursive safety check (MacroRecorder decides whether a command
+    /// qualifies at all; by the time this is called, it already has).</summary>
+    public static MacroStep ForCommand(IConsoleCommand command)
+    {
+        if (command is not IReplayableCommand)
+            throw new ArgumentException($"{command.GetType().Name} does not implement IReplayableCommand and cannot be safely recorded into a Macro.", nameof(command));
+        return new(MacroStepKind.Command, command, null);
+    }
+
     public static MacroStep ForAction(IConsoleAction action) => new(MacroStepKind.Action, null, action);
+
+    /// <summary>Builds a brand-new, never-yet-executed IConsoleCommand instance for THIS specific
+    /// playback - never <see cref="Command"/> (the template) itself, so its own Undo snapshot can
+    /// never collide with any other playback's.</summary>
+    public IConsoleCommand CreateCommandForPlayback() => ((IReplayableCommand)Command!).CreateFreshInstance();
 
     /// <summary>A short, honest, always-available label for future inspection (docs/COMMAND_SURFACE_KEY_SPEC.md
     /// MACROS §15's "EXAM MACRO 1" hook) - the step's own runtime type name, so Macro storage

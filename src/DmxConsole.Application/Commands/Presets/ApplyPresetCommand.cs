@@ -32,4 +32,6 @@ public sealed class ApplyPresetCommand : ProgrammerChannelCommandBase
     }
 
     protected override CommandResult DecorateResult(CommandResult result) => result with { Preset = _preset };
+
+    public override IConsoleCommand CreateFreshInstance() => new ApplyPresetCommand(Targets, _preset);
 }

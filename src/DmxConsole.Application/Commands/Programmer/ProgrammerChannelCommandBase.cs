@@ -10,17 +10,27 @@ namespace DmxConsole.Application.Commands.Programmer;
 /// value and knockout state before applying the change, and restore both verbatim on Undo -
 /// the same "snapshot then restore" approach <c>SelectionCommandBase</c> uses for selection.
 /// </summary>
-public abstract class ProgrammerChannelCommandBase : IConsoleCommand
+public abstract class ProgrammerChannelCommandBase : IConsoleCommand, IReplayableCommand
 {
     private readonly record struct ChannelSnapshot(int Universe, int Channel, bool HadValue, byte Value, bool WasKnockedOut);
 
     private readonly IReadOnlyList<PatchedFixture> _targets;
     private List<ChannelSnapshot>? _previous;
 
+    /// <summary>The fixtures this command was constructed with - exposed so a subclass's own
+    /// CreateFreshInstance() can pass the same construction-time targets to a brand-new instance,
+    /// never this instance's own accumulated _previous snapshot.</summary>
+    protected IReadOnlyList<PatchedFixture> Targets => _targets;
+
     /// <summary>Null means "every channel of the fixture"; otherwise only channels in this attribute class.</summary>
     protected AttributeClass? AttributeFilter { get; }
 
     protected abstract ConsoleActionType ActionType { get; }
+
+    /// <summary>Builds a brand-new instance with this command's own construction-time
+    /// parameters, never sharing this instance's own _previous snapshot (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS "REPLAY INSTANCE SAFETY").</summary>
+    public abstract IConsoleCommand CreateFreshInstance();
 
     protected ProgrammerChannelCommandBase(IReadOnlyList<PatchedFixture> targets, AttributeClass? attributeFilter)
     {

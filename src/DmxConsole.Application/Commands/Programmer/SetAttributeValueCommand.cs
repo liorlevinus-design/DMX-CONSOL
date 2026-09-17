@@ -24,4 +24,6 @@ public sealed class SetAttributeValueCommand : ProgrammerChannelCommandBase
         context.Programmer.SetChannel(fixture.UniverseId, fixture.AbsoluteIndex(channel), _value);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new SetAttributeValueCommand(Targets, _channelType, _value);
 }

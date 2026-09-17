@@ -23,4 +23,6 @@ public sealed class SetDmxAddressCommand : DmxAddressCommandBase
         context.Programmer.SetChannel(universe, channel, _value);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new SetDmxAddressCommand(Addresses, _value);
 }

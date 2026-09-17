@@ -17,4 +17,6 @@ public sealed class AddFixtureToSelectionCommand : SelectionCommandBase
     protected override ConsoleActionType ActionType => ConsoleActionType.ToggleFixture;
 
     protected override void Apply(ConsoleContext context) => context.Selection.Add(_fixture);
+
+    public override IConsoleCommand CreateFreshInstance() => new AddFixtureToSelectionCommand(_fixture);
 }

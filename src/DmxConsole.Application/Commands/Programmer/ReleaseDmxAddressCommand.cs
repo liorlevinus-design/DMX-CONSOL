@@ -23,4 +23,6 @@ public sealed class ReleaseDmxAddressCommand : DmxAddressCommandBase
         context.Programmer.ClearChannel(universe, channel);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new ReleaseDmxAddressCommand(Addresses);
 }

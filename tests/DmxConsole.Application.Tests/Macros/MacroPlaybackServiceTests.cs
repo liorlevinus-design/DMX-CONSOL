@@ -173,12 +173,13 @@ public class MacroPlaybackServiceTests
         Assert.Contains("already playing", outcome.ChildResults[0].Error, StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed class RecursivePlaybackCommand : IConsoleCommand
+    private sealed class RecursivePlaybackCommand : IConsoleCommand, IReplayableCommand
     {
         private readonly Func<CommandResult> _reenter;
         public RecursivePlaybackCommand(Func<CommandResult> reenter) => _reenter = reenter;
 
         public CommandResult Execute(ConsoleContext context) => _reenter();
         public void Undo(ConsoleContext context) { }
+        public IConsoleCommand CreateFreshInstance() => new RecursivePlaybackCommand(_reenter);
     }
 }

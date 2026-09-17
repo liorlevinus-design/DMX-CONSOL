@@ -47,4 +47,6 @@ public sealed class CaptureAllCommand : ProgrammerChannelCommandBase
         context.Programmer.SetChannel(fixture.UniverseId, idx, effectiveValue);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new CaptureAllCommand(Targets);
 }

@@ -15,7 +15,7 @@ namespace DmxConsole.Application.Commands.Programmer;
 /// already take a raw (universeId, channelIndex) pair and know nothing about fixtures - see
 /// Programmer.cs's own shape).
 /// </summary>
-public abstract class DmxAddressCommandBase : IConsoleCommand
+public abstract class DmxAddressCommandBase : IConsoleCommand, IReplayableCommand
 {
     private readonly record struct AddressSnapshot(int Universe, int Channel, bool HadValue, byte Value, bool WasKnockedOut);
 
@@ -24,10 +24,20 @@ public abstract class DmxAddressCommandBase : IConsoleCommand
 
     protected abstract ConsoleActionType ActionType { get; }
 
+    /// <summary>The raw addresses this command was constructed with - exposed so a subclass's own
+    /// CreateFreshInstance() can pass the same construction-time addresses to a brand-new
+    /// instance, never this instance's own accumulated _previous snapshot.</summary>
+    protected IReadOnlyList<(int Universe, int Channel)> Addresses => _addresses;
+
     /// <summary>addresses are raw 0-based (universe, channelIndex) pairs - already converted from
     /// the operator-facing 1-512 DMX address by the caller (CommandComposer), never off-by-one
     /// ambiguity living in two places.</summary>
     protected DmxAddressCommandBase(IReadOnlyList<(int Universe, int Channel)> addresses) => _addresses = addresses;
+
+    /// <summary>Builds a brand-new instance with this command's own construction-time addresses,
+    /// never sharing this instance's own _previous snapshot (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS "REPLAY INSTANCE SAFETY").</summary>
+    public abstract IConsoleCommand CreateFreshInstance();
 
     /// <summary>Applies this command's effect to one address. Return true only if something
     /// actually changed - same "no-op returns false, never captured" rule as
