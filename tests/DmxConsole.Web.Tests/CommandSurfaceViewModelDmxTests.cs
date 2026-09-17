@@ -54,7 +54,8 @@ public class CommandSurfaceViewModelDmxTests
         TypeDigits(surface, "50");
         surface.PressToken(CommandTokenKind.Enter);
 
-        Assert.True(context.Programmer.HasStoredValue(1, 0, out var value));
+        // Operator Universe 1 -> internal universeId 0.
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
         Assert.Equal((byte)Math.Round(50 / 100.0 * 255.0), value);
     }
 
@@ -74,7 +75,7 @@ public class CommandSurfaceViewModelDmxTests
         TypeDigits(surface, "5");
         surface.PressToken(CommandTokenKind.Enter);
 
-        Assert.True(context.Programmer.HasStoredValue(1, 0, out var value));
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
         Assert.Equal((byte)Math.Round(50.5 / 100.0 * 255.0), value);
     }
 

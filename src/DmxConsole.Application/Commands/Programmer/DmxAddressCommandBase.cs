@@ -36,6 +36,13 @@ public abstract class DmxAddressCommandBase : IConsoleCommand
 
     public CommandResult Execute(ConsoleContext context)
     {
+        // A configured output Universe must exist even with zero patched fixtures (DMX DIRECT
+        // ADDRESSING follow-up §2) - DMX direct addressing IS the explicit allocation mechanism
+        // for a Universe nothing has ever patched into. Idempotent, and never touches Patch/
+        // PatchedFixture - no dummy fixture, no fake patch entry, ever.
+        foreach (var universe in _addresses.Select(a => a.Universe).Distinct())
+            context.UniverseAllocator?.EnsureUniverse(universe);
+
         var snapshots = new List<AddressSnapshot>();
         var touchedAddresses = new List<(int Universe, int Channel)>();
 

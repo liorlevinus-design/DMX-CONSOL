@@ -43,8 +43,8 @@ public class CommandComposerDmxAddressingTests
         var result = dispatcher.Dispatch(final.ReadyOperation!);
         Assert.True(result.Success);
 
-        // Universe 1, Address 1 -> channelIndex 0 (1-based DMX address -> 0-based channelIndex).
-        Assert.True(context.Programmer.HasStoredValue(1, 0, out var value));
+        // Operator Universe 1 -> internal universeId 0; Address 1 -> channelIndex 0.
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
         Assert.Equal((byte)Math.Round(50 / 100.0 * 255.0), value);
     }
 
@@ -62,7 +62,7 @@ public class CommandComposerDmxAddressingTests
         Assert.True(final.IsComplete);
         dispatcher.Dispatch(final.ReadyOperation!);
 
-        Assert.True(context.Programmer.HasStoredValue(1, 0, out var value));
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
         Assert.Equal((byte)255, value);
     }
 
@@ -87,10 +87,10 @@ public class CommandComposerDmxAddressingTests
         byte expected = (byte)Math.Round(50 / 100.0 * 255.0);
         for (int addr = 1; addr <= 12; addr++)
         {
-            Assert.True(context.Programmer.HasStoredValue(1, addr - 1, out var value));
+            Assert.True(context.Programmer.HasStoredValue(0, addr - 1, out var value));
             Assert.Equal(expected, value);
         }
-        Assert.False(context.Programmer.HasStoredValue(1, 12, out _)); // address 13 (index 12) untouched
+        Assert.False(context.Programmer.HasStoredValue(0, 12, out _)); // address 13 (index 12) untouched
     }
 
     // Reverse ranges normalize, same as FIXTURE/GROUP THRU.
@@ -110,7 +110,7 @@ public class CommandComposerDmxAddressingTests
         dispatcher.Dispatch(final.ReadyOperation!);
 
         for (int addr = 1; addr <= 12; addr++)
-            Assert.True(context.Programmer.HasStoredValue(1, addr - 1, out _));
+            Assert.True(context.Programmer.HasStoredValue(0, addr - 1, out _));
     }
 
     // 4: invalid address 0 is rejected.
@@ -157,12 +157,28 @@ public class CommandComposerDmxAddressingTests
         Assert.Contains("Universe", result.Error);
     }
 
+    // Operator-facing Universe numbering is 1-based (DMX DIRECT ADDRESSING follow-up §1) -
+    // Universe 0 is honestly rejected, not silently translated to some other Universe.
+    [Fact]
+    public void InvalidUniverse_Zero_IsRejectedHonestly_OperatorNumberingIsOneBased()
+    {
+        var (context, _, _) = BuildRig();
+        var composer = new CommandComposer(context);
+
+        composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
+        var result = composer.Push(CommandToken.DmxAddress(0, 1));
+
+        Assert.False(result.IsComplete);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Universe", result.Error);
+    }
+
     // 11: Undo restores the previous Editor/address state exactly (both "had a value" and "had none").
     [Fact]
     public void Undo_RestoresPreviousAddressState()
     {
         var (context, dispatcher, undoRedo) = BuildRig();
-        context.Programmer.SetChannel(1, 0, 77); // address 1 already had a value
+        context.Programmer.SetChannel(0, 0, 77); // address 1 already had a value
 
         var composer = new CommandComposer(context);
         composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
@@ -171,13 +187,13 @@ public class CommandComposerDmxAddressingTests
         composer.Push(CommandToken.Number(90));
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
         dispatcher.Dispatch(final.ReadyOperation!);
-        Assert.True(context.Programmer.HasStoredValue(1, 0, out var afterSet));
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var afterSet));
         Assert.NotEqual((byte)77, afterSet);
 
         var outcome = undoRedo.Undo();
 
         Assert.True(outcome.Performed);
-        Assert.True(context.Programmer.HasStoredValue(1, 0, out var restored));
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var restored));
         Assert.Equal((byte)77, restored);
     }
 
@@ -190,12 +206,12 @@ public class CommandComposerDmxAddressingTests
         composer.Push(CommandToken.DmxAddress(1, 5));
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Full));
         dispatcher.Dispatch(final.ReadyOperation!);
-        Assert.True(context.Programmer.HasStoredValue(1, 4, out _));
+        Assert.True(context.Programmer.HasStoredValue(0, 4, out _));
 
         var outcome = undoRedo.Undo();
 
         Assert.True(outcome.Performed);
-        Assert.False(context.Programmer.HasStoredValue(1, 4, out _));
+        Assert.False(context.Programmer.HasStoredValue(0, 4, out _));
     }
 
     // 12: an unpatched address works (Programmer is fixture-agnostic by design).
@@ -215,16 +231,15 @@ public class CommandComposerDmxAddressingTests
         Assert.True(final.IsComplete);
         var result = dispatcher.Dispatch(final.ReadyOperation!);
         Assert.True(result.Success);
-        Assert.True(context.Programmer.HasStoredValue(3, 249, out var value));
+        Assert.True(context.Programmer.HasStoredValue(2, 249, out var value));
         Assert.Equal((byte)Math.Round(60 / 100.0 * 255.0), value);
     }
 
-    // 12b: documents the exact boundary of "unpatched address support" - an address within a
-    // Universe the engine already tracks (because SOME fixture is patched there) is fully
-    // supported end-to-end, including real effective output. A Universe with ZERO patched
-    // fixtures ANYWHERE is a known, reported architectural gap (see final report) - the
-    // Programmer still stores the value correctly (proven above), but DmxOutputEngine never
-    // created that Universe, so it can't appear in GetEffectiveValue/actual output yet.
+    // 12b: an address within a Universe the engine already tracks (because SOME fixture is
+    // patched there) is fully supported end-to-end, including real effective output. See the
+    // NeverPatchedUniverse_* tests below for the ZERO-patched-fixtures-anywhere case, which the
+    // DMX DIRECT ADDRESSING follow-up's IUniverseAllocator now also fully supports (previously a
+    // documented architectural gap).
     [Fact]
     public void UnpatchedAddress_InAnAlreadyTrackedUniverse_ReachesRealEffectiveOutput()
     {
@@ -236,8 +251,9 @@ public class CommandComposerDmxAddressingTests
             Id = "test-dimmer", Manufacturer = "Test", Model = "Dimmer",
             Modes = new[] { new FixtureMode { Name = "1ch", Channels = new[] { new FixtureChannel { Name = "Dimmer", Type = DmxConsole.Core.ChannelType.Dimmer, Offset = 0 } } } },
         };
-        // Patch a fixture at address 1 - this is what makes Universe 1 exist to the engine.
-        context.Patch.Add(new PatchedFixture(profile, profile.Modes[0], 1, 1));
+        // Patch a fixture at internal universe 0 (operator Universe 1) - this is what makes the
+        // Universe exist to the engine even before the IUniverseAllocator follow-up.
+        context.Patch.Add(new PatchedFixture(profile, profile.Modes[0], 0, 1));
 
         // Address 400 in the SAME Universe has no fixture of its own - genuinely unpatched.
         var composer = new CommandComposer(context);
@@ -247,8 +263,86 @@ public class CommandComposerDmxAddressingTests
         dispatcher.Dispatch(final.ReadyOperation!);
         engine.Tick();
 
-        Assert.Equal((byte)255, engine.GetEffectiveValue(1, 399));
-        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(1, 399)!.Kind);
+        Assert.Equal((byte)255, engine.GetEffectiveValue(0, 399));
+        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(0, 399)!.Kind);
+    }
+
+    // DMX DIRECT ADDRESSING follow-up §2-3: a configured output Universe must exist and reach
+    // REAL effective/output state even with ZERO patched fixtures anywhere - the previously
+    // documented gap. DmxAddressCommandBase.Execute now calls context.UniverseAllocator?.
+    // EnsureUniverse(...) itself before touching the Programmer, so no test-side EnsureUniverse
+    // call or patched fixture is needed to make this Universe visible to the engine.
+    [Fact]
+    public void NeverPatchedUniverse_DmxAtFull_ReachesRealEffectiveOutput()
+    {
+        var (context, dispatcher, _) = BuildRig();
+        var engine = (DmxOutputEngine)context.EffectiveOutput;
+        engine.AddLayer(context.Programmer);
+        Assert.Empty(context.Patch.Fixtures); // nothing patched anywhere in this rig
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
+        composer.Push(CommandToken.DmxAddress(5, 1)); // operator Universe 5 -> internal universeId 4, never patched
+        var final = composer.Push(CommandToken.Simple(CommandTokenKind.Full));
+        var result = dispatcher.Dispatch(final.ReadyOperation!);
+        Assert.True(result.Success);
+        engine.Tick();
+
+        Assert.Equal((byte)255, engine.GetEffectiveValue(4, 0));
+        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(4, 0)!.Kind); // LIVE/DMX diagnostics can inspect it too
+        Assert.Empty(context.Patch.Fixtures); // still no dummy fixture / fake patch entry was ever created
+    }
+
+    [Fact]
+    public void NeverPatchedUniverse_DmxRelease_ReleasesTheValueAndStopsContributing()
+    {
+        var (context, dispatcher, _) = BuildRig();
+        var engine = (DmxOutputEngine)context.EffectiveOutput;
+        engine.AddLayer(context.Programmer);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
+        composer.Push(CommandToken.DmxAddress(5, 1));
+        dispatcher.Dispatch(composer.Push(CommandToken.Simple(CommandTokenKind.Full)).ReadyOperation!);
+        engine.Tick();
+        Assert.Equal((byte)255, engine.GetEffectiveValue(4, 0));
+
+        var releaseComposer = new CommandComposer(context);
+        releaseComposer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
+        releaseComposer.Push(CommandToken.DmxAddress(5, 1));
+        var releaseFinal = releaseComposer.Push(CommandToken.Simple(CommandTokenKind.Release));
+        var releaseResult = dispatcher.Dispatch(releaseFinal.ReadyOperation!);
+        Assert.True(releaseResult.Success);
+        engine.Tick();
+
+        Assert.False(context.Programmer.HasStoredValue(4, 0, out _));
+        Assert.Equal((byte)0, engine.GetEffectiveValue(4, 0));
+        Assert.Null(engine.GetOwner(4, 0));
+        Assert.Empty(context.Patch.Fixtures);
+    }
+
+    [Fact]
+    public void NeverPatchedUniverse_Undo_RestoresPreviousState()
+    {
+        var (context, dispatcher, undoRedo) = BuildRig();
+        var engine = (DmxOutputEngine)context.EffectiveOutput;
+        engine.AddLayer(context.Programmer);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
+        composer.Push(CommandToken.DmxAddress(5, 1));
+        var final = composer.Push(CommandToken.Simple(CommandTokenKind.Full));
+        dispatcher.Dispatch(final.ReadyOperation!);
+        engine.Tick();
+        Assert.Equal((byte)255, engine.GetEffectiveValue(4, 0));
+
+        var outcome = undoRedo.Undo();
+        engine.Tick();
+
+        Assert.True(outcome.Performed);
+        Assert.False(context.Programmer.HasStoredValue(4, 0, out _));
+        Assert.Equal((byte)0, engine.GetEffectiveValue(4, 0));
+        Assert.Empty(context.Patch.Fixtures); // Undo never touches Patch either
     }
 
     // 13: a DMX range does not silently cross a Universe boundary - honest structured rejection.
@@ -302,26 +396,20 @@ public class CommandComposerDmxAddressingTests
         var (context, dispatcher, _) = BuildRig();
         var engine = (DmxOutputEngine)context.EffectiveOutput;
         engine.AddLayer(context.Programmer);
-        // DmxOutputEngine only creates/ticks a Universe once something (today: a patched
-        // fixture) tells it that Universe exists - see DmxOutputEngine.EnsureUniverse's own doc
-        // comment. A Universe with ZERO patched fixtures anywhere is a known, documented gap
-        // (final report) for direct DMX addressing: Programmer.SetChannel still stores the value
-        // correctly (proven separately by UnpatchedAddress_WorksCorrectly_NoFixturePatchedAnywhere),
-        // but it won't appear in GetEffectiveValue/GetOwner or real output until the engine knows
-        // the Universe exists. This test proves the (primary, already-supported) case: an
-        // address in a Universe the engine already tracks.
-        engine.EnsureUniverse(1);
+        // DMX DIRECT ADDRESSING follow-up: the DmxAddressCommandBase now allocates the target
+        // Universe itself via IUniverseAllocator (see DmxAddressCommandBase.Execute) - no manual
+        // EnsureUniverse call needed here anymore, even though nothing is patched anywhere.
 
         var composer = new CommandComposer(context);
         composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
-        composer.Push(CommandToken.DmxAddress(1, 1));
+        composer.Push(CommandToken.DmxAddress(1, 1)); // operator Universe 1 -> internal universeId 0
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Full));
         dispatcher.Dispatch(final.ReadyOperation!);
         engine.Tick();
 
-        Assert.Equal((byte)255, engine.GetEffectiveValue(1, 0));
-        Assert.NotNull(engine.GetOwner(1, 0));
-        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(1, 0)!.Kind);
+        Assert.Equal((byte)255, engine.GetEffectiveValue(0, 0));
+        Assert.NotNull(engine.GetOwner(0, 0));
+        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(0, 0)!.Kind);
     }
 
     // DMX RELEASE - address-level release fits the existing Programmer model cleanly.
@@ -329,7 +417,7 @@ public class CommandComposerDmxAddressingTests
     public void DmxRelease_ReleasesTheStoredValue_SelfTerminates()
     {
         var (context, dispatcher, _) = BuildRig();
-        context.Programmer.SetChannel(1, 0, 100);
+        context.Programmer.SetChannel(0, 0, 100);
 
         var composer = new CommandComposer(context);
         composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
@@ -339,14 +427,14 @@ public class CommandComposerDmxAddressingTests
         Assert.True(final.IsComplete); // self-terminates, like FAMILY RELEASE
         dispatcher.Dispatch(final.ReadyOperation!);
 
-        Assert.False(context.Programmer.HasStoredValue(1, 0, out _));
+        Assert.False(context.Programmer.HasStoredValue(0, 0, out _));
     }
 
     [Fact]
     public void DmxRelease_Range_ReleasesEveryAddressInRange()
     {
         var (context, dispatcher, _) = BuildRig();
-        for (int addr = 1; addr <= 10; addr++) context.Programmer.SetChannel(1, addr - 1, 100);
+        for (int addr = 1; addr <= 10; addr++) context.Programmer.SetChannel(0, addr - 1, 100);
 
         var composer = new CommandComposer(context);
         composer.Push(CommandToken.Simple(CommandTokenKind.Dmx));
@@ -358,7 +446,7 @@ public class CommandComposerDmxAddressingTests
         dispatcher.Dispatch(final.ReadyOperation!);
 
         for (int addr = 1; addr <= 10; addr++)
-            Assert.False(context.Programmer.HasStoredValue(1, addr - 1, out _));
+            Assert.False(context.Programmer.HasStoredValue(0, addr - 1, out _));
     }
 
     // Object/domain context resets after the command completes - the NEXT bare numeric command

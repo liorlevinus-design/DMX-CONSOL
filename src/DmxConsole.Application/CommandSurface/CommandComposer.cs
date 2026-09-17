@@ -568,7 +568,11 @@ public sealed class CommandComposer
         if (!ValidateDmxAddress(fromUniverse, fromAddress, out var fromError))
             return Incomplete(preview, fromError);
 
-        var addresses = new List<(int Universe, int Channel)> { (fromUniverse, fromAddress - 1) }; // 1-512 -> 0-based channelIndex
+        // fromUniverse/toUniverse stay OPERATOR-facing (1-based, DMX DIRECT ADDRESSING follow-up
+        // §1) everywhere in this method's own logic/error messages - translated to the engine's
+        // internal 0-based universeId only once, right here, at the single point addresses are
+        // actually built for the command. Never two representations drifting independently.
+        var addresses = new List<(int Universe, int Channel)> { (ToInternalUniverseId(fromUniverse), fromAddress - 1) }; // 1-512 -> 0-based channelIndex
         int i = 2;
 
         if (i >= _tokens.Count)
@@ -592,7 +596,8 @@ public sealed class CommandComposer
 
             addresses.Clear();
             int lo = Math.Min(fromAddress, toAddress), hi = Math.Max(fromAddress, toAddress); // reverse ranges normalize, same as FIXTURE/GROUP THRU
-            for (int a = lo; a <= hi; a++) addresses.Add((fromUniverse, a - 1));
+            int internalUniverse = ToInternalUniverseId(fromUniverse);
+            for (int a = lo; a <= hi; a++) addresses.Add((internalUniverse, a - 1));
             i++;
         }
 
@@ -641,19 +646,28 @@ public sealed class CommandComposer
         return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = operation };
     }
 
-    /// <summary>§4: validate Universe existence/range and DMX address range 1-512 - never
-    /// silently wrap, never silently clamp. Universe has no fixed upper bound in this engine
-    /// (DmxOutputEngine.EnsureUniverse creates one on demand for any non-negative id - see that
-    /// type's own doc comment), so "existence" here means "not negative", the one bound the
-    /// engine itself actually enforces; address range 1-512 is DMX512's own hard protocol limit
-    /// (Universe.ChannelCount).</summary>
+    /// <summary>§4/DMX DIRECT ADDRESSING follow-up §1: validate Universe existence/range and DMX
+    /// address range 1-512 - never silently wrap, never silently clamp. Universe numbering is
+    /// authoritatively 1-based on the operator-facing side (DMX 1.1 is the FIRST universe, first
+    /// address - symmetric with the address's own 1-based DMX512 convention), even though the
+    /// engine's internal universeId stays 0-based (ToInternalUniverseId translates explicitly,
+    /// once, never left implicit). Universe has no fixed upper bound in this engine
+    /// (DmxOutputEngine.EnsureUniverse creates one on demand for any non-negative internal id -
+    /// see that type's own doc comment), so "existence" here means "operator Universe is at least
+    /// 1"; address range 1-512 is DMX512's own hard protocol limit (Universe.ChannelCount).</summary>
     private static bool ValidateDmxAddress(int universe, int address, out string? error)
     {
-        if (universe < 0) { error = $"Invalid Universe {universe} - must be 0 or greater."; return false; }
+        if (universe < 1) { error = $"Invalid Universe {universe} - must be 1 or greater."; return false; }
         if (address < 1 || address > 512) { error = $"Invalid DMX address {address} - must be 1-512."; return false; }
         error = null;
         return true;
     }
+
+    /// <summary>The one, explicit translation point from the operator-facing 1-based Universe
+    /// number to the engine's internal 0-based universeId (DMX DIRECT ADDRESSING follow-up §1) -
+    /// every other Universe-numbering site in this class calls this rather than repeating "- 1"
+    /// inline, so the offset lives in exactly one place.</summary>
+    private static int ToInternalUniverseId(int operatorUniverse) => operatorUniverse - 1;
 
     /// <summary>§3: AT values are semantic operator percentages, never raw byte literals typed by
     /// the operator - converted to a DMX byte only here, at the Application/DMX boundary, using

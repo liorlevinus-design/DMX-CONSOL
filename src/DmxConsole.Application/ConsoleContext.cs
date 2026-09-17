@@ -34,6 +34,17 @@ public sealed class ConsoleContext
     /// </summary>
     public IEffectiveOutputReader EffectiveOutput { get; }
 
+    /// <summary>
+    /// Narrow write-capability to allocate a Universe (make it exist/trackable for merge and
+    /// output) WITHOUT patching a fixture into it - see IUniverseAllocator's own doc comment for
+    /// why this is deliberately separate from EffectiveOutput (a pure reader) and from the
+    /// engine's Start/Stop/layer-registration surface (still off-limits). Null when
+    /// effectiveOutput doesn't implement it (e.g. a test double) - a caller that needs this
+    /// degrades gracefully (skips allocation) rather than throwing, exactly like any other
+    /// optional capability in this codebase.
+    /// </summary>
+    public IUniverseAllocator? UniverseAllocator { get; }
+
     public PresetLibrary Presets { get; }
 
     /// <summary>The show's Executors - Step F. Playback Sources (CueLists today) are assigned
@@ -51,6 +62,7 @@ public sealed class ConsoleContext
         Selection = selection;
         Groups = groups;
         EffectiveOutput = effectiveOutput;
+        UniverseAllocator = effectiveOutput as IUniverseAllocator;
         Presets = presets;
         Executors = executors;
         Effects = effects ?? new EffectBank();
