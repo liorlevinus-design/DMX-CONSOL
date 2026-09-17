@@ -41,6 +41,7 @@ public enum CommandTokenKind
     Even,
     Next,
     Previous,
+    Fan,
 
     // Command structure
     At,
