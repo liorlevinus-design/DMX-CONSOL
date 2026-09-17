@@ -21,13 +21,13 @@ public class WorkspaceEncoderStateTests
     {
         var original = BuildWorkspace();
         original.EncoderDrawer.IsOpen = false;
-        original.EncoderDrawer.ActiveCategory = EncoderCategory.Color;
+        original.EncoderDrawer.ActiveCategory = AttributeClass.Color;
         original.EncoderDrawer.Page = 2;
 
         var restored = WorkspaceSerializer.Deserialize(WorkspaceSerializer.Serialize(original));
 
         Assert.False(restored.EncoderDrawer.IsOpen);
-        Assert.Equal(EncoderCategory.Color, restored.EncoderDrawer.ActiveCategory);
+        Assert.Equal(AttributeClass.Color, restored.EncoderDrawer.ActiveCategory);
         Assert.Equal(2, restored.EncoderDrawer.Page);
     }
 
@@ -66,12 +66,12 @@ public class WorkspaceEncoderStateTests
     public void DuplicateWorkspace_CarriesOverEncoderDrawerState()
     {
         var original = BuildWorkspace();
-        original.EncoderDrawer.ActiveCategory = EncoderCategory.Shape;
+        original.EncoderDrawer.ActiveCategory = AttributeClass.Shape;
         original.EncoderDrawer.Page = 1;
 
         var duplicate = new WorkspaceLayoutService().DuplicateWorkspace(original);
 
-        Assert.Equal(EncoderCategory.Shape, duplicate.EncoderDrawer.ActiveCategory);
+        Assert.Equal(AttributeClass.Shape, duplicate.EncoderDrawer.ActiveCategory);
         Assert.Equal(1, duplicate.EncoderDrawer.Page);
     }
 

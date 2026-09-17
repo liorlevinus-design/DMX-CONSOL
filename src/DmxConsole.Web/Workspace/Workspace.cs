@@ -13,7 +13,7 @@ public enum WorkspaceScope { Factory, User, Show }
 public sealed class EncoderDrawerState
 {
     public bool IsOpen { get; set; } = true;
-    public EncoderCategory? ActiveCategory { get; set; }
+    public AttributeClass? ActiveCategory { get; set; }
     public int Page { get; set; }
 }
 

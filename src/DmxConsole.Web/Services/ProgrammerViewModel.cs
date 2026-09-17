@@ -48,6 +48,8 @@ public partial class ProgrammerViewModel : ObservableObject
     [RelayCommand] private void ClearPosition() => Dispatch(new ReleaseCommand(Targets, AttributeClass.Position));
     [RelayCommand] private void ClearColor() => Dispatch(new ReleaseCommand(Targets, AttributeClass.Color));
     [RelayCommand] private void ClearBeam() => Dispatch(new ReleaseCommand(Targets, AttributeClass.Beam));
+    [RelayCommand] private void ClearImage() => Dispatch(new ReleaseCommand(Targets, AttributeClass.Image));
+    [RelayCommand] private void ClearShape() => Dispatch(new ReleaseCommand(Targets, AttributeClass.Shape));
     [RelayCommand] private void Knockout() => Dispatch(new KnockoutCommand(Targets));
     [RelayCommand] private void Restore() => Dispatch(new RestoreCommand(Targets));
 

@@ -2,6 +2,12 @@ using Xunit;
 
 namespace DmxConsole.Core.Tests;
 
+/// <summary>The one authoritative six-family model (docs/COMMAND_SURFACE_KEY_SPEC.md §23.1) -
+/// this used to be two separate types (a 4-value AttributeClass for Release/Presets, a 6-value
+/// EncoderCategory for the Encoder Drawer). Now unified: Prism and Shutter/Strobe (beam effects)
+/// classify as Beam, not Image/Shape; Gobo/GoboRotation classify as Image; Speed classifies as
+/// Position ("movement speed", per Vector's own documented banks); nothing in today's ChannelType
+/// enum represents a framing-shutter/blade/keystone mechanism, so Shape has no default member yet.</summary>
 public class AttributeClassTests
 {
     [Theory]
@@ -10,6 +16,7 @@ public class AttributeClassTests
     [InlineData(ChannelType.PanFine, AttributeClass.Position)]
     [InlineData(ChannelType.Tilt, AttributeClass.Position)]
     [InlineData(ChannelType.TiltFine, AttributeClass.Position)]
+    [InlineData(ChannelType.Speed, AttributeClass.Position)] // Vector: "Pan, tilt, movement speed"
     [InlineData(ChannelType.ColorRed, AttributeClass.Color)]
     [InlineData(ChannelType.ColorGreen, AttributeClass.Color)]
     [InlineData(ChannelType.ColorBlue, AttributeClass.Color)]
@@ -17,14 +24,13 @@ public class AttributeClassTests
     [InlineData(ChannelType.ColorAmber, AttributeClass.Color)]
     [InlineData(ChannelType.ColorUv, AttributeClass.Color)]
     [InlineData(ChannelType.ColorWheel, AttributeClass.Color)]
-    [InlineData(ChannelType.Gobo, AttributeClass.Beam)]
-    [InlineData(ChannelType.GoboRotation, AttributeClass.Beam)]
-    [InlineData(ChannelType.Zoom, AttributeClass.Beam)]
     [InlineData(ChannelType.Focus, AttributeClass.Beam)]
-    [InlineData(ChannelType.Shutter, AttributeClass.Beam)]
+    [InlineData(ChannelType.Zoom, AttributeClass.Beam)]
+    [InlineData(ChannelType.Prism, AttributeClass.Beam)] // beam effect, never Image/Shape
+    [InlineData(ChannelType.Shutter, AttributeClass.Beam)] // beam effect, distinct from framing shutters
     [InlineData(ChannelType.Strobe, AttributeClass.Beam)]
-    [InlineData(ChannelType.Prism, AttributeClass.Beam)]
-    [InlineData(ChannelType.Speed, AttributeClass.Other)]
+    [InlineData(ChannelType.Gobo, AttributeClass.Image)]
+    [InlineData(ChannelType.GoboRotation, AttributeClass.Image)]
     [InlineData(ChannelType.Macro, AttributeClass.Other)]
     [InlineData(ChannelType.ControlFunction, AttributeClass.Other)]
     [InlineData(ChannelType.Generic, AttributeClass.Other)]
@@ -42,5 +48,13 @@ public class AttributeClassTests
             var result = value.ToAttributeClass();
             Assert.True(Enum.IsDefined(result));
         }
+    }
+
+    [Fact]
+    public void SelectableFamilies_ListsExactlySixRealFamilies_ExcludingOther()
+    {
+        Assert.Equal(
+            new[] { AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color, AttributeClass.Beam, AttributeClass.Image, AttributeClass.Shape },
+            ChannelTypeExtensions.SelectableFamilies);
     }
 }

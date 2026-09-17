@@ -83,7 +83,7 @@ public class EncoderSpecialViewsTests
         var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         Assert.True(drawer.ShowsPositionPad());
     }
@@ -96,7 +96,7 @@ public class EncoderSpecialViewsTests
         var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         Assert.False(drawer.ShowsPositionPad());
     }
@@ -109,7 +109,7 @@ public class EncoderSpecialViewsTests
         var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         Assert.True(drawer.PositionPadIsCalibrated());
     }
@@ -122,7 +122,7 @@ public class EncoderSpecialViewsTests
         var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1); // default "DMX" unit
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         Assert.False(drawer.PositionPadIsCalibrated());
     }
@@ -139,7 +139,7 @@ public class EncoderSpecialViewsTests
         context.Patch.Add(fixtureB);
         context.Selection.Add(fixtureA);
         context.Selection.Add(fixtureB);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         Assert.True(drawer.PositionPadHasMixedRange());
     }
@@ -158,7 +158,7 @@ public class EncoderSpecialViewsTests
         context.Patch.Add(fixtureB);
         context.Selection.Add(fixtureA);
         context.Selection.Add(fixtureB);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         // Pan differs from Tilt's own range (-270..270 vs -90..90) but that is NOT a mismatch -
         // both fixtures agree with each other on Pan, and agree with each other on Tilt.
@@ -177,7 +177,7 @@ public class EncoderSpecialViewsTests
         context.Patch.Add(fixtureB);
         context.Selection.Add(fixtureA);
         context.Selection.Add(fixtureB);
-        drawer.SelectCategory(EncoderCategory.Color);
+        drawer.SelectCategory(AttributeClass.Color);
 
         Assert.True(drawer.ShowsColorPicker());
         Assert.False(drawer.ColorPickerIsPartial());
@@ -195,7 +195,7 @@ public class EncoderSpecialViewsTests
         context.Patch.Add(wheelFixture);
         context.Selection.Add(rgbFixture);
         context.Selection.Add(wheelFixture);
-        drawer.SelectCategory(EncoderCategory.Color);
+        drawer.SelectCategory(AttributeClass.Color);
 
         Assert.False(drawer.ShowsColorPicker());
         Assert.True(drawer.ColorPickerIsPartial());
@@ -209,7 +209,7 @@ public class EncoderSpecialViewsTests
         var fixture = new PatchedFixture(profile, profile.Modes[0], 0, 1);
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Color);
+        drawer.SelectCategory(AttributeClass.Color);
 
         Assert.False(drawer.ShowsColorPicker());
         Assert.False(drawer.ColorPickerIsPartial()); // no fixture has ANY RGB channel - not even partial

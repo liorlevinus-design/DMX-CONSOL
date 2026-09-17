@@ -123,12 +123,12 @@ public class EncoderDrawerViewModelTests
 
         var available = drawer.AvailableCategories();
 
-        Assert.Contains(EncoderCategory.Intensity, available); // both have it
-        Assert.Contains(EncoderCategory.Position, available);  // only moving head - still shown
-        Assert.Contains(EncoderCategory.Color, available);
-        Assert.Contains(EncoderCategory.Image, available);
-        Assert.Contains(EncoderCategory.Shape, available);
-        Assert.DoesNotContain(EncoderCategory.Beam, available); // neither fixture has Focus/Zoom
+        Assert.Contains(AttributeClass.Intensity, available); // both have it
+        Assert.Contains(AttributeClass.Position, available);  // only moving head - still shown
+        Assert.Contains(AttributeClass.Color, available);
+        Assert.Contains(AttributeClass.Image, available);
+        Assert.Contains(AttributeClass.Beam, available); // Shutter is a beam effect under the corrected mapping
+        Assert.DoesNotContain(AttributeClass.Shape, available); // nothing on either fixture maps to Shape today
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public class EncoderDrawerViewModelTests
         context.Patch.Add(dimmerOnly);
         context.Selection.Add(dimmerOnly);
 
-        Assert.Equal(new[] { EncoderCategory.Intensity }, drawer.AvailableCategories());
+        Assert.Equal(new[] { AttributeClass.Intensity }, drawer.AvailableCategories());
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class EncoderDrawerViewModelTests
         var dimmerOnly = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
         context.Patch.Add(dimmerOnly);
         context.Selection.Add(dimmerOnly);
-        drawer.SelectCategory(EncoderCategory.Intensity);
+        drawer.SelectCategory(AttributeClass.Intensity);
 
         var slots = drawer.SlotsForCurrentPage();
 
@@ -165,7 +165,7 @@ public class EncoderDrawerViewModelTests
         var fixture = new PatchedFixture(SixColorFixture(), SixColorFixture().Modes[0], 0, 1);
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Color);
+        drawer.SelectCategory(AttributeClass.Color);
 
         Assert.Equal(2, drawer.PageCount());
         var page0 = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).ToList();
@@ -189,17 +189,17 @@ public class EncoderDrawerViewModelTests
         var fixture = new PatchedFixture(SixColorFixture(), SixColorFixture().Modes[0], 0, 1);
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
-        drawer.SelectCategory(EncoderCategory.Color);
+        drawer.SelectCategory(AttributeClass.Color);
         drawer.NextPage();
 
         drawer.Close();
         Assert.False(drawer.IsOpen);
-        Assert.Equal(EncoderCategory.Color, drawer.ActiveCategory);
+        Assert.Equal(AttributeClass.Color, drawer.ActiveCategory);
         Assert.Equal(1, drawer.Page);
 
         drawer.Open();
         Assert.True(drawer.IsOpen);
-        Assert.Equal(EncoderCategory.Color, drawer.ActiveCategory);
+        Assert.Equal(AttributeClass.Color, drawer.ActiveCategory);
         Assert.Equal(1, drawer.Page);
     }
 
@@ -210,7 +210,7 @@ public class EncoderDrawerViewModelTests
         var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
         context.Patch.Add(movingHead);
         context.Selection.Add(movingHead);
-        drawer.SelectCategory(EncoderCategory.Image); // Gobo - only on the moving head
+        drawer.SelectCategory(AttributeClass.Image); // Gobo - only on the moving head
         drawer.NextPage(); // irrelevant here, but confirms Page also resets on the invalidation branch
 
         context.Selection.Clear();
@@ -222,7 +222,7 @@ public class EncoderDrawerViewModelTests
         // Image no longer applies - resets, then auto-selects Intensity (the only category
         // available for the dimmer-only fixture), per the "auto-select first available category
         // when none is active" requirement.
-        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory);
+        Assert.Equal(AttributeClass.Intensity, drawer.ActiveCategory);
         Assert.Equal(0, drawer.Page);
     }
 
@@ -248,7 +248,7 @@ public class EncoderDrawerViewModelTests
         context.Selection.Add(movingHead);
         drawer.RevalidateActiveCategory();
 
-        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory); // first in Vector-bank order
+        Assert.Equal(AttributeClass.Intensity, drawer.ActiveCategory); // first in Vector-bank order
     }
 
     [Fact]
@@ -258,11 +258,11 @@ public class EncoderDrawerViewModelTests
         var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
         context.Patch.Add(movingHead);
         context.Selection.Add(movingHead);
-        drawer.SelectCategory(EncoderCategory.Shape); // operator explicitly picked something other than the first
+        drawer.SelectCategory(AttributeClass.Beam); // operator explicitly picked something other than the first (Shutter is a beam effect)
 
         drawer.RevalidateActiveCategory();
 
-        Assert.Equal(EncoderCategory.Shape, drawer.ActiveCategory); // untouched - still valid
+        Assert.Equal(AttributeClass.Beam, drawer.ActiveCategory); // untouched - still valid
     }
 
     [Fact]
@@ -274,13 +274,13 @@ public class EncoderDrawerViewModelTests
         context.Patch.Add(movingHead);
         context.Patch.Add(dimmerOnly);
         context.Selection.Add(movingHead);
-        drawer.SelectCategory(EncoderCategory.Intensity);
+        drawer.SelectCategory(AttributeClass.Intensity);
 
         context.Selection.Add(dimmerOnly); // selection changed, but Intensity still applies
 
         drawer.RevalidateActiveCategory();
 
-        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory);
+        Assert.Equal(AttributeClass.Intensity, drawer.ActiveCategory);
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class EncoderDrawerViewModelTests
         context.Patch.Add(dimmerOnly);
         context.Selection.Add(movingHead);
         context.Selection.Add(dimmerOnly);
-        drawer.SelectCategory(EncoderCategory.Image);
+        drawer.SelectCategory(AttributeClass.Image);
 
         var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Gobo);
 
@@ -310,7 +310,7 @@ public class EncoderDrawerViewModelTests
         context.Patch.Add(fixtureB);
         context.Selection.Add(fixtureA);
         context.Selection.Add(fixtureB);
-        drawer.SelectCategory(EncoderCategory.Intensity);
+        drawer.SelectCategory(AttributeClass.Intensity);
 
         var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Dimmer);
 
@@ -332,7 +332,7 @@ public class EncoderDrawerViewModelTests
         context.Programmer.SetChannel(0, 0, 255);
         ((DmxOutputEngine)context.EffectiveOutput).AddLayer(context.Programmer);
         ((DmxOutputEngine)context.EffectiveOutput).Tick(); // BuildSlot reads live merged output, not Programmer directly
-        drawer.SelectCategory(EncoderCategory.Intensity);
+        drawer.SelectCategory(AttributeClass.Intensity);
 
         var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Dimmer);
 
@@ -351,9 +351,9 @@ public class EncoderDrawerViewModelTests
         context.Selection.AddGroup(group);
         drawer.RevalidateActiveCategory();
 
-        Assert.Equal(EncoderCategory.Intensity, drawer.ActiveCategory); // auto-selected
-        Assert.Contains(EncoderCategory.Position, drawer.AvailableCategories());
-        Assert.Contains(EncoderCategory.Image, drawer.AvailableCategories());
+        Assert.Equal(AttributeClass.Intensity, drawer.ActiveCategory); // auto-selected
+        Assert.Contains(AttributeClass.Position, drawer.AvailableCategories());
+        Assert.Contains(AttributeClass.Image, drawer.AvailableCategories());
     }
 
     [Fact]
@@ -546,10 +546,10 @@ public class EncoderDrawerViewModelTests
         context.Patch.Add(fixture);
         context.Selection.Add(fixture);
 
-        drawer.SelectCategory(EncoderCategory.Intensity);
+        drawer.SelectCategory(AttributeClass.Intensity);
         Assert.False(drawer.ShowsPositionPad());
 
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
         Assert.True(drawer.ShowsPositionPad());
     }
 
@@ -582,7 +582,7 @@ public class EncoderDrawerViewModelTests
         context.Patch.Add(fixtureB);
         context.Selection.Add(fixtureA);
         context.Selection.Add(fixtureB);
-        drawer.SelectCategory(EncoderCategory.Position);
+        drawer.SelectCategory(AttributeClass.Position);
 
         Assert.True(drawer.SlotFor(ChannelType.Pan).MixedRange);
         Assert.False(drawer.SlotFor(ChannelType.Tilt).MixedRange);
@@ -597,7 +597,7 @@ public class EncoderDrawerViewModelTests
         var rgb = new PatchedFixture(rgbProfile, rgbProfile.Modes[0], 0, 1);
         context.Patch.Add(rgb);
         context.Selection.Add(rgb);
-        drawer.SelectCategory(EncoderCategory.Color);
+        drawer.SelectCategory(AttributeClass.Color);
 
         Assert.True(drawer.ShowsColorPicker());
         Assert.False(drawer.ColorPickerIsPartial());

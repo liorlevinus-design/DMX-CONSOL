@@ -7,9 +7,9 @@
     Work-plan Milestone 1 (2026-09-16): the fixed Encoder Drawer - persistent console
     infrastructure, exactly like EditorToolBar/CommandLine/CommandSurface. Always present,
     open/closed rather than conjured by context (replaces the old context-dependent
-    FixtureEncoderBank). Categories are Vector's own documented banks (EncoderCategory), not
-    AttributeClass. Every control here is a thin proxy to EncoderDrawerViewModel - no business
-    logic lives in this markup.
+    FixtureEncoderBank). Categories are Vector's own documented banks, grouped via the one
+    authoritative AttributeClass family model (docs/COMMAND_SURFACE_KEY_SPEC.md §23.1). Every
+    control here is a thin proxy to EncoderDrawerViewModel - no business logic lives in this markup.
 *@
 
 @if (!Drawer.IsOpen)
@@ -56,7 +56,7 @@ else
                 }
                 @if (Drawer.AvailableCategories().Count == 0)
                 {
-                    @foreach (var category in Enum.GetValues<EncoderCategory>())
+                    @foreach (var category in EncoderDrawerViewModel.CategoryOrder)
                     {
                         <button class="encoder-category-key" disabled>
                             <span class="encoder-category-abbr">@CategoryAbbreviation(category)</span>
@@ -78,7 +78,7 @@ else
                     </div>
                 }
 
-                @if (Drawer.ActiveCategory == EncoderCategory.Position)
+                @if (Drawer.ActiveCategory == AttributeClass.Position)
                 {
                     if (Drawer.ShowsPositionPad())
                     {
@@ -87,7 +87,7 @@ else
                                             Drawer="Drawer" />
                     }
                 }
-                else if (Drawer.ActiveCategory == EncoderCategory.Color)
+                else if (Drawer.ActiveCategory == AttributeClass.Color)
                 {
                     if (Drawer.ShowsColorPicker())
                     {
@@ -192,14 +192,14 @@ else
     private EncoderDrawerViewModel Drawer => Vm.EncoderDrawerVm;
     private int SelectionCount => Vm.SelectionVm.Selection.Items.Count;
 
-    private static string CategoryAbbreviation(EncoderCategory category) => category switch
+    private static string CategoryAbbreviation(AttributeClass category) => category switch
     {
-        EncoderCategory.Intensity => "INT",
-        EncoderCategory.Position => "POS",
-        EncoderCategory.Color => "COL",
-        EncoderCategory.Beam => "BEA",
-        EncoderCategory.Image => "IMG",
-        EncoderCategory.Shape => "SHP",
+        AttributeClass.Intensity => "INT",
+        AttributeClass.Position => "POS",
+        AttributeClass.Color => "COL",
+        AttributeClass.Beam => "BEA",
+        AttributeClass.Image => "IMG",
+        AttributeClass.Shape => "SHP",
         _ => "---"
     };
 

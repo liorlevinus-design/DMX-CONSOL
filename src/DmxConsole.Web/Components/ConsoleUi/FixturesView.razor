@@ -7,8 +7,8 @@
 
 @*
     OPERATOR_UX_ROADMAP.md §4: Fixtures LIVE - one row per fixture, one column per semantic
-    parameter family (Intensity/Position/Color/Beam/Image/Shape - the same Vector-bank grouping
-    the Encoder Drawer already uses, EncoderCategory). Built entirely from
+    parameter family (Intensity/Position/Color/Beam/Image/Shape - the same AttributeClass grouping
+    the Encoder Drawer already uses). Built entirely from
     DmxConsole.Application.Live.FixtureLiveState - no parameter/provenance/pending logic lives
     here, only formatting of an already-computed read model, so this view can never disagree with
     Channels LIVE or the Editor Inspector about the same channel. This is a summary + selection
@@ -53,12 +53,12 @@
                     <tr class="channels-row @(state.IsSelected ? "selected" : "") @(state.IsLiveOnStage ? "active" : "") @(state.HasEditorValue ? "programmer" : "")" @onclick="() => Toggle(state.Fixture)">
                         <td class="ch-cell">@state.Fixture.Number</td>
                         <td>@state.Fixture.Name</td>
-                        <td class="@FamilyCellClass(state.Family(EncoderCategory.Intensity))">@FormatIntensity(state.Family(EncoderCategory.Intensity))</td>
-                        <td class="@FamilyCellClass(state.Family(EncoderCategory.Position))">@FormatPosition(state.Family(EncoderCategory.Position))</td>
-                        <td class="@FamilyCellClass(state.Family(EncoderCategory.Color))">@FormatColor(state.Family(EncoderCategory.Color))</td>
-                        <td class="@FamilyCellClass(state.Family(EncoderCategory.Beam))">@FormatChannelList(state.Family(EncoderCategory.Beam))</td>
-                        <td class="@FamilyCellClass(state.Family(EncoderCategory.Image))">@FormatChannelList(state.Family(EncoderCategory.Image))</td>
-                        <td class="@FamilyCellClass(state.Family(EncoderCategory.Shape))">@FormatChannelList(state.Family(EncoderCategory.Shape))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Intensity))">@FormatIntensity(state.Family(AttributeClass.Intensity))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Position))">@FormatPosition(state.Family(AttributeClass.Position))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Color))">@FormatColor(state.Family(AttributeClass.Color))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Beam))">@FormatChannelList(state.Family(AttributeClass.Beam))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Image))">@FormatChannelList(state.Family(AttributeClass.Image))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Shape))">@FormatChannelList(state.Family(AttributeClass.Shape))</td>
                     </tr>
                 }
                 @if (Vm.Patch.Fixtures.Count == 0)

@@ -15,16 +15,16 @@ public sealed class FixtureLiveState
 {
     public PatchedFixture Fixture { get; }
     public bool IsSelected { get; }
-    public IReadOnlyDictionary<EncoderCategory, FixtureFamilyState> Families { get; }
+    public IReadOnlyDictionary<AttributeClass, FixtureFamilyState> Families { get; }
 
-    private FixtureLiveState(PatchedFixture fixture, bool isSelected, IReadOnlyDictionary<EncoderCategory, FixtureFamilyState> families)
+    private FixtureLiveState(PatchedFixture fixture, bool isSelected, IReadOnlyDictionary<AttributeClass, FixtureFamilyState> families)
     {
         Fixture = fixture;
         IsSelected = isSelected;
         Families = families;
     }
 
-    public FixtureFamilyState? Family(EncoderCategory category) => Families.GetValueOrDefault(category);
+    public FixtureFamilyState? Family(AttributeClass category) => Families.GetValueOrDefault(category);
 
     public bool HasEditorValue => Families.Values.Any(f => f.HasEditorValue);
     public bool IsLiveOnStage => Families.Values.Any(f => f.IsLiveOnStage);
@@ -42,25 +42,25 @@ public sealed class FixtureLiveState
     };
 
     /// <summary>Builds the full per-family breakdown for one fixture - groups every channel of
-    /// its Mode by ChannelTypeExtensions.ToEncoderCategory() (Core, the Encoder Drawer's own
-    /// existing Vector-bank grouping - not a new classification invented for this view). A
-    /// channel with no documented Encoder Category (Macro/ControlFunction/Generic) is simply not
-    /// represented in any family, same as the Encoder Drawer's own handling.</summary>
+    /// its Mode by ChannelTypeExtensions.ToAttributeClass() (Core, the one authoritative
+    /// six-family model - not a new classification invented for this view). A channel classified
+    /// as AttributeClass.Other (Macro/ControlFunction/Generic) is simply not represented in any
+    /// family, same as before.</summary>
     public static FixtureLiveState For(ConsoleContext context, PatchedFixture fixture, bool isSelected,
         IReadOnlySet<(int Universe, int Channel)> usedInShowAddresses)
     {
-        var byCategory = new Dictionary<EncoderCategory, List<(ChannelType, LiveChannelState)>>();
+        var byCategory = new Dictionary<AttributeClass, List<(ChannelType, LiveChannelState)>>();
 
         foreach (var channel in fixture.Mode.Channels)
         {
-            var category = channel.Type.ToEncoderCategory();
-            if (category is null) continue;
+            var category = channel.Type.ToAttributeClass();
+            if (category == AttributeClass.Other) continue;
 
             int channelIndex = fixture.AbsoluteIndex(channel);
             var state = LiveChannelState.For(context, fixture.UniverseId, channelIndex, isSelected, usedInShowAddresses);
 
-            if (!byCategory.TryGetValue(category.Value, out var list))
-                byCategory[category.Value] = list = new List<(ChannelType, LiveChannelState)>();
+            if (!byCategory.TryGetValue(category, out var list))
+                byCategory[category] = list = new List<(ChannelType, LiveChannelState)>();
             list.Add((channel.Type, state));
         }
 

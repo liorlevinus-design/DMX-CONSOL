@@ -31,17 +31,20 @@ public sealed record EncoderSlot(ChannelType? Type, string Label, byte Value, bo
 /// <summary>
 /// Milestone 1 (work-plan handoff, 2026-09-16): the fixed Encoder Drawer - always present,
 /// open/closed rather than conjured by context. Categories match Compulite Vector's actual
-/// documented Editor Toolbar banks (see EncoderCategory's own doc comment), NOT AttributeClass.
+/// documented Editor Toolbar banks, grouped via the one authoritative AttributeClass model
+/// (docs/COMMAND_SURFACE_KEY_SPEC.md §23.1 - this used to be a separate EncoderCategory type,
+/// now unified with Release/Preset/Fixtures-LIVE's own family grouping).
 /// ActiveCategory/Page are sticky across selection changes and across Open/Close - only reset
 /// when the active category genuinely stops applying to the current selection.
 /// </summary>
 public partial class EncoderDrawerViewModel : ObservableObject
 {
-    private static readonly EncoderCategory[] CategoryOrder =
-    {
-        EncoderCategory.Intensity, EncoderCategory.Position, EncoderCategory.Color,
-        EncoderCategory.Beam, EncoderCategory.Image, EncoderCategory.Shape,
-    };
+    /// <summary>The six real, selectable families in fixed display order - never includes
+    /// AttributeClass.Other, which is not a family a channel can be "in" from the operator's
+    /// point of view. Exposed publicly so EncoderDrawer.razor's disabled-placeholder fallback
+    /// (shown when nothing is selected) can render the same fixed six tabs instead of iterating
+    /// the raw enum, which would incorrectly include Other.</summary>
+    public static IReadOnlyList<AttributeClass> CategoryOrder => ChannelTypeExtensions.SelectableFamilies;
 
     private readonly CommandDispatcher _dispatcher;
     private readonly ProgrammerViewModel _programmerVm;
@@ -53,7 +56,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
     private EncoderGesture? _activeGesture;
 
     [ObservableProperty] private bool _isOpen = true;
-    [ObservableProperty] private EncoderCategory? _activeCategory;
+    [ObservableProperty] private AttributeClass? _activeCategory;
     [ObservableProperty] private int _page;
 
     public EncoderDrawerViewModel(CommandDispatcher dispatcher, ProgrammerViewModel programmerVm)
@@ -97,7 +100,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
         state.Page = Page;
     }
 
-    public void SelectCategory(EncoderCategory category)
+    public void SelectCategory(AttributeClass category)
     {
         CancelActiveGestureIfAny();
         ActiveCategory = category;
@@ -117,13 +120,15 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// <summary>Every category with at least one matching channel on at least one selected
     /// fixture (a partial match is still shown - not required on every fixture in the
     /// selection), in the fixed Vector-bank display order.</summary>
-    public IReadOnlyList<EncoderCategory> AvailableCategories()
+    public IReadOnlyList<AttributeClass> AvailableCategories()
     {
-        var present = new HashSet<EncoderCategory>();
+        var present = new HashSet<AttributeClass>();
         foreach (var fixture in Context.Selection.Items)
             foreach (var channel in fixture.Mode.Channels)
-                if (channel.Type.ToEncoderCategory() is { } category)
-                    present.Add(category);
+            {
+                var category = channel.Type.ToAttributeClass();
+                if (category != AttributeClass.Other) present.Add(category);
+            }
 
         return CategoryOrder.Where(present.Contains).ToList();
     }
@@ -179,7 +184,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// BOTH Pan and Tilt as real channel types - never invented for a fixture that lacks one of
     /// them.</summary>
     public bool ShowsPositionPad() =>
-        ActiveCategory == EncoderCategory.Position
+        ActiveCategory == AttributeClass.Position
         && ChannelTypesForActiveCategory().Contains(ChannelType.Pan)
         && ChannelTypesForActiveCategory().Contains(ChannelType.Tilt);
 
@@ -200,7 +205,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// ColorGreen/ColorBlue triple - a partial match must never render a picker that silently
     /// ignores a fixture, or pretends a ColorWheel-only fixture has RGB.</summary>
     public bool ShowsColorPicker() =>
-        ActiveCategory == EncoderCategory.Color
+        ActiveCategory == AttributeClass.Color
         && Context.Selection.Items.Count > 0
         && Context.Selection.Items.All(HasFullRgb);
 
@@ -208,7 +213,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// caller shows an explicit PARTIAL label instead, per the same principle Slot.Partial already
     /// uses elsewhere in this drawer.</summary>
     public bool ColorPickerIsPartial() =>
-        ActiveCategory == EncoderCategory.Color
+        ActiveCategory == AttributeClass.Color
         && Context.Selection.Items.Count > 0
         && Context.Selection.Items.Any(HasFullRgb)
         && !ShowsColorPicker();
@@ -223,7 +228,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
         if (ActiveCategory is not { } category) return new List<ChannelType>();
         return Context.Selection.Items
             .SelectMany(f => f.Mode.Channels)
-            .Where(c => c.Type.ToEncoderCategory() == category)
+            .Where(c => c.Type.ToAttributeClass() == category)
             .Select(c => c.Type).Distinct().OrderBy(t => t).ToList();
     }
 

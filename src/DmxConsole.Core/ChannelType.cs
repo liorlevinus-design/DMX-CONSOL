@@ -47,8 +47,13 @@ public enum BlendMode
 /// <summary>
 /// The semantic group a channel belongs to from the operator's point of view - this is
 /// what lets the console be driven as "Fixture 12 -> Color -> Blue" instead of "channel 340
-/// on universe 2 -> 180". Cues, Presets, Selection-scoped Clear, etc. all key off this,
-/// not off raw ChannelType.
+/// on universe 2 -> 180". Cues, Presets, Selection-scoped Clear, Release, HOME, the Encoder
+/// Drawer, and Fixtures LIVE all key off this ONE six-family model (docs/COMMAND_SURFACE_KEY_SPEC.md
+/// §23.1, docs/OPERATOR_UX_ROADMAP.md) - not off raw ChannelType, and not off a second parallel
+/// taxonomy. This type used to hold only four values (Intensity/Position/Color/Beam) while a
+/// separate `EncoderCategory` type (now removed) held six (+Image/Shape) for the Encoder Drawer
+/// alone; the two have been unified here per explicit operator direction ("do not create another
+/// family taxonomy").
 /// </summary>
 public enum AttributeClass
 {
@@ -56,8 +61,13 @@ public enum AttributeClass
     Position,
     Color,
     Beam,
+    Image,
+    Shape,
 
-    /// <summary>Anything that doesn't fit the four core classes (control/macro channels, generic).</summary>
+    /// <summary>Anything that doesn't fit the six core families (control/macro channels, generic).
+    /// Never offered as a selectable family in the UI (the Encoder Drawer's own category list is
+    /// the six real families above, in that fixed order) - this exists purely so ToAttributeClass
+    /// stays a total, non-nullable function.</summary>
     Other,
 }
 
@@ -73,22 +83,40 @@ public static class ChannelTypeExtensions
     public static bool IsPosition(this ChannelType type) =>
         type is ChannelType.Pan or ChannelType.PanFine or ChannelType.Tilt or ChannelType.TiltFine;
 
-    /// <summary>Which operator-facing attribute group this channel type belongs to.</summary>
+    /// <summary>Which operator-facing attribute family this channel type belongs to - the single
+    /// authoritative six-family default mapping (docs/COMMAND_SURFACE_KEY_SPEC.md §23.1):
+    /// Prism and Shutter/Strobe (beam effects) classify as Beam, not Image/Shape; Gobo/GoboRotation
+    /// classify as Image; nothing in today's ChannelType enum represents a framing-shutter/blade/
+    /// keystone mechanism, so Shape has no default member yet (the family still exists for future
+    /// channel types and for explicit fixture-profile overrides). A future per-profile override
+    /// field on FixtureChannel (not built yet - no such field exists today) would be the intended
+    /// way to reclassify a specific fixture's Shutter as a framing device rather than a beam
+    /// effect, WITHOUT introducing a second family taxonomy alongside this one.</summary>
     public static AttributeClass ToAttributeClass(this ChannelType type) => type switch
     {
         ChannelType.Dimmer => AttributeClass.Intensity,
 
-        ChannelType.Pan or ChannelType.PanFine or
-        ChannelType.Tilt or ChannelType.TiltFine => AttributeClass.Position,
+        ChannelType.Pan or ChannelType.PanFine or ChannelType.Tilt or ChannelType.TiltFine
+            or ChannelType.Speed => AttributeClass.Position,
 
         ChannelType.ColorRed or ChannelType.ColorGreen or ChannelType.ColorBlue or
         ChannelType.ColorWhite or ChannelType.ColorAmber or ChannelType.ColorUv or
         ChannelType.ColorWheel => AttributeClass.Color,
 
-        ChannelType.Gobo or ChannelType.GoboRotation or ChannelType.Zoom or
-        ChannelType.Focus or ChannelType.Shutter or ChannelType.Strobe or
-        ChannelType.Prism => AttributeClass.Beam,
+        ChannelType.Focus or ChannelType.Zoom or ChannelType.Prism or
+        ChannelType.Shutter or ChannelType.Strobe => AttributeClass.Beam,
 
-        _ => AttributeClass.Other, // Speed, Macro, ControlFunction, Generic
+        ChannelType.Gobo or ChannelType.GoboRotation => AttributeClass.Image,
+
+        _ => AttributeClass.Other, // Macro, ControlFunction, Generic
+    };
+
+    /// <summary>The six real operator-facing families, in the fixed Vector-bank display order
+    /// (docs/COMMAND_SURFACE_KEY_SPEC.md §4) - excludes <see cref="AttributeClass.Other"/>, which
+    /// is never offered as a selectable family anywhere in the UI.</summary>
+    public static readonly IReadOnlyList<AttributeClass> SelectableFamilies = new[]
+    {
+        AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color,
+        AttributeClass.Beam, AttributeClass.Image, AttributeClass.Shape,
     };
 }

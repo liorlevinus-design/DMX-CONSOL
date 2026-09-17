@@ -7,17 +7,20 @@ using Xunit;
 
 namespace DmxConsole.Application.Tests;
 
-/// <summary>OPERATOR_UX_ROADMAP.md §4 - the fixture-level LIVE read model, grouped by the same
-/// Vector-bank EncoderCategory the Encoder Drawer already uses (Intensity/Position/Color/Beam/
-/// Image/Shape), built entirely from LiveChannelState so Fixtures LIVE can never disagree with
-/// Channels LIVE about what's pending/live/used/mixed.</summary>
+/// <summary>OPERATOR_UX_ROADMAP.md §4 - the fixture-level LIVE read model, grouped by the one
+/// authoritative AttributeClass family model (Intensity/Position/Color/Beam/Image/Shape,
+/// docs/COMMAND_SURFACE_KEY_SPEC.md §23.1) the Encoder Drawer/Release/Presets all share, built
+/// entirely from LiveChannelState so Fixtures LIVE can never disagree with Channels LIVE about
+/// what's pending/live/used/mixed.</summary>
 public class FixtureLiveStateTests
 {
     private static readonly IReadOnlySet<(int, int)> NoneUsed = new HashSet<(int, int)>();
 
-    /// <summary>One channel per family that has a documented EncoderCategory, so a single fixture
-    /// exercises all six: Dimmer(Intensity), Pan+Tilt(Position), ColorRed/Green/Blue(Color),
-    /// Focus(Beam), Gobo(Image), Shutter(Shape). Also one Macro channel with NO category, to
+    /// <summary>One or two channels per reachable family: Dimmer(Intensity), Pan+Tilt(Position),
+    /// ColorRed/Green/Blue(Color), Focus+Shutter(Beam - Shutter is a beam effect under the
+    /// corrected mapping, not a framing shutter), Gobo(Image). Shape has no default ChannelType
+    /// member today (nothing in the enum represents a framing-shutter/blade/keystone mechanism),
+    /// so it is deliberately absent here, not faked. Also one Macro channel with NO family, to
     /// prove uncategorized channels are simply excluded, not force-fit somewhere.</summary>
     private static FixtureProfile AllFamiliesProfile() => new()
     {
@@ -57,25 +60,27 @@ public class FixtureLiveStateTests
     }
 
     [Fact]
-    public void For_GroupsEveryChannelIntoItsEncoderCategory_ExcludesUncategorized()
+    public void For_GroupsEveryChannelIntoItsFamily_ExcludesUncategorized_ShapeAbsentByDefault()
     {
         var (context, fixture) = BuildRig();
         ((DmxOutputEngine)context.EffectiveOutput).Tick();
 
         var state = FixtureLiveState.For(context, fixture, isSelected: false, NoneUsed);
 
-        Assert.NotNull(state.Family(EncoderCategory.Intensity));
-        Assert.NotNull(state.Family(EncoderCategory.Position));
-        Assert.NotNull(state.Family(EncoderCategory.Color));
-        Assert.NotNull(state.Family(EncoderCategory.Beam));
-        Assert.NotNull(state.Family(EncoderCategory.Image));
-        Assert.NotNull(state.Family(EncoderCategory.Shape));
+        Assert.NotNull(state.Family(AttributeClass.Intensity));
+        Assert.NotNull(state.Family(AttributeClass.Position));
+        Assert.NotNull(state.Family(AttributeClass.Color));
+        Assert.NotNull(state.Family(AttributeClass.Beam));
+        Assert.NotNull(state.Family(AttributeClass.Image));
+        Assert.Null(state.Family(AttributeClass.Shape)); // no ChannelType maps here today - honest absence, not a fake family
 
-        Assert.Single(state.Family(EncoderCategory.Intensity)!.Channels);
-        Assert.Equal(2, state.Family(EncoderCategory.Position)!.Channels.Count); // Pan + Tilt
-        Assert.Equal(3, state.Family(EncoderCategory.Color)!.Channels.Count); // R + G + B
+        Assert.Single(state.Family(AttributeClass.Intensity)!.Channels);
+        Assert.Equal(2, state.Family(AttributeClass.Position)!.Channels.Count); // Pan + Tilt
+        Assert.Equal(3, state.Family(AttributeClass.Color)!.Channels.Count); // R + G + B
+        Assert.Equal(2, state.Family(AttributeClass.Beam)!.Channels.Count); // Focus + Shutter (beam effect)
+        Assert.Single(state.Family(AttributeClass.Image)!.Channels); // Gobo
 
-        // The Macro channel has no EncoderCategory - it must not silently land in any family.
+        // The Macro channel classifies as AttributeClass.Other - it must not silently land in any real family.
         Assert.DoesNotContain(state.Families.Values, f => f.Channels.Any(c => c.Type == ChannelType.Macro));
     }
 
@@ -97,9 +102,9 @@ public class FixtureLiveStateTests
 
         var state = FixtureLiveState.For(context, fixture, isSelected: false, NoneUsed);
 
-        Assert.NotNull(state.Family(EncoderCategory.Intensity));
-        Assert.Null(state.Family(EncoderCategory.Position));
-        Assert.Null(state.Family(EncoderCategory.Color));
+        Assert.NotNull(state.Family(AttributeClass.Intensity));
+        Assert.Null(state.Family(AttributeClass.Position));
+        Assert.Null(state.Family(AttributeClass.Color));
     }
 
     [Fact]
@@ -123,7 +128,7 @@ public class FixtureLiveStateTests
         engine.Tick();
 
         var state = FixtureLiveState.For(context, fixture, isSelected: false, NoneUsed);
-        var position = state.Family(EncoderCategory.Position)!;
+        var position = state.Family(AttributeClass.Position)!;
 
         Assert.True(position.IsMixedProvenance);
         Assert.Null(position.CommonOwner);
@@ -141,7 +146,7 @@ public class FixtureLiveStateTests
         engine.Tick();
 
         var state = FixtureLiveState.For(context, fixture, isSelected: false, NoneUsed);
-        var position = state.Family(EncoderCategory.Position)!;
+        var position = state.Family(AttributeClass.Position)!;
 
         Assert.False(position.IsMixedProvenance);
         Assert.NotNull(position.CommonOwner);
@@ -156,10 +161,10 @@ public class FixtureLiveStateTests
 
         var state = FixtureLiveState.For(context, fixture, isSelected: false, NoneUsed);
 
-        Assert.True(state.Family(EncoderCategory.Beam)!.HasEditorValue);
+        Assert.True(state.Family(AttributeClass.Beam)!.HasEditorValue);
         Assert.True(state.HasEditorValue);
         Assert.True(state.Matches(LiveFilter.EditorOnly));
-        Assert.False(state.Family(EncoderCategory.Color)!.HasEditorValue);
+        Assert.False(state.Family(AttributeClass.Color)!.HasEditorValue);
     }
 
     [Fact]
@@ -170,10 +175,10 @@ public class FixtureLiveStateTests
 
         var state = FixtureLiveState.For(context, fixture, isSelected: false, used);
 
-        Assert.True(state.Family(EncoderCategory.Image)!.IsUsedInShow);
+        Assert.True(state.Family(AttributeClass.Image)!.IsUsedInShow);
         Assert.True(state.IsUsedInShow);
         Assert.True(state.Matches(LiveFilter.UsedInShow));
-        Assert.False(state.Family(EncoderCategory.Shape)!.IsUsedInShow);
+        Assert.False(state.Family(AttributeClass.Beam)!.IsUsedInShow);
     }
 
     [Fact]

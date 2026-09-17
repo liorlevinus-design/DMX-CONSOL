@@ -21,7 +21,11 @@ public partial class PresetViewModel : ObservableObject
 
     public PresetLibrary Library => _context.Presets;
 
-    public AttributeClass[] AttributeClassOptions { get; } = { AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color, AttributeClass.Beam };
+    public AttributeClass[] AttributeClassOptions { get; } =
+    {
+        AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color,
+        AttributeClass.Beam, AttributeClass.Image, AttributeClass.Shape,
+    };
 
     [ObservableProperty] private AttributeClass _selectedClass = AttributeClass.Color;
     [ObservableProperty] private string _newPresetName = string.Empty;

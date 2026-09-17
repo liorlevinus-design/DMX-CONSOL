@@ -7,20 +7,21 @@ namespace DmxConsole.Application.Live;
 /// One semantic parameter family (docs/OPERATOR_UX_ROADMAP.md §4: Intensity/Position/Color/
 /// Beam/Image/Shape) for one fixture - a small bundle of the fixture's own <see
 /// cref="LiveChannelState"/> rows for every channel that maps into this family. Groups by
-/// EncoderCategory (Core, Vector-bank-grounded, already the Encoder Drawer's own grouping) - NOT
-/// a new classification invented for this view. Pure aggregation of already-computed per-channel
+/// AttributeClass (Core, the one authoritative six-family model shared by Release/Presets/the
+/// Encoder Drawer/Fixtures LIVE - docs/COMMAND_SURFACE_KEY_SPEC.md §23.1) - NOT a new
+/// classification invented for this view. Pure aggregation of already-computed per-channel
 /// state; never re-derives "is this live/pending/used" itself.
 /// </summary>
 public sealed class FixtureFamilyState
 {
-    public EncoderCategory Category { get; }
+    public AttributeClass Category { get; }
 
     /// <summary>Every channel of the fixture that maps to this family, each with its own already-
     /// computed LiveChannelState - e.g. Position typically holds Pan and Tilt (and PanFine/
     /// TiltFine/Speed if the profile has them) as separate entries, never blended into one.</summary>
     public IReadOnlyList<(ChannelType Type, LiveChannelState State)> Channels { get; }
 
-    public FixtureFamilyState(EncoderCategory category, IReadOnlyList<(ChannelType Type, LiveChannelState State)> channels)
+    public FixtureFamilyState(AttributeClass category, IReadOnlyList<(ChannelType Type, LiveChannelState State)> channels)
     {
         Category = category;
         Channels = channels;
