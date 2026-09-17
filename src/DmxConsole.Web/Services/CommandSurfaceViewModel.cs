@@ -122,6 +122,22 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+
+        // DMX Universe.Address (§8's dot ambiguity): while the composer is expecting a
+        // DmxAddress next, "." is a literal Universe/Address separator - never Recall, never an
+        // ordinary decimal point. Entirely context-driven via Current.ExpectedNext (computed by
+        // CommandComposer), never a string hack here or in Razor. Checked FIRST, before Recall/
+        // decimal-point logic, so it can never be shadowed by either.
+        if (Current.ExpectedNext.Contains(CommandTokenKind.DmxAddress))
+        {
+            if (_pendingDigits.Length > 0 && !_pendingDigits.Contains('.'))
+            {
+                _pendingDigits += ".";
+                Changed?.Invoke();
+            }
+            return;
+        }
+
         if (_pendingDigits.Length == 0 &&
             (Current.Tokens.Count == 0 || Current.Tokens[^1].Kind is CommandTokenKind.Fixture or CommandTokenKind.Group or CommandTokenKind.At))
         {
@@ -374,6 +390,22 @@ public sealed class CommandSurfaceViewModel
     private void CommitPendingDigits()
     {
         if (_pendingDigits.Length == 0) return;
+
+        // DMX Universe.Address (§8): a DmxAddress was expected while these digits were entered
+        // (PressDecimalPoint already restricted "." to this one literal-separator meaning in that
+        // context), so "1.101" here means Universe 1 / Address 101, never the fractional number
+        // 1.101 - resolved once, structurally, via the same ExpectedNext signal, not re-guessed
+        // from the string's shape.
+        if (Current.ExpectedNext.Contains(CommandTokenKind.DmxAddress) && _pendingDigits.Contains('.'))
+        {
+            var parts = _pendingDigits.Split('.');
+            int universe = parts.Length == 2 && int.TryParse(parts[0], out var u) ? u : -1;
+            int address = parts.Length == 2 && int.TryParse(parts[1], out var a) ? a : -1;
+            Push(CommandToken.DmxAddress(universe, address));
+            _pendingDigits = string.Empty;
+            return;
+        }
+
         if (double.TryParse(_pendingDigits, out var value)) Push(CommandToken.Number(value));
         _pendingDigits = string.Empty;
     }

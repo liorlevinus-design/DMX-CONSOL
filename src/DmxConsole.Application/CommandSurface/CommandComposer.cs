@@ -120,6 +120,14 @@ public sealed class CommandComposer
             return Incomplete(preview, "Cue numeric commands are not implemented yet - no Application-layer command exists for targeting a Cue by number from the Command Surface.");
         }
 
+        // DMX DIRECT ADDRESSING - establishes object/domain context for THIS command only
+        // (never sticky; the next bare-numeric command defaults back to FIXTURE exactly like any
+        // other completed command, since ObjectType/DMX-mode is never persisted anywhere).
+        if (_tokens[0].Kind == CommandTokenKind.Dmx)
+        {
+            return ResolveDmx(finalize, preview);
+        }
+
         // Next/Last (docs/COMMAND_SURFACE_KEY_SPEC.md §9) move a single-fixture cursor through the
         // CURRENT ordered selection - they never build a new selection via numeric clauses, and
         // (like every other unambiguous terminal action in this composer) execute the moment the
@@ -537,4 +545,119 @@ public sealed class CommandComposer
             ReadyOperation = new ApplyPresetCommand(targets, preset),
         };
     }
+
+    /// <summary>
+    /// DMX DIRECT ADDRESSING grammar:
+    ///
+    ///   DMX &lt;Universe.Address&gt; (THRU &lt;Universe.Address&gt;)? (AT number | FULL | RELEASE)?
+    ///
+    /// A low-level/diagnostic tool, independent of any Fixture Profile - operates on raw
+    /// (Universe, Address) pairs directly against the Programmer (see DmxAddressCommandBase's own
+    /// doc comment for why that's a small adaptation of the existing snapshot/undo technique, not
+    /// a second merge engine). _tokens[0] is always Dmx when this is called.
+    /// </summary>
+    private CommandComposition ResolveDmx(bool finalize, string preview)
+    {
+        if (_tokens.Count == 1)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.DmxAddress } };
+
+        if (_tokens[1].Kind != CommandTokenKind.DmxAddress)
+            return Incomplete(preview, "Expected a Universe.Address after DMX.", CommandTokenKind.DmxAddress);
+
+        var (fromUniverse, fromAddress) = ((int Universe, int Address))_tokens[1].SemanticPayload!;
+        if (!ValidateDmxAddress(fromUniverse, fromAddress, out var fromError))
+            return Incomplete(preview, fromError);
+
+        var addresses = new List<(int Universe, int Channel)> { (fromUniverse, fromAddress - 1) }; // 1-512 -> 0-based channelIndex
+        int i = 2;
+
+        if (i >= _tokens.Count)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Thru, CommandTokenKind.At, CommandTokenKind.Full, CommandTokenKind.Release } };
+
+        if (_tokens[i].Kind == CommandTokenKind.Thru)
+        {
+            i++;
+            if (i >= _tokens.Count) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.DmxAddress } };
+            if (_tokens[i].Kind != CommandTokenKind.DmxAddress)
+                return Incomplete(preview, "Expected a Universe.Address after Thru.", CommandTokenKind.DmxAddress);
+
+            var (toUniverse, toAddress) = ((int Universe, int Address))_tokens[i].SemanticPayload!;
+            if (!ValidateDmxAddress(toUniverse, toAddress, out var toError))
+                return Incomplete(preview, toError);
+
+            // Same-universe range only for v1 (§2) - an honest, structured rejection rather than
+            // silently crossing a Universe boundary or guessing operator intent.
+            if (toUniverse != fromUniverse)
+                return Incomplete(preview, $"DMX range cannot cross Universe boundary ({fromUniverse} -> {toUniverse}) - not supported in this slice.");
+
+            addresses.Clear();
+            int lo = Math.Min(fromAddress, toAddress), hi = Math.Max(fromAddress, toAddress); // reverse ranges normalize, same as FIXTURE/GROUP THRU
+            for (int a = lo; a <= hi; a++) addresses.Add((fromUniverse, a - 1));
+            i++;
+        }
+
+        if (i >= _tokens.Count)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.At, CommandTokenKind.Full, CommandTokenKind.Release } };
+
+        bool selfTerminates;
+        IConsoleCommand operation;
+
+        if (_tokens[i].Kind == CommandTokenKind.Release)
+        {
+            i++;
+            if (i < _tokens.Count) return Incomplete(preview, "Nothing may follow Release.", CommandTokenKind.Enter);
+            selfTerminates = true;
+            operation = new ReleaseDmxAddressCommand(addresses);
+        }
+        else if (_tokens[i].Kind == CommandTokenKind.Full)
+        {
+            i++;
+            if (i < _tokens.Count) return Incomplete(preview, "Nothing may follow Full.", CommandTokenKind.Enter);
+            selfTerminates = true;
+            operation = new SetDmxAddressCommand(addresses, PercentToByte(100));
+        }
+        else if (_tokens[i].Kind == CommandTokenKind.At)
+        {
+            i++;
+            if (i >= _tokens.Count) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+            if (_tokens[i].Kind != CommandTokenKind.Number)
+                return Incomplete(preview, "Expected a number after At.", CommandTokenKind.Number);
+
+            double percent = _tokens[i].NumericValue!.Value;
+            i++;
+            if (i < _tokens.Count) return Incomplete(preview, "Nothing may follow the At value.", CommandTokenKind.Enter);
+
+            selfTerminates = false; // ends in a numeric token - needs ENTER per §14, same as Fixture/Group AT
+            operation = new SetDmxAddressCommand(addresses, PercentToByte(percent));
+        }
+        else
+        {
+            return Incomplete(preview, $"Unexpected token '{_tokens[i].DisplayText}'.");
+        }
+
+        if (!finalize && !selfTerminates)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+
+        return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = operation };
+    }
+
+    /// <summary>§4: validate Universe existence/range and DMX address range 1-512 - never
+    /// silently wrap, never silently clamp. Universe has no fixed upper bound in this engine
+    /// (DmxOutputEngine.EnsureUniverse creates one on demand for any non-negative id - see that
+    /// type's own doc comment), so "existence" here means "not negative", the one bound the
+    /// engine itself actually enforces; address range 1-512 is DMX512's own hard protocol limit
+    /// (Universe.ChannelCount).</summary>
+    private static bool ValidateDmxAddress(int universe, int address, out string? error)
+    {
+        if (universe < 0) { error = $"Invalid Universe {universe} - must be 0 or greater."; return false; }
+        if (address < 1 || address > 512) { error = $"Invalid DMX address {address} - must be 1-512."; return false; }
+        error = null;
+        return true;
+    }
+
+    /// <summary>§3: AT values are semantic operator percentages, never raw byte literals typed by
+    /// the operator - converted to a DMX byte only here, at the Application/DMX boundary, using
+    /// the exact same clamp-then-round formula AdjustIntensityCommand already uses.</summary>
+    private static byte PercentToByte(double percent) =>
+        (byte)Math.Round(Math.Clamp(percent, 0.0, 100.0) / 100.0 * 255.0);
 }

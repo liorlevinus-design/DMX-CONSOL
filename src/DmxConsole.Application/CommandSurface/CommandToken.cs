@@ -46,6 +46,12 @@ public sealed record CommandToken
     public static CommandToken Parameter(ChannelType channelType) =>
         new() { Kind = CommandTokenKind.Parameter, SemanticPayload = channelType, DisplayText = channelType.ToString().ToUpperInvariant() };
 
+    /// <summary>A resolved "Universe.Address" pair (DMX DIRECT ADDRESSING slice, §8's dot
+    /// ambiguity) - the ONLY place a Universe/Address pair is bundled into one token; the grammar
+    /// never sees two separate Number tokens it has to reassemble via a decimal point.</summary>
+    public static CommandToken DmxAddress(int universe, int address) =>
+        new() { Kind = CommandTokenKind.DmxAddress, SemanticPayload = (Universe: universe, Address: address), DisplayText = $"{universe}.{address}" };
+
     public static CommandToken Simple(CommandTokenKind kind, string? displayText = null) =>
         new() { Kind = kind, DisplayText = displayText ?? DefaultDisplay(kind) };
 
@@ -67,6 +73,7 @@ public sealed record CommandToken
         CommandTokenKind.GoTo => "GoTo",
         CommandTokenKind.Full => "Full",
         CommandTokenKind.Home => "Home",
+        CommandTokenKind.Dmx => "Dmx",
         _ => kind.ToString(),
     };
 }

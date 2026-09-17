@@ -63,6 +63,10 @@ public static class KeyboardCommandMap
         Token("a", CommandTokenKind.CaptureAll);
         Token("A", CommandTokenKind.CaptureAll);
 
+        // DMX DIRECT ADDRESSING - "d" for DMX, a clean, non-colliding mnemonic alongside f/g/c.
+        Token("d", CommandTokenKind.Dmx);
+        Token("D", CommandTokenKind.Dmx);
+
         return map;
     }
 }

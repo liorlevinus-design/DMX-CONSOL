@@ -43,7 +43,7 @@ else
             </div>
             <div class="keypad-row">
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Cue)">Cue</button>
-                <button class="key key-object key-disabled" disabled title="DMX addressing - not implemented yet">DMX</button>
+                <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Dmx)" title="Direct DMX addressing - Universe.Address, independent of any Fixture Profile">DMX</button>
             </div>
             <div class="keypad-row">
                 <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Editor - not Select All">Capture All</button>

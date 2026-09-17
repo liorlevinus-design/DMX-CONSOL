@@ -49,6 +49,13 @@ public enum ConsoleActionType
     /// a runtime action, since it genuinely creates new Editor state.</summary>
     CaptureAll,
 
+    /// <summary>DMX DIRECT ADDRESSING - "DMX &lt;Universe&gt;.&lt;Address&gt; AT &lt;value&gt;"
+    /// writes a raw address directly through the Programmer, independent of any Fixture.</summary>
+    SetDmxAddress,
+
+    /// <summary>DMX DIRECT ADDRESSING - "DMX &lt;Universe&gt;.&lt;Address&gt; RELEASE".</summary>
+    ReleaseDmxAddress,
+
     StorePreset,
     ApplyPreset,
     RemovePreset,

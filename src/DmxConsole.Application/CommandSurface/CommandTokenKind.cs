@@ -19,6 +19,20 @@ public enum CommandTokenKind
     Preset,
     Executor,
 
+    /// <summary>Raw DMX direct addressing (docs/COMMAND_SURFACE_KEY_SPEC.md, "DMX DIRECT
+    /// ADDRESSING" slice) - a fixed domain key alongside Fixture/Group/Cue, establishing
+    /// object/domain context for the current command only (never sticky). Diagnostic/emergency
+    /// tool: writes/releases raw (Universe, Address) pairs directly through the Programmer,
+    /// independent of any Fixture Profile.</summary>
+    Dmx,
+
+    /// <summary>A single resolved "Universe.Address" pair (docs above, §8's dot-ambiguity
+    /// resolution) - carries (int Universe, int Address) via CommandToken.SemanticPayload,
+    /// assembled by CommandSurfaceViewModel from digit+'.'+digit entry while a DmxAddress is
+    /// expected next (CommandComposition.ExpectedNext), never a raw Number token reinterpreted
+    /// by string-splitting in Razor.</summary>
+    DmxAddress,
+
     // Selection operators
     Thru,
     Plus,
