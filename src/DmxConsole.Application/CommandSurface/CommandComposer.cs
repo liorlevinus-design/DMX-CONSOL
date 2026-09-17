@@ -94,6 +94,19 @@ public sealed class CommandComposer
             };
         }
 
+        // CUE establishes object context for the current command (§2/§3), symmetric with FIXTURE/
+        // GROUP as a head token. But there is no existing Application-layer command for targeting
+        // a Cue by number from the Command Surface yet - Cues aren't a FixtureSelection-like
+        // multi-select concept in this console's architecture (which CueList would "Cue 5" even
+        // mean, with multiple Executors potentially each running their own?). Recognized honestly
+        // as incomplete rather than silently falling through to Fixture-selection grammar or
+        // fabricating a resolution - a real gap, tracked in docs/COMMAND_SURFACE_KEY_SPEC.md, not
+        // guessed at here.
+        if (_tokens[0].Kind == CommandTokenKind.Cue)
+        {
+            return Incomplete(preview, "Cue numeric commands are not implemented yet - no Application-layer command exists for targeting a Cue by number from the Command Surface.");
+        }
+
         // Next/Last (docs/COMMAND_SURFACE_KEY_SPEC.md §9) move a single-fixture cursor through the
         // CURRENT ordered selection - they never build a new selection via numeric clauses, and
         // (like every other unambiguous terminal action in this composer) execute the moment the
