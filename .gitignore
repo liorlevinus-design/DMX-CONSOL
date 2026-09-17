@@ -11,6 +11,7 @@ obj/
 ## OS
 Thumbs.db
 .DS_Store
+desktop.ini
 
 ## Claude Code local settings (machine/session-specific permissions)
 .claude/settings.local.json

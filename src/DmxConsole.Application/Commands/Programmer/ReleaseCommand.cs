@@ -28,4 +28,6 @@ public sealed class ReleaseCommand : ProgrammerChannelCommandBase
         context.Programmer.ClearChannel(fixture.UniverseId, idx);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new ReleaseCommand(Targets, AttributeFilter);
 }

@@ -1,5 +1,6 @@
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Selection;
 using Xunit;
 
 namespace DmxConsole.Core.Tests;
@@ -9,6 +10,21 @@ namespace DmxConsole.Core.Tests;
 /// Executor/CueList's IMergeAwareLayer implementation - Step F.</summary>
 public class MergeTieBreakTests
 {
+    private sealed class StubEffectiveOutputReader : IEffectiveOutputReader
+    {
+        public byte GetEffectiveValue(int universeId, int channelIndex) => 0;
+        public OutputOwner? GetOwner(int universeId, int channelIndex) => null;
+    }
+
+    private static readonly FixtureSelection EmptySelection = new();
+    private static readonly IEffectiveOutputReader Stub = new StubEffectiveOutputReader();
+
+    private static Cue Record(CueList cueList, Patch patch, Programmer programmer, string name, double number,
+        TimeSpan timeIn, TimeSpan timeOut) =>
+        cueList.RecordCue(patch, programmer, EmptySelection, Stub, name, number,
+            new CueStoreOptions(new CueTiming(timeIn, timeOut, TimeSpan.Zero, TimeSpan.Zero),
+                CueTriggerMode.Manual, TimeSpan.Zero, CueStoreFilter.AllStage));
+
     /// <summary>Dimmer (Intensity, Htp) at offset 0, Pan (Position, Ltp) at offset 1.</summary>
     private static FixtureProfile DimmerAndPan() => new()
     {
@@ -44,7 +60,7 @@ public class MergeTieBreakTests
         programmer.SetChannel(0, 1, pan);
 
         var cueList = new CueList();
-        cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
         cueList.Go();
 
         var executor = new Executor(number, patch) { Priority = priority };
@@ -136,7 +152,7 @@ public class MergeTieBreakTests
         var newProgrammer = new Programmer();
         newProgrammer.SetChannel(0, 1, 50);
         var newCueList = new CueList();
-        newCueList.RecordCue(patch, newProgrammer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(newCueList, patch, newProgrammer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
         newCueList.Go();
         a.Assign(newCueList);
 
@@ -168,7 +184,7 @@ public class MergeTieBreakTests
         programmer.SetChannel(0, 0, 100); // Dimmer (Intensity)
         programmer.SetChannel(0, 1, 50);  // Pan (Position)
         var cueList = new CueList();
-        cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
         cueList.Go();
         executor.Assign(cueList);
 
@@ -196,7 +212,7 @@ public class MergeTieBreakTests
         programmer.SetChannel(0, 0, 60); // Dimmer
         programmer.SetChannel(0, 1, 10); // Pan
         var cueList = new CueList();
-        cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
         cueList.Go();
 
         cueList.TryGetRevision(0, 0, out var dimmerRevisionAfterFirstGo);
@@ -207,7 +223,8 @@ public class MergeTieBreakTests
         // Tracking-aware cue would look like, per the plan's explicit "don't implement Tracking,
         // but keep the contract compatible with it" scope.)
         var secondCueLevels = new Dictionary<(int, int), CueValue> { [(0, 1)] = CueValue.Absolute(ChannelType.Pan, 90) };
-        var secondCue = new Cue { Number = 2, Name = "Cue 2 (Pan only)", GeneralTiming = new CueTiming(TimeSpan.Zero, TimeSpan.Zero), Levels = secondCueLevels };
+        var zeroTiming = new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero);
+        var secondCue = new Cue { Number = 2, Name = "Cue 2 (Pan only)", Timing = zeroTiming, Levels = secondCueLevels };
         cueList.Cues.Add(secondCue);
         cueList.GoToCue(secondCue);
 
@@ -228,7 +245,7 @@ public class MergeTieBreakTests
 
         // Give A a genuinely new instruction on that same channel - it must retake ownership,
         // proving the mechanism isn't "stuck" once it has lost a tie.
-        var aSecondCue = new Cue { Number = 2, Name = "A - new Pan", GeneralTiming = new CueTiming(TimeSpan.Zero, TimeSpan.Zero), Levels = new Dictionary<(int, int), CueValue> { [(0, 1)] = CueValue.Absolute(ChannelType.Pan, 200) } };
+        var aSecondCue = new Cue { Number = 2, Name = "A - new Pan", Timing = new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero), Levels = new Dictionary<(int, int), CueValue> { [(0, 1)] = CueValue.Absolute(ChannelType.Pan, 200) } };
         ((CueList)a.Source!).Cues.Add(aSecondCue);
         ((CueList)a.Source!).GoToCue(aSecondCue);
 

@@ -17,35 +17,23 @@ public sealed class Cue
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Whole-cue fallback timing (grandMA3's "General Cue Times" / MagicQ's "General Times").
-    /// Used for any channel that has no more specific override below.</summary>
-    public CueTiming GeneralTiming { get; set; } = new(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    /// <summary>One flat set of fade timing for the whole Cue - Vector's actual Time mode
+    /// (TIME-IN/TIME-OUT/DELAY-IN/DELAY-OUT), see CueTiming's own doc comment. No per-AttributeClass
+    /// or per-channel override anymore (H1.6 Slice 2 - a deliberate replacement, not an addition).</summary>
+    public CueTiming Timing { get; set; } = CueTiming.Default;
 
-    /// <summary>Per-AttributeClass timing overrides (grandMA3's "Feature Group Timing" / MagicQ's per-type
-    /// General Times, e.g. "give Color 12 seconds"). Overrides <see cref="GeneralTiming"/> for channels of
-    /// that class; sparse by default - only classes explicitly given a different time are present.</summary>
-    public IReadOnlyDictionary<AttributeClass, CueTiming> AttributeTiming { get; init; }
-        = new Dictionary<AttributeClass, CueTiming>();
+    /// <summary>Vector's FOLLOW ON / MANUAL: whether this Cue auto-advances to the next one after
+    /// WaitTime elapses, or waits for an explicit GO.</summary>
+    public CueTriggerMode TriggerMode { get; set; } = CueTriggerMode.Manual;
 
-    /// <summary>Per-channel timing overrides (grandMA3's "Individual Attribute Timing" / MagicQ's
-    /// "Individual/Split Times"). Not written to by any UI yet - exists so a future per-head/per-attribute
-    /// timing feature does not require a data-model rewrite. Overrides <see cref="AttributeTiming"/>.</summary>
-    public IReadOnlyDictionary<(int Universe, int Channel), CueTiming> ChannelTiming { get; init; }
-        = new Dictionary<(int, int), CueTiming>();
+    /// <summary>Only consulted when TriggerMode is Follow - how long after arriving at this Cue
+    /// before auto-advancing to the next one.</summary>
+    public TimeSpan WaitTime { get; set; } = TimeSpan.Zero;
 
     /// <summary>The channels this Cue stores: every patched (universe, channel) -> either an absolute
     /// recorded byte or a live PresetRef, resolved at playback time (never baked in at record time).</summary>
     public IReadOnlyDictionary<(int Universe, int Channel), CueValue> Levels { get; init; }
         = new Dictionary<(int, int), CueValue>();
-
-    /// <summary>Resolves the fade timing to use for one stored channel, applying the
-    /// ChannelTiming &gt; AttributeTiming &gt; GeneralTiming precedence.</summary>
-    public CueTiming TimingFor((int Universe, int Channel) key, CueValue value)
-    {
-        if (ChannelTiming.TryGetValue(key, out var channelTiming)) return channelTiming;
-        if (AttributeTiming.TryGetValue(value.ChannelType.ToAttributeClass(), out var attributeTiming)) return attributeTiming;
-        return GeneralTiming;
-    }
 
     public override string ToString() => $"Cue {Number} - {Name}";
 }

@@ -14,4 +14,12 @@ namespace DmxConsole.Core.Engine;
 public interface IEffectiveOutputReader
 {
     byte GetEffectiveValue(int universeId, int channelIndex);
+
+    /// <summary>Structured, presentation-independent identity of whichever layer currently owns
+    /// this channel's winning value - null if nothing has contributed to it yet (or the universe
+    /// has never ticked). Exposed here (not just on the concrete DmxOutputEngine) so any
+    /// Application-layer read model - the LIVE view's provenance column, a future NL "why is this
+    /// live" query, a macro - can ask "who owns this channel" without depending on the engine's
+    /// concrete type or lifecycle/layer-registration surface.</summary>
+    OutputOwner? GetOwner(int universeId, int channelIndex);
 }

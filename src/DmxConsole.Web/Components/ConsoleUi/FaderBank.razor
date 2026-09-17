@@ -25,10 +25,14 @@
 </div>
 
 @code {
-    // Display order: the four operator-facing groups first, "Other" (macro/control channels) last.
+    // Display order: the six operator-facing families first (docs/COMMAND_SURFACE_KEY_SPEC.md
+    // §23.1's unified model - Gobo/GoboRotation moved from Beam to Image here, so this list must
+    // include Image or those faders would silently stop appearing in any group), "Other"
+    // (macro/control channels) last.
     private static readonly AttributeClass[] AttributeOrder =
     {
-        AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color, AttributeClass.Beam, AttributeClass.Other,
+        AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color, AttributeClass.Beam,
+        AttributeClass.Image, AttributeClass.Shape, AttributeClass.Other,
     };
 
     private IEnumerable<IGrouping<AttributeClass, ChannelFaderViewModel>> GroupedFaders()

@@ -1,13 +1,36 @@
 @implements IDisposable
 @inject MainViewModel Vm
+@using DmxConsole.Core.Engine
 
 <div style="display:contents">
     <div class="scroll-y">
         <div class="field"><label>#</label><input type="number" step="0.5" @bind="Cues.NewCueNumber" style="width:70px" /></div>
         <div class="field"><label>Name</label><input type="text" @bind="Cues.NewCueName" style="width:150px" /></div>
         <div class="field">
-            <label>Fade In</label><input type="number" step="0.1" @bind="Cues.NewFadeInSeconds" style="width:60px" />
-            <label style="min-width:auto">Out</label><input type="number" step="0.1" @bind="Cues.NewFadeOutSeconds" style="width:60px" />
+            <label>Time In</label><input type="number" step="0.1" @bind="Cues.NewTimeInSeconds" style="width:60px" />
+            <label style="min-width:auto">Out</label><input type="number" step="0.1" @bind="Cues.NewTimeOutSeconds" style="width:60px" />
+        </div>
+        <div class="field">
+            <label>Delay In</label><input type="number" step="0.1" @bind="Cues.NewDelayInSeconds" style="width:60px" />
+            <label style="min-width:auto">Out</label><input type="number" step="0.1" @bind="Cues.NewDelayOutSeconds" style="width:60px" />
+        </div>
+        <div class="field">
+            <label>Wait</label><input type="number" step="0.1" @bind="Cues.NewWaitSeconds" style="width:60px" />
+            <label style="min-width:auto">Trigger</label>
+            <select @bind="Cues.NewTriggerMode" style="width:90px">
+                <option value="@CueTriggerMode.Manual">MANUAL</option>
+                <option value="@CueTriggerMode.Follow">FOLLOW ON</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Store</label>
+            <select @bind="Cues.StoreFilter" style="width:170px">
+                <option value="@CueStoreFilter.AllStage">ALL STAGE</option>
+                <option value="@CueStoreFilter.AllEditor">ALL EDITOR</option>
+                <option value="@CueStoreFilter.ActiveOnly">ACTIVE ONLY</option>
+                <option value="@CueStoreFilter.AllParamsForSelected">ALL PARAMS FOR SELECTED</option>
+                <option value="@CueStoreFilter.AllParamsIfActive">ALL PARAMS IF ACTIVE</option>
+            </select>
         </div>
         <div style="display:flex; gap:6px; margin-bottom:6px">
             <button class="btn btn-go" style="flex:1" @onclick="() => Cues.StoreCueCommand.Execute(null)">● Store Cue @(Cues.NewCueNumber.ToString("0.##"))</button>
@@ -31,7 +54,7 @@
 
     <div class="scroll-y">
         <table class="data-list">
-            <thead><tr><th>#</th><th>Name</th><th>Fade In</th><th>Fade Out</th><th></th></tr></thead>
+            <thead><tr><th>#</th><th>Name</th><th>Time In</th><th>Time Out</th><th>Trigger</th><th></th></tr></thead>
             <tbody>
                 @foreach (var cue in Cues.CueList.Cues)
                 {
@@ -41,8 +64,9 @@
                         @ondblclick="() => Cues.GoToCueCommand.Execute(cue)">
                         <td>@cue.Number</td>
                         <td>@cue.Name</td>
-                        <td>@cue.GeneralTiming.FadeInTime</td>
-                        <td>@cue.GeneralTiming.FadeOutTime</td>
+                        <td>@cue.Timing.TimeIn</td>
+                        <td>@cue.Timing.TimeOut</td>
+                        <td>@(cue.TriggerMode == CueTriggerMode.Follow ? "FOLLOW" : "MANUAL")</td>
                         <td><button class="btn" style="min-height:32px;padding:2px 10px" @onclick="() => Cues.RemoveCueCommand.Execute(cue)" @onclick:stopPropagation="true">✕</button></td>
                     </tr>
                 }

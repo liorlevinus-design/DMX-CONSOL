@@ -12,11 +12,23 @@ namespace DmxConsole.Application.Commands;
 /// ever left applied, and CommandDispatcher never pushes a failed batch onto the undo
 /// stack. Redo re-executes every sub-command in order, exactly like a fresh Dispatch.
 /// </summary>
-public sealed class CompositeCommand : IConsoleCommand
+public sealed class CompositeCommand : IConsoleCommand, IReplayableCommand
 {
     private readonly IReadOnlyList<IConsoleCommand> _commands;
 
+    /// <summary>Read-only view of the wrapped commands - used by MacroRecorder to recursively
+    /// decide whether a whole batch is safely macro-recordable (every child must itself be
+    /// IReplayableCommand, or a further nested CompositeCommand whose own children all are).</summary>
+    public IReadOnlyList<IConsoleCommand> Commands => _commands;
+
     public CompositeCommand(IReadOnlyList<IConsoleCommand> commands) => _commands = commands;
+
+    /// <summary>Only ever called after a caller (MacroRecorder) has already verified every child
+    /// implements IReplayableCommand - see that type's own recursive check. Builds a brand-new
+    /// CompositeCommand wrapping a fresh instance of every child, never reusing this instance's
+    /// own already-executed children.</summary>
+    public IConsoleCommand CreateFreshInstance() =>
+        new CompositeCommand(_commands.Select(c => ((IReplayableCommand)c).CreateFreshInstance()).ToList());
 
     public CommandResult Execute(ConsoleContext context)
     {

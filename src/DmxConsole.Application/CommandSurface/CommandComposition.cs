@@ -35,8 +35,18 @@ public sealed record CommandComposition
 
     /// <summary>True only for a Clear pressed while the command line was already empty - the
     /// composer itself never touches ConsoleContext/Selection, so this is a signal for whoever
-    /// owns the CommandDispatcher to clear the Selection as a separate, explicit dispatch.</summary>
+    /// owns the CommandDispatcher to apply the console's CLEAR selection-cycle semantics.</summary>
     public bool EmptyClearRequested { get; init; }
+
+    /// <summary>
+    /// True when this completed command did more than select objects and therefore closes the
+    /// current selection cycle. In the first grammar slice this means an AT value was executed.
+    /// The next new Fixture/Group selection should therefore start fresh while the just-used
+    /// selection remains visibly selected until that next selection actually happens.
+    /// </summary>
+    public bool EndsSelectionCycle { get; init; }
+    public int? ResolvedGroupNumber { get; init; }
+    public double? AppliedAtPercent { get; init; }
 
     /// <summary>Populated only when IsComplete is true - the actual structured operation, ready
     /// to hand to CommandDispatcher.Dispatch. The composer builds this but never dispatches it

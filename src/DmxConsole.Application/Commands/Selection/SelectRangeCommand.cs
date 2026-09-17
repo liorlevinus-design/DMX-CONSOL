@@ -15,4 +15,6 @@ public sealed class SelectRangeCommand : SelectionCommandBase
     protected override ConsoleActionType ActionType => ConsoleActionType.SelectRange;
 
     protected override void Apply(ConsoleContext context) => context.Selection.SelectRange(context.Patch, _from, _to);
+
+    public override IConsoleCommand CreateFreshInstance() => new SelectRangeCommand(_from, _to);
 }

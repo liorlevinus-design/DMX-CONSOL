@@ -6,11 +6,16 @@
         +-- ConsoleChrome   (persistent - toolbar/status)
         +-- EditorToolBar   (persistent - contextual soft keys, reacts to the shared EditorContext)
         +-- CommandLine     (persistent - what's being composed right now)
-        +-- CommandSurface  (persistent - keypad/soft keys that compose it)
+        +-- console-input-row
+            +-- EncoderDrawer   (persistent - fixed encoder bank, Milestone 1 work-plan handoff)
+            +-- CommandSurface  (persistent - keypad/soft keys that compose the command line)
 
-    EditorToolBar/CommandLine/CommandSurface are persistent console infrastructure, exactly like
-    ConsoleChrome - never part of the pane tree, never closable/splittable Views. See each
-    component's own doc comment for what it owns.
+    EditorToolBar/CommandLine/EncoderDrawer/CommandSurface are persistent console infrastructure,
+    exactly like ConsoleChrome - never part of the pane tree, never closable/splittable Views. See
+    each component's own doc comment for what it owns. EncoderDrawer and CommandSurface share one
+    responsive row (side by side on wide screens, stacked on narrow ones - see .console-input-row
+    in app.css) since the work plan asks for the drawer "next to the keypad or above it depending
+    on screen width", not two separate hardcoded placements.
 *@
 
 <div class="console-shell">
@@ -20,5 +25,8 @@
     </div>
     <EditorToolBar />
     <CommandLine />
-    <CommandSurface />
+    <div class="console-input-row">
+        <EncoderDrawer />
+        <CommandSurface />
+    </div>
 </div>

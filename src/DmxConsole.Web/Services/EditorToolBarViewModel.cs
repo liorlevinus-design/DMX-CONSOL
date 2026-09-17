@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.Input;
+using DmxConsole.Core;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
@@ -96,6 +97,21 @@ public sealed class EditorToolBarViewModel
             ("store", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueCommand),
             ("update", EditorObjectType.Cue) => Invoke(_cueListVm.UpdateCueCommand),
             ("delete", EditorObjectType.Cue) when frame.SelectedObject is Cue cue => Invoke(_cueListVm.RemoveCueCommand, cue),
+
+            // H1.6 Slice 2 - Vector's Store Options mode: each button sets the filter and stores
+            // in one press (Invoke<T> already exists below for exactly this shape).
+            ("alleditor", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueWithFilterCommand, CueStoreFilter.AllEditor),
+            ("activeonly", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueWithFilterCommand, CueStoreFilter.ActiveOnly),
+            ("allstage", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueWithFilterCommand, CueStoreFilter.AllStage),
+            ("allparamsforselected", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueWithFilterCommand, CueStoreFilter.AllParamsForSelected),
+            ("allparamsifactive", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueWithFilterCommand, CueStoreFilter.AllParamsIfActive),
+
+            // H1.6 Slice 2 - Vector's Time mode FOLLOW ON / MANUAL toggle a specific, already
+            // stored Cue's trigger mode directly (not part of the Store/Update form).
+            ("followon", EditorObjectType.Cue) when frame.SelectedObject is Cue followCue
+                => Invoke(_cueListVm.SetTriggerModeCommand, (followCue, CueTriggerMode.Follow)),
+            ("manual", EditorObjectType.Cue) when frame.SelectedObject is Cue manualCue
+                => Invoke(_cueListVm.SetTriggerModeCommand, (manualCue, CueTriggerMode.Manual)),
 
             ("store", EditorObjectType.Group) => Invoke(_groupsVm.StoreCommand),
             ("update", EditorObjectType.Group) when frame.SelectedObject is FixtureGroup group => Invoke(_groupsVm.UpdateCommand, group),

@@ -1,18 +1,18 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
+using DmxConsole.Application.Commands;
 using DmxConsole.Application.Commands.Groups;
 using DmxConsole.Application.Commands.Selection;
+using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
 
 namespace DmxConsole.Web.Services;
 
 /// <summary>
 /// Drives the first-class Groups View - Store/Update/Rename/Remove/Apply, all through
-/// CommandDispatcher (StoreGroupCommand/RenameGroupCommand/RemoveGroupCommand/
-/// AddGroupToSelectionCommand). Reads the same GroupManager/FixtureSelection every other
-/// selection-related surface reads (ConsoleContext.Groups/Selection) - Groups are no longer
-/// something only visible inside SelectionBar's save-as-group corner.
+/// CommandDispatcher. Group Apply participates in the same shared selection-cycle state as
+/// Fixture clicks and the Command Surface; there is no separate "Groups selection" model.
 /// </summary>
 public partial class GroupsViewModel : ObservableObject
 {
@@ -34,10 +34,32 @@ public partial class GroupsViewModel : ObservableObject
 
     /// <summary>Adds the group's members to the current selection - "Apply".</summary>
     [RelayCommand]
-    private void Apply(FixtureGroup group) => _dispatcher.Dispatch(new AddGroupToSelectionCommand(group));
+    private void Apply(FixtureGroup group)
+    {
+        bool startsFresh = _context.SelectionCycle.StartFreshOnNextSelection;
+        IReadOnlyList<PatchedFixture> baseline = startsFresh
+            ? Array.Empty<PatchedFixture>()
+            : Selection.Items.ToList();
 
-    /// <summary>Stores the current selection as a brand-new Group at the explicit
-    /// NewGroupNumber (or auto-assigned if left blank).</summary>
+        IConsoleCommand operation = new AddGroupToSelectionCommand(group);
+        if (startsFresh)
+        {
+            operation = new CompositeCommand(new IConsoleCommand[]
+            {
+                new ClearSelectionCommand(),
+                operation,
+            });
+        }
+
+        var result = _dispatcher.Dispatch(operation);
+        if (result.Success)
+        {
+            _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+            _context.SelectionCycle.RememberSelection(Selection.Items);
+            _context.SelectionCycle.RememberGroup(group.Number);
+        }
+    }
+
     [RelayCommand]
     private void Store()
     {
@@ -49,8 +71,6 @@ public partial class GroupsViewModel : ObservableObject
         if (result.Success) { NewGroupName = string.Empty; NewGroupNumber = null; }
     }
 
-    /// <summary>Re-stores an existing Group's membership (and optionally name) from the
-    /// current selection - "Update".</summary>
     [RelayCommand]
     private void Update(FixtureGroup group)
     {

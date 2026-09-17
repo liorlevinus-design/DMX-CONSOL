@@ -8,72 +8,131 @@
     Persistent console infrastructure per H1.5 - lives outside the pane tree, alongside
     ConsoleChrome/CommandLine, never a closable View/Pane. The operator's actual controls for
     composing commands. Buttons here never mutate console state directly - each one only calls
-    CommandSurfaceViewModel, which pushes a structured CommandToken into CommandComposer; only a
-    complete/Enter'd composition is ever dispatched through the existing Application layer. This
-    is deliberately not one Razor component with hardcoded per-button business logic - every
-    button below is a thin proxy to CommandSurfaceViewModel/KeyboardCommandMap, nothing else.
+    CommandSurfaceViewModel, which pushes a structured CommandToken into CommandComposer (or, for
+    RELEASE/SHIFT's own two-press gestures, calls a small dedicated method) - only a complete/
+    Enter'd composition, or an explicit self-terminating action, is ever dispatched through the
+    existing Application layer. This is deliberately not one Razor component with hardcoded
+    per-button business logic - every button below is a thin proxy to
+    CommandSurfaceViewModel/KeyboardCommandMap, nothing else.
+
+    Layout follows docs/COMMAND_SURFACE_KEY_SPEC.md §20's spatial guidance (a concept sketch, not
+    a pixel-exact template): a LEFT action bank (object keys, Shift, Release, Clear) and a RIGHT
+    command bank (family keys + Preset, Home/Full, Next/Last, the numeric cluster with At/Thru/+/-
+    interleaved, Clear/Enter). Preserves the existing DMX-CONSOL touch-target sizing and CSS
+    token language (.key/.key-num/.key-op/etc.) rather than introducing a new visual system.
+
+    Collapsible (work-plan follow-up to Milestone 1): fixed, always present, but foldable down
+    to reclaim screen space - same open/closed pattern as EncoderDrawer, its row-mate in
+    .console-input-row.
 *@
 
-<div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
-    <div class="command-surface-context">
-        <div class="context-soft-keys">
-            <span class="context-soft-keys-label">Context</span>
-            @* Reserved structural region for context-sensitive soft keys (Intensity/Position/
-               Color/Beam in a Fixture context, Timing/Trigger/Follow/Wait in a Cue context,
-               etc. - see the milestone plan). Not yet populated: CommandComposer only
-               interprets the token kinds used below this first slice - a richer
-               CommandSurfaceContext model lands once the composer's grammar grows to match. *@
-            <div class="context-soft-keys-empty">@ContextHint</div>
-        </div>
+@if (!Sfc.IsOpen)
+{
+    <div class="command-surface command-surface-collapsed" @onclick="Sfc.Open">
+        <span class="command-surface-collapsed-label">KEYPAD</span>
+        <button class="editor-nav-btn" title="Open keypad" @onclick="Sfc.Open" @onclick:stopPropagation="true">▲ OPEN</button>
     </div>
+}
+else
+{
+    <div class="command-surface-column">
+        <ParameterPicker />
+        <div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
+        <div class="command-bank command-bank-left">
+            <div class="keypad-row">
+                <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
+                <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Group)">Group</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Cue)">Cue</button>
+                <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Dmx)" title="Direct DMX addressing - Universe.Address, independent of any Fixture Profile">DMX</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Editor - not Select All">Capture All</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key @(Sfc.IsRecordingMacro ? "key-macro-recording" : Sfc.IsLearnArmed ? "key-macro-armed" : "")"
+                        @onclick="Sfc.PressLearnMacro"
+                        title="LEARN MACRO - press a MACRO key to choose the slot to record into; press LEARN MACRO again to stop and save">
+                    Learn Macro
+                </button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 1 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(1)" title="Macro 1 - Shift+Macro 1 = Macro 5">Macro 1</button>
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 2 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(2)" title="Macro 2 - Shift+Macro 2 = Macro 6">Macro 2</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 3 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(3)" title="Macro 3 - Shift+Macro 3 = Macro 7">Macro 3</button>
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 4 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(4)" title="Macro 4 - Shift+Macro 4 = Macro 8">Macro 4</button>
+            </div>
+            <div class="keypad-row keypad-row-spacer"></div>
+            <div class="keypad-row">
+                <button class="key @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressShift" title="Shift - modifies the next key press (only Shift+Release is defined in v1)">Shift</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-danger" @onclick="Sfc.PressRelease" title="Release current selection - Shift+Release releases all playbacks">Release</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-danger" @onclick="Sfc.PressClear">Clear</button>
+            </div>
+        </div>
 
-    <div class="command-keypad">
-        <div class="keypad-row">
-            <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
-            <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Group)">Group</button>
-            <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Cue)">Cue</button>
+        <div class="command-bank command-bank-right">
+            <div class="keypad-row">
+                <button class="key key-family" @onclick="() => PressToken(CommandTokenKind.Intensity)">Intensity</button>
+                <button class="key key-family" @onclick="() => PressToken(CommandTokenKind.Position)">Position</button>
+                <button class="key key-family" @onclick="() => PressToken(CommandTokenKind.Color)">Color</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-family" @onclick="() => PressToken(CommandTokenKind.Beam)">Beam</button>
+                <button class="key key-family" @onclick="() => PressToken(CommandTokenKind.Image)">Image</button>
+                <button class="key key-family" @onclick="() => PressToken(CommandTokenKind.Shape)">Shape</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" @onclick="() => PressToken(CommandTokenKind.Preset)">Preset</button>
+                <button class="key" @onclick="() => PressToken(CommandTokenKind.Home)">Home</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Full)">Full</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" @onclick="() => PressToken(CommandTokenKind.Next)">Next</button>
+                <button class="key" @onclick="() => PressToken(CommandTokenKind.Previous)">Last</button>
+                <button class="key" @onclick="Sfc.PressBackspace">⌫</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-num" @onclick="() => PressDigit('7')">7</button>
+                <button class="key key-num" @onclick="() => PressDigit('8')">8</button>
+                <button class="key key-num" @onclick="() => PressDigit('9')">9</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.At)">At</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-num" @onclick="() => PressDigit('4')">4</button>
+                <button class="key key-num" @onclick="() => PressDigit('5')">5</button>
+                <button class="key key-num" @onclick="() => PressDigit('6')">6</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Thru)">Thru</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-num" @onclick="() => PressDigit('1')">1</button>
+                <button class="key key-num" @onclick="() => PressDigit('2')">2</button>
+                <button class="key key-num" @onclick="() => PressDigit('3')">3</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Plus)">+</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Minus)">-</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-num key-wide" @onclick="() => PressDigit('0')">0</button>
+                <button class="key key-num" @onclick="PressDecimalPoint">.</button>
+                <button class="key key-danger" @onclick="Sfc.PressClear">Clear</button>
+                <button class="key key-enter" @onclick="() => PressToken(CommandTokenKind.Enter)">Enter</button>
+            </div>
+            <div class="keypad-row">
+                <button class="editor-nav-btn command-surface-close" title="Close keypad" @onclick="Sfc.Close">▼ CLOSE</button>
+            </div>
         </div>
-        <div class="keypad-row">
-            <button class="key" @onclick="() => PressToken(CommandTokenKind.Next)">Next</button>
-            <button class="key" @onclick="() => PressToken(CommandTokenKind.Previous)">Prev</button>
-        </div>
-        <div class="keypad-row">
-            <button class="key key-num" @onclick="() => PressDigit('7')">7</button>
-            <button class="key key-num" @onclick="() => PressDigit('8')">8</button>
-            <button class="key key-num" @onclick="() => PressDigit('9')">9</button>
-            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Thru)">Thru</button>
-        </div>
-        <div class="keypad-row">
-            <button class="key key-num" @onclick="() => PressDigit('4')">4</button>
-            <button class="key key-num" @onclick="() => PressDigit('5')">5</button>
-            <button class="key key-num" @onclick="() => PressDigit('6')">6</button>
-            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Plus)">+</button>
-        </div>
-        <div class="keypad-row">
-            <button class="key key-num" @onclick="() => PressDigit('1')">1</button>
-            <button class="key key-num" @onclick="() => PressDigit('2')">2</button>
-            <button class="key key-num" @onclick="() => PressDigit('3')">3</button>
-            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Minus)">-</button>
-        </div>
-        <div class="keypad-row">
-            <button class="key key-num key-wide" @onclick="() => PressDigit('0')">0</button>
-            <button class="key key-num" @onclick="PressDecimalPoint">.</button>
-            <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.At)">At</button>
-        </div>
-        <div class="keypad-row">
-            <button class="key key-danger" @onclick="Sfc.PressClear">Clear</button>
-            <button class="key" @onclick="Sfc.PressBackspace">⌫</button>
-            <button class="key key-enter" @onclick="() => PressToken(CommandTokenKind.Enter)">Enter</button>
         </div>
     </div>
-</div>
+}
 
 @code {
     private CommandSurfaceViewModel Sfc => Vm.CommandSurfaceVm;
-
-    private string ContextHint => Sfc.Current.Tokens.Count == 0
-        ? "Start with Fixture or Group"
-        : "(attribute/verb soft keys arrive with a later slice)";
 
     protected override void OnInitialized() => Sfc.Changed += OnChanged;
 
@@ -102,6 +161,8 @@
         {
             if (kind == CommandTokenKind.Backspace) Sfc.PressBackspace();
             else if (kind == CommandTokenKind.Clear) Sfc.PressClear();
+            else if (kind == CommandTokenKind.Release) Sfc.PressRelease();
+            else if (kind == CommandTokenKind.CaptureAll) Sfc.PressCaptureAll();
             else Sfc.PressToken(kind);
         }
     }

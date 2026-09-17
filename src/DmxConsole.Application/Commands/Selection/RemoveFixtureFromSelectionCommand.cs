@@ -15,4 +15,6 @@ public sealed class RemoveFixtureFromSelectionCommand : SelectionCommandBase
     protected override ConsoleActionType ActionType => ConsoleActionType.RemoveFixtureFromSelection;
 
     protected override void Apply(ConsoleContext context) => context.Selection.Remove(_fixture);
+
+    public override IConsoleCommand CreateFreshInstance() => new RemoveFixtureFromSelectionCommand(_fixture);
 }

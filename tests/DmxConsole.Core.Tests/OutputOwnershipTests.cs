@@ -1,11 +1,26 @@
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Selection;
 using Xunit;
 
 namespace DmxConsole.Core.Tests;
 
 public class OutputOwnershipTests
 {
+    private sealed class StubEffectiveOutputReader : IEffectiveOutputReader
+    {
+        public byte GetEffectiveValue(int universeId, int channelIndex) => 0;
+        public OutputOwner? GetOwner(int universeId, int channelIndex) => null;
+    }
+
+    private static readonly FixtureSelection EmptySelection = new();
+    private static readonly IEffectiveOutputReader Stub = new StubEffectiveOutputReader();
+
+    private static Cue Record(CueList cueList, Patch patch, Programmer programmer, string name, double number) =>
+        cueList.RecordCue(patch, programmer, EmptySelection, Stub, name, number,
+            new CueStoreOptions(new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+                CueTriggerMode.Manual, TimeSpan.Zero, CueStoreFilter.AllStage));
+
     private static FixtureProfile Dimmer1() => new()
     {
         Id = "test-dimmer",
@@ -52,7 +67,7 @@ public class OutputOwnershipTests
         var programmer = new Programmer();
         programmer.SetChannel(0, 0, 50);
         var cueList = new CueList();
-        cueList.RecordCue(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueList, patch, programmer, "Cue 1", 1);
         cueList.Go();
 
         var executor = new Executor(7, patch);
@@ -85,7 +100,7 @@ public class OutputOwnershipTests
         var programmerA = new Programmer();
         programmerA.SetChannel(0, 0, 10);
         var cueListA = new CueList();
-        cueListA.RecordCue(patch, programmerA, "Cue A", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueListA, patch, programmerA, "Cue A", 1);
         cueListA.Go();
         var executorA = new Executor(1, patch) { Name = "Front" };
         executorA.Assign(cueListA);
@@ -93,7 +108,7 @@ public class OutputOwnershipTests
         var programmerB = new Programmer();
         programmerB.SetChannel(0, 0, 90);
         var cueListB = new CueList();
-        cueListB.RecordCue(patch, programmerB, "Cue B", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueListB, patch, programmerB, "Cue B", 1);
         cueListB.Go();
         var executorB = new Executor(2, patch) { Name = "Front", Priority = 300 }; // same Name, higher Priority - B wins the merge
         executorB.Assign(cueListB);

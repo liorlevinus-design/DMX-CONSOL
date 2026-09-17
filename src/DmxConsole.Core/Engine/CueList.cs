@@ -1,19 +1,26 @@
 using System.Collections.ObjectModel;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Selection;
 
 namespace DmxConsole.Core.Engine;
 
 /// <summary>
 /// An ordered list of Cues with Go/Back playback: fades from wherever the output
 /// currently sits into the target cue's recorded levels, using that cue's fade-in
-/// time for channels going up and fade-out time for channels going down. Sits as an
-/// <see cref="IOutputLayer"/> below the Programmer, so live fader grabs still win.
+/// time (plus delay) for channels going up and fade-out time (plus delay) for channels
+/// going down. Sits as an <see cref="IOutputLayer"/> below the Programmer, so live fader
+/// grabs still win. Implements <see cref="ITickable"/> to auto-advance a Follow-mode cue
+/// once its WaitTime elapses (Vector's FOLLOW ON).
 /// </summary>
-public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback, IPausablePlayback, IMergeAwareLayer
+public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback, IPausablePlayback, IMergeAwareLayer, ITickable
 {
     private readonly object _lock = new();
     private readonly Dictionary<(int Universe, int Channel), byte> _fadeFrom = new();
     private readonly Dictionary<(int Universe, int Channel), byte> _currentOutput = new();
+
+    /// <summary>Guards Tick()'s Follow auto-advance so it fires exactly once per cue arrival -
+    /// re-armed in StartTransitionTo, cleared the moment it fires.</summary>
+    private bool _followArmed;
 
     /// <summary>Per-channel semantic revision - see IMergeAwareLayer. Updated in StartTransitionTo:
     /// every channel present in the newly-active cue's Levels gets the SAME new revision (they all
@@ -71,41 +78,91 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         }
     }
 
-    /// <summary>Records the console's current live state (Programmer, falling back to fixture defaults) as
-    /// a new cue. Every channel is stored as an Absolute CueValue - the Programmer has no concept of "this
-    /// value came from a Preset" (by design, see Step C1), so a plain recording can never produce a
-    /// PresetRef; use <see cref="RecordCueWithPresetRefs"/> for that.</summary>
-    public Cue RecordCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime, TimeSpan fadeOutTime)
-        => RecordCue(patch, programmer, name, number, fadeInTime, fadeOutTime, presetOverrides: null);
+    /// <summary>Records the console's current live state as a new cue, per the given
+    /// <see cref="CueStoreFilter"/> (Vector's five STORE OPTIONS meanings - see CueStoreFilter's
+    /// own doc comment). Every channel is stored as an Absolute CueValue - the Programmer has no
+    /// concept of "this value came from a Preset" (by design, see Step C1), so a plain recording
+    /// can never produce a PresetRef; use <see cref="RecordCueWithPresetRefs"/> for that.</summary>
+    public Cue RecordCue(Patch patch, Programmer programmer, Selection.FixtureSelection selection,
+        IEffectiveOutputReader effectiveOutput, string name, double number, CueStoreOptions options)
+        => RecordCue(patch, programmer, selection, effectiveOutput, name, number, options, presetOverrides: null);
 
     /// <summary>Like <see cref="RecordCue"/>, but for fixtures whose AttributeClass appears in
     /// <paramref name="presetOverrides"/> and whose channel ChannelType is present in that Preset's
     /// Values, stores a live PresetRef instead of an Absolute byte. Channels not covered by an override
     /// (or whose ChannelType the override preset doesn't contain) are recorded as Absolute exactly as
     /// before - so one Cue can freely mix Absolute and PresetRef entries.</summary>
-    public Cue RecordCueWithPresetRefs(Patch patch, Programmer programmer, string name, double number,
-        TimeSpan fadeInTime, TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset> presetOverrides)
-        => RecordCue(patch, programmer, name, number, fadeInTime, fadeOutTime, presetOverrides);
+    public Cue RecordCueWithPresetRefs(Patch patch, Programmer programmer, Selection.FixtureSelection selection,
+        IEffectiveOutputReader effectiveOutput, string name, double number, CueStoreOptions options,
+        IReadOnlyDictionary<AttributeClass, Presets.Preset> presetOverrides)
+        => RecordCue(patch, programmer, selection, effectiveOutput, name, number, options, presetOverrides);
 
-    private Cue RecordCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime,
-        TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
+    private Cue RecordCue(Patch patch, Programmer programmer, Selection.FixtureSelection selection,
+        IEffectiveOutputReader effectiveOutput, string name, double number, CueStoreOptions options,
+        IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
     {
-        var cue = BuildCue(patch, programmer, name, number, fadeInTime, fadeOutTime, presetOverrides);
+        var cue = BuildCue(patch, programmer, selection, effectiveOutput, name, number, options, presetOverrides);
         InsertSorted(cue);
         Changed?.Invoke();
         return cue;
     }
 
-    private static Cue BuildCue(Patch patch, Programmer programmer, string name, double number, TimeSpan fadeInTime,
-        TimeSpan fadeOutTime, IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
+    /// <summary>True if any of this fixture's Intensity-class channels currently reads above zero
+    /// in effectiveOutput - the "dimmer above zero" gate STORE OPTIONS' two ALL PARAMS variants
+    /// use. A fixture with no Intensity channel at all can never be gated by a dimmer that doesn't
+    /// exist - it passes unconditionally (documented, not a silent exclusion).</summary>
+    private static bool HasIntensityAboveZero(PatchedFixture fixture, IEffectiveOutputReader effectiveOutput)
+    {
+        var intensityChannels = fixture.ChannelsForAttribute(AttributeClass.Intensity).ToList();
+        if (intensityChannels.Count == 0) return true;
+        return intensityChannels.Any(c => effectiveOutput.GetEffectiveValue(fixture.UniverseId, fixture.AbsoluteIndex(c)) > 0);
+    }
+
+    private static bool IsActiveForStore(PatchedFixture fixture, Programmer programmer, HashSet<PatchedFixture> selected,
+        IEffectiveOutputReader effectiveOutput)
+    {
+        if (selected.Contains(fixture)) return true;
+        foreach (var channel in fixture.Mode.Channels)
+        {
+            int idx = fixture.AbsoluteIndex(channel);
+            if (programmer.HasStoredValue(fixture.UniverseId, idx, out _)) return true;
+            if (effectiveOutput.GetEffectiveValue(fixture.UniverseId, idx) > 0) return true;
+        }
+        return false;
+    }
+
+    private static Cue BuildCue(Patch patch, Programmer programmer, Selection.FixtureSelection selection,
+        IEffectiveOutputReader effectiveOutput, string name, double number, CueStoreOptions options,
+        IReadOnlyDictionary<AttributeClass, Presets.Preset>? presetOverrides)
     {
         var levels = new Dictionary<(int, int), CueValue>();
+        var selected = new HashSet<PatchedFixture>(selection.Items);
+
         foreach (var fixture in patch.Fixtures)
         {
+            bool isSelected = selected.Contains(fixture);
+
+            bool includeFixture = options.Filter switch
+            {
+                CueStoreFilter.AllStage => true,
+                CueStoreFilter.AllEditor => true, // per-channel Programmer-touch gate applied below
+                CueStoreFilter.ActiveOnly => isSelected, // per-channel Programmer-touch gate applied below
+                CueStoreFilter.AllParamsForSelected => isSelected && HasIntensityAboveZero(fixture, effectiveOutput),
+                CueStoreFilter.AllParamsIfActive => IsActiveForStore(fixture, programmer, selected, effectiveOutput)
+                    && HasIntensityAboveZero(fixture, effectiveOutput),
+                _ => true,
+            };
+            if (!includeFixture) continue;
+
+            bool requireProgrammerTouch = options.Filter is CueStoreFilter.AllEditor or CueStoreFilter.ActiveOnly;
+            bool readLiveMerged = options.Filter is CueStoreFilter.AllParamsForSelected or CueStoreFilter.AllParamsIfActive;
+
             foreach (var channel in fixture.Mode.Channels)
             {
                 int idx = fixture.AbsoluteIndex(channel);
                 var key = (fixture.UniverseId, idx);
+
+                if (requireProgrammerTouch && !programmer.HasStoredValue(fixture.UniverseId, idx, out _)) continue;
 
                 if (presetOverrides is not null
                     && presetOverrides.TryGetValue(channel.Type.ToAttributeClass(), out var preset)
@@ -115,9 +172,9 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
                     continue;
                 }
 
-                byte value = programmer.TryGetChannelValue(fixture.UniverseId, idx, out var live)
-                    ? live
-                    : channel.DefaultValue;
+                byte value = readLiveMerged
+                    ? effectiveOutput.GetEffectiveValue(fixture.UniverseId, idx)
+                    : programmer.TryGetChannelValue(fixture.UniverseId, idx, out var live) ? live : channel.DefaultValue;
                 levels[key] = CueValue.Absolute(channel.Type, value);
             }
         }
@@ -126,7 +183,9 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         {
             Number = number,
             Name = name,
-            GeneralTiming = new CueTiming(fadeInTime, fadeOutTime),
+            Timing = options.Timing,
+            TriggerMode = options.TriggerMode,
+            WaitTime = options.WaitTime,
             Levels = levels,
         };
     }
@@ -135,13 +194,29 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
     /// question the Store/Update workflow needs to answer explicitly, never guessed.</summary>
     public Cue? FindByNumber(double number) => Cues.FirstOrDefault(c => c.Number == number);
 
+    /// <summary>Every raw (universe, channel) address any Cue in this list stores a value for -
+    /// the "Used in Show" query's raw material (see DmxConsole.Application.Live.ShowUsageQuery).
+    /// A plain union of every Cue's own Levels.Keys, recomputed on every call rather than cached -
+    /// this list can be edited/recorded into at any time and the answer must never go stale.
+    /// Deliberately raw-address, not fixture-aware: resolving back to fixtures is the caller's
+    /// job (via Patch), keeping this type free of any dependency on Patch.</summary>
+    public IReadOnlySet<(int Universe, int Channel)> ReferencedAddresses()
+    {
+        var addresses = new HashSet<(int, int)>();
+        foreach (var cue in Cues)
+            foreach (var key in cue.Levels.Keys)
+                addresses.Add(key);
+        return addresses;
+    }
+
     /// <summary>Replaces an already-recorded Cue's captured levels/name/timing in place - the
     /// "Update Cue N" workflow (as opposed to RecordCue, which always creates a new Cue object).
     /// The Cue's list position and Number are preserved; if it happens to be the cue currently
     /// playing/active, the live pointer is updated too so playback doesn't go stale referencing
     /// a replaced object. Returns null (no mutation) if the given Cue is no longer in this list -
     /// an explicit, checkable failure rather than silently doing nothing.</summary>
-    public Cue? UpdateCue(Cue existing, Patch patch, Programmer programmer, string name, TimeSpan fadeInTime, TimeSpan fadeOutTime)
+    public Cue? UpdateCue(Cue existing, Patch patch, Programmer programmer, Selection.FixtureSelection selection,
+        IEffectiveOutputReader effectiveOutput, string name, CueStoreOptions options)
     {
         Cue updated;
         lock (_lock)
@@ -149,13 +224,26 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
             int index = Cues.IndexOf(existing);
             if (index < 0) return null;
 
-            updated = BuildCue(patch, programmer, name, existing.Number, fadeInTime, fadeOutTime, presetOverrides: null);
+            updated = BuildCue(patch, programmer, selection, effectiveOutput, name, existing.Number, options, presetOverrides: null);
             Cues[index] = updated;
             if (ReferenceEquals(_currentCue, existing)) _currentCue = updated;
         }
 
         Changed?.Invoke();
         return updated;
+    }
+
+    /// <summary>Toggles an already-recorded Cue's FOLLOW ON / MANUAL trigger mode in place - no-op
+    /// (returns false) if the Cue is no longer in this list.</summary>
+    public bool SetTriggerMode(Cue cue, CueTriggerMode mode)
+    {
+        lock (_lock)
+        {
+            if (!Cues.Contains(cue)) return false;
+            cue.TriggerMode = mode;
+        }
+        Changed?.Invoke();
+        return true;
     }
 
     private void InsertSorted(Cue cue)
@@ -222,6 +310,23 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         Changed?.Invoke();
     }
 
+    /// <summary>ITickable: Vector's FOLLOW ON - once a Follow-mode cue's WaitTime has elapsed
+    /// since arrival, advance to the next cue automatically, without waiting for GO. Fires exactly
+    /// once per cue arrival (_followArmed), never repeatedly for the same cue, and does nothing at
+    /// all for a Manual-mode cue, while paused, or while released.</summary>
+    public void Tick(TimeSpan elapsed)
+    {
+        bool shouldAdvance;
+        lock (_lock)
+        {
+            shouldAdvance = _followArmed && !_isReleased && _currentCue is not null && _pausedAtUtc is null
+                && _currentCue.TriggerMode == CueTriggerMode.Follow
+                && EffectiveElapsed() >= _currentCue.WaitTime;
+            if (shouldAdvance) _followArmed = false;
+        }
+        if (shouldAdvance) Go();
+    }
+
     private void StartTransitionTo(Cue target)
     {
         _fadeFrom.Clear();
@@ -233,6 +338,7 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         _fadeStartUtc = DateTime.UtcNow;
         _pausedAtUtc = null;
         _accumulatedPause = TimeSpan.Zero;
+        _followArmed = true;
 
         // Every channel in this cue received its instruction from this SAME Go/Back/GoToCue event -
         // they share one revision value (see the field's doc comment for why this is correct today
@@ -287,10 +393,12 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         lock (_lock)
         {
             if (_currentCue is null) return (1.0, TimeSpan.Zero);
-            // Approximate using the cue's General timing - a per-channel-accurate progress bar would need
-            // to consider every channel's own resolved timing; General is a reasonable overall estimate.
-            var general = _currentCue.GeneralTiming;
-            var maxDuration = general.FadeInTime > general.FadeOutTime ? general.FadeInTime : general.FadeOutTime;
+            // Worst case of the two directions (each including its own delay) - a per-channel-accurate
+            // progress bar would need every channel's own direction; this is a reasonable overall estimate.
+            var timing = _currentCue.Timing;
+            var inTotal = timing.DelayIn + timing.TimeIn;
+            var outTotal = timing.DelayOut + timing.TimeOut;
+            var maxDuration = inTotal > outTotal ? inTotal : outTotal;
             double elapsed = EffectiveElapsed().TotalSeconds;
             double progress = maxDuration.TotalSeconds <= 0
                 ? 1.0
@@ -300,13 +408,10 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         }
     }
 
-    /// <summary>Structured, time-first introspection snapshot (UX_PHILOSOPHY §9) - Overall timing
-    /// from GeneralTiming, plus a per-AttributeClass breakdown grouping the current cue's stored
-    /// channels and resolving each group's own timing via Cue.TimingFor (same precedence Step E
-    /// already established - not duplicated here). When several channels of the same class have
-    /// different individual ChannelTiming overrides, this reports one representative channel's
-    /// timing for the whole class - an accepted approximation, same spirit as GetTransitionStatus's
-    /// General-only estimate above; per-channel UI is future work, not needed yet.</summary>
+    /// <summary>Structured, time-first introspection snapshot (UX_PHILOSOPHY §9). Overall is the
+    /// worst-case of the two directions; FadeIn/FadeOut are each direction's own Delay+Time progress
+    /// separately - the real distinction left once timing is one flat set per Cue (H1.6 Slice 2),
+    /// replacing the old per-AttributeClass breakdown that no longer has anything to differentiate.</summary>
     public PlaybackStatus GetStatus()
     {
         lock (_lock)
@@ -314,28 +419,23 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
             if (_currentCue is null)
             {
                 var zero = new TimingProgress(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero);
-                return new CueListPlaybackStatus(null, null, false, false, zero, new Dictionary<AttributeClass, TimingProgress>());
+                return new CueListPlaybackStatus(null, null, false, false, zero, zero, zero);
             }
 
             var elapsed = EffectiveElapsed();
-            var overall = ProgressFor(_currentCue.GeneralTiming, elapsed);
-
-            var perClass = new Dictionary<AttributeClass, TimingProgress>();
-            foreach (var group in _currentCue.Levels.GroupBy(kv => kv.Value.ChannelType.ToAttributeClass()))
-            {
-                var (sampleKey, sampleValue) = (group.First().Key, group.First().Value);
-                var timing = _currentCue.TimingFor(sampleKey, sampleValue);
-                perClass[group.Key] = ProgressFor(timing, elapsed);
-            }
+            var timing = _currentCue.Timing;
+            var fadeIn = ProgressFor(timing.DelayIn, timing.TimeIn, elapsed);
+            var fadeOut = ProgressFor(timing.DelayOut, timing.TimeOut, elapsed);
+            var overall = fadeIn.Total > fadeOut.Total ? fadeIn : fadeOut;
 
             bool isRunning = !_isReleased && _pausedAtUtc is null;
-            return new CueListPlaybackStatus(_currentCue, null, isRunning, _pausedAtUtc is not null, overall, perClass);
+            return new CueListPlaybackStatus(_currentCue, null, isRunning, _pausedAtUtc is not null, overall, fadeIn, fadeOut);
         }
     }
 
-    private static TimingProgress ProgressFor(CueTiming timing, TimeSpan elapsed)
+    private static TimingProgress ProgressFor(TimeSpan delay, TimeSpan duration, TimeSpan elapsed)
     {
-        var total = timing.FadeInTime > timing.FadeOutTime ? timing.FadeInTime : timing.FadeOutTime;
+        var total = delay + duration;
         var clampedElapsed = elapsed > total ? total : elapsed;
         var remaining = total - clampedElapsed;
         return new TimingProgress(clampedElapsed, remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining, total);
@@ -381,11 +481,16 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
 
             byte from = _fadeFrom.TryGetValue(key, out var f) ? f : (byte)0;
             double elapsedSeconds = EffectiveElapsed().TotalSeconds;
-            var timing = _currentCue.TimingFor(key, cueValue);
-            var duration = target >= from ? timing.FadeInTime : timing.FadeOutTime;
-            double t = duration.TotalSeconds <= 0
-                ? 1.0
-                : Math.Clamp(elapsedSeconds / duration.TotalSeconds, 0.0, 1.0);
+            var timing = _currentCue.Timing;
+            bool goingUp = target >= from;
+            var delay = goingUp ? timing.DelayIn : timing.DelayOut;
+            var duration = goingUp ? timing.TimeIn : timing.TimeOut;
+            double afterDelaySeconds = elapsedSeconds - delay.TotalSeconds;
+            double t = afterDelaySeconds <= 0
+                ? 0.0
+                : duration.TotalSeconds <= 0
+                    ? 1.0
+                    : Math.Clamp(afterDelaySeconds / duration.TotalSeconds, 0.0, 1.0);
 
             byte result = (byte)Math.Round(from + (target - from) * t);
             _currentOutput[key] = result;

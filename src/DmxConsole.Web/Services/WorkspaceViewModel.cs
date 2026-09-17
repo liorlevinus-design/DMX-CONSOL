@@ -22,6 +22,13 @@ public sealed class WorkspaceViewModel
     public Workspace Current { get; private set; }
     public IReadOnlyList<Workspace> Workspaces => _workspaces;
 
+    /// <summary>Raised whenever Current itself is reassigned to a different Workspace instance
+    /// (switch/new/save-as/duplicate/delete-of-current) - added so sibling shell components that
+    /// aren't part of WorkspaceHost's own render tree (the Encoder Drawer, work-plan Milestone 1
+    /// follow-up) can re-sync their workspace-scoped state without WorkspaceHost having to know
+    /// about them.</summary>
+    public event Action? Changed;
+
     public WorkspaceViewModel() : this(new LocalJsonWorkspaceStore()) { }
 
     public WorkspaceViewModel(IWorkspaceStore store)
@@ -99,7 +106,9 @@ public sealed class WorkspaceViewModel
     public void SwitchTo(Guid workspaceId)
     {
         var target = _workspaces.FirstOrDefault(w => w.Id == workspaceId);
-        if (target is not null) Current = target;
+        if (target is null) return;
+        Current = target;
+        Changed?.Invoke();
     }
 
     /// <summary>A fresh, empty User workspace - added to the list and made active, but not
@@ -111,6 +120,7 @@ public sealed class WorkspaceViewModel
         var workspace = new Workspace { Name = "New Workspace", Scope = WorkspaceScope.User, Surfaces = { surface } };
         _workspaces.Add(workspace);
         Current = workspace;
+        Changed?.Invoke();
     }
 
     /// <summary>Saves the current Workspace. A Factory-scoped one is never written in place -
@@ -123,6 +133,7 @@ public sealed class WorkspaceViewModel
             var copy = Layout.DuplicateWorkspace(Current);
             _workspaces.Add(copy);
             Current = copy;
+            Changed?.Invoke();
         }
 
         await _store.SaveAsync(Current);
@@ -134,6 +145,7 @@ public sealed class WorkspaceViewModel
         copy.Name = newName;
         _workspaces.Add(copy);
         Current = copy;
+        Changed?.Invoke();
         await _store.SaveAsync(copy);
     }
 
@@ -151,6 +163,7 @@ public sealed class WorkspaceViewModel
         var copy = Layout.DuplicateWorkspace(Current);
         _workspaces.Add(copy);
         Current = copy;
+        Changed?.Invoke();
     }
 
     /// <summary>No-op (false) on a Factory workspace - it can't be deleted, only duplicated into
@@ -164,7 +177,11 @@ public sealed class WorkspaceViewModel
         _workspaces.Remove(target);
         await _store.DeleteAsync(workspaceId);
 
-        if (Current.Id == workspaceId) Current = _workspaces[0];
+        if (Current.Id == workspaceId)
+        {
+            Current = _workspaces[0];
+            Changed?.Invoke();
+        }
         return true;
     }
 

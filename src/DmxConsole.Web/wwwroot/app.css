@@ -183,7 +183,7 @@ html, body {
 
 /* ---------- Channels View (Phase H1) ---------- */
 
-.channels-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.channels-view { display: flex; flex-direction: column; height: 100%; min-height: 0; container-type: inline-size; }
 
 .channels-view-header {
     flex: none;
@@ -198,14 +198,27 @@ html, body {
 
 .channels-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
-.channels-table th, .channels-table td { padding: 6px 10px; }
+.channels-table { table-layout: fixed; }
+.channels-table th, .channels-table td { padding: 4px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.channels-table th:first-child { width: 58px; }
+.channels-table th:nth-child(3) { width: 28%; }
+.channels-table th:nth-child(4) { width: 150px; }
+.channels-filter { min-width: 104px; }
+.channels-legend { display: inline-flex; align-items: center; gap: 4px; color: var(--text-dim); font-size: 11px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 50%; margin-left: 5px; background: var(--border); }
+.legend-dot.selected { background: var(--accent); }
+.legend-dot.active { background: var(--go-active); }
+.legend-dot.programmer { background: #e0a030; }
 
 .channels-row { cursor: pointer; }
 .channels-row.selected { background: #2a3f57; }
 .channels-row.selected:hover { background: #2f4763; }
 .channels-row:not(.selected):hover { background: var(--row-alt); }
 .channels-row.active .ch-cell { color: var(--text); font-weight: 700; }
+.channels-row.programmer td:first-child { box-shadow: inset 3px 0 #e0a030; }
 .ch-cell { color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 44px; }
+.attribute-name { vertical-align: middle; }
+.programmer-chip { display: inline-block; margin-left: 7px; padding: 1px 5px; border-radius: 8px; background: #493819; color: #f0b94c; font-size: 10px; font-weight: 700; vertical-align: middle; }
 
 .level-cell { display: flex; align-items: center; gap: 8px; min-width: 120px; }
 .level-bar { flex: 1 1 auto; height: 8px; border-radius: 4px; background: #1c1c1c; border: 1px solid var(--border); overflow: hidden; max-width: 90px; }
@@ -218,11 +231,32 @@ html, body {
 .source-cell.src-maincue { color: var(--go-active); }
 .source-cell.src-executor { color: var(--accent); }
 .source-cell.src-effect { color: #c77dff; }
+/* Fixtures LIVE: a parameter family whose channels are owned by genuinely different sources -
+   same amber used for MIXED everywhere else (Encoder Drawer knob/value-strip/position pad). */
+.source-cell.family-mixed { color: #f2b647; font-weight: 700; }
+.color-swatch.mixed { outline: 2px solid #f2b647; outline-offset: 1px; }
 
 .channels-empty { text-align: center; color: var(--text-dim); padding: 20px; }
 
 .prog-captured { color: #e0a030; font-variant-numeric: tabular-nums; font-size: 13px; }
 .prog-none { color: var(--text-dim); font-size: 13px; }
+.programmer-state { display: inline-block; margin-left: 6px; border-radius: 3px; padding: 1px 5px; font-size: 9px; font-weight: 800; letter-spacing: .05em; }
+.programmer-state.state-live { color: #101b12; background: var(--go-active); }
+.programmer-state.state-pending { color: #211704; background: #e0a030; }
+.channels-row.pending { background-image: linear-gradient(90deg, rgba(224,160,48,.10), transparent 45%); }
+
+@container (max-width: 620px) {
+    .channels-legend, .fixture-name-column { display: none; }
+    .channels-table th:nth-child(3) { width: auto; }
+}
+
+@container (max-width: 430px) {
+    .source-column { display: none; }
+    .channels-view-header { gap: 6px; padding: 6px; }
+    .channels-table th:nth-child(4) { width: 112px; }
+    .level-cell { min-width: 90px; gap: 4px; }
+    .programmer-chip { display: block; width: fit-content; margin: 2px 0 0; }
+}
 
 /* ---------- Executor playback tiles (UX correction E) ---------- */
 
@@ -284,6 +318,8 @@ html, body {
 
 /* ---------- Groups View ---------- */
 
+.groups-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
 .groups-store-row {
     flex: none;
     display: flex;
@@ -294,9 +330,42 @@ html, body {
 }
 .groups-store-row input { min-height: 36px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 4px 8px; }
 .groups-status { font-size: 12px; color: var(--text-dim); font-style: italic; }
-.groups-members { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 13px; }
+.groups-pool {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-auto-rows: min-content;
+    align-content: start;
+    gap: 10px;
+    padding: 10px;
+}
+.group-tile { min-width: 0; background: var(--panel); border: 2px solid var(--border); border-radius: 8px; overflow: hidden; }
+.group-tile.focused { border-color: var(--accent); }
+.group-tile.selected { background: #263e2b; border-color: var(--go-active); box-shadow: 0 0 0 1px var(--go-active) inset; }
+.group-tile.partial { border-color: #b6862c; }
+.group-tile-apply {
+    width: 100%; min-height: 112px; display: grid; grid-template-columns: auto 1fr; gap: 5px 10px;
+    align-content: center; text-align: left; border: 0; background: transparent; color: var(--text); padding: 12px; cursor: pointer;
+}
+.group-tile-apply:hover { background: rgba(255,255,255,0.04); }
+.group-tile-number { grid-row: 1 / span 2; align-self: center; font-size: 30px; line-height: 1; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.group-tile-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 700; }
+.group-tile-members { grid-column: 1 / -1; min-height: 18px; color: var(--text-dim); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.group-tile-state { grid-column: 1 / -1; color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.group-tile.selected .group-tile-state { color: var(--go-active); font-weight: 700; }
+.group-rename-input { min-width: 0; width: 100%; background: #171717; border: 1px solid var(--accent); color: var(--text); padding: 5px; }
 .groups-actions { display: flex; gap: 4px; }
-.groups-actions .btn { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.group-tile .groups-actions { padding: 7px; border-top: 1px solid var(--border); }
+.groups-actions .btn { flex: 1 1 0; min-height: 36px; padding: 4px 8px; font-size: 12px; }
+.groups-empty { grid-column: 1 / -1; text-align: center; color: var(--text-dim); padding: 30px 10px; }
+
+@media (max-width: 700px) {
+    .groups-store-row { flex-wrap: wrap; }
+    .groups-status { flex-basis: 100%; }
+    .groups-pool { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 7px; padding: 7px; }
+}
 
 /* ============================================================
    Editor Tool Bar (H1.6) - persistent, contextual soft keys.
@@ -362,10 +431,179 @@ html, body {
 }
 .soft-key:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .soft-key:active:not(:disabled) { background: var(--accent); color: #fff; }
+.soft-key.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .soft-key:disabled { opacity: 0.35; cursor: not-allowed; }
 .soft-key-stub { border-style: dashed; }
 
 .editor-toolbar-empty { font-size: 12px; color: var(--text-dim); font-style: italic; }
+.encoder-bank { display: grid; grid-template-columns: repeat(5, minmax(132px, 1fr)); gap: 6px; align-items: stretch; }
+.encoder-slot {
+    position: relative;
+    min-width: 0;
+    min-height: 238px;
+    display: grid;
+    grid-template-rows: 30px minmax(82px, 1fr) 28px auto auto;
+    gap: 6px;
+    align-items: center;
+    padding: 0 8px 8px;
+    border: 1px solid #3b4650;
+    border-top: 3px solid #56636f;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #242a30 0%, #1a1f24 100%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+.encoder-slot.is-touched { border-top-color: #e0a030; }
+.encoder-slot-header { display: grid; grid-template-columns: 24px 1fr 12px; align-items: center; gap: 6px; border-bottom: 1px solid #343d45; }
+.encoder-slot-number { color: #77838d; font: 700 9px/1 "Consolas", monospace; letter-spacing: .08em; }
+.encoder-name { color: #e7edf2; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .045em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.encoder-touched-badge { color: #e0a030; font-size: 10px; }
+.encoder-slot-control { display: grid; grid-template-columns: 24px minmax(76px, 1fr); place-items: center; gap: 5px; min-height: 96px; }
+.encoder-value-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.encoder-value { min-width: 72px; color: #f2b647; font: 700 12px/24px "Consolas", monospace; font-variant-numeric: tabular-nums; text-align: center; cursor: text; background: #101418; border: 1px solid #39434c; border-radius: 2px; }
+.encoder-value-input { width: 60px; font-size: 11px; background: var(--panel-alt); color: var(--text); border: 1px solid var(--accent); border-radius: 3px; text-align: center; padding: 1px 2px; }
+.encoder-value-mixed { color: #e0a030; font-weight: 700; }
+.encoder-value-partial-label { color: var(--text-dim); font-weight: 700; font-style: italic; }
+.encoder-empty { place-items: center; color: var(--text-dim); }
+.encoder-slot-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; width: 100%; }
+.encoder-action-key { min-width: 0; min-height: 28px; padding: 2px 3px; border: 1px solid #48535d; border-radius: 2px; background: linear-gradient(#303840, #242a30); color: #dce3e8; font-size: 9px; font-weight: 700; cursor: pointer; }
+.encoder-action-key:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+.encoder-action-key:active:not(:disabled) { background: #155f93; }
+.encoder-action-key.home { color: #f2b647; }
+.encoder-action-key.more { color: #77bde9; }
+.encoder-action-key:disabled { opacity: .28; cursor: default; }
+.encoder-slot-actions-context { border-top: 1px solid #303840; padding-top: 5px; }
+
+/* ---------- Rotary encoder knob (SVG) ---------- */
+.encoder-knob-wrap { display: flex; justify-content: center; align-items: center; padding: 1px 0; }
+.encoder-knob-svg {
+    width: 76px;
+    height: 76px;
+    touch-action: none; /* let pointermove drive the drag instead of the browser's own scroll/zoom gestures */
+    cursor: ns-resize;
+    user-select: none;
+}
+.encoder-knob-svg:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 50%; }
+.encoder-knob-tick { stroke: #59646e; stroke-width: 1.6; }
+.encoder-knob-track { fill: none; stroke: #11161a; stroke-width: 5; stroke-linecap: round; }
+.encoder-knob-value-arc { fill: none; stroke: #2f9ddd; stroke-width: 4; stroke-linecap: round; filter: drop-shadow(0 0 2px rgb(47 157 221 / 45%)); }
+.encoder-knob-shadow { fill: #090c0f; opacity: .85; }
+.encoder-knob-bezel { fill: #151a1e; stroke: #56616a; stroke-width: 2; }
+.encoder-knob-bezel.mixed { stroke: #e0a030; stroke-width: 2.5; }
+.encoder-knob-bezel.partial { stroke-dasharray: 4 2; }
+.encoder-knob-body { fill: #2d343a; stroke: #0b0e11; stroke-width: 1.5; }
+.encoder-knob-cap { fill: #20262b; stroke: #414b54; stroke-width: 1; }
+.encoder-knob-needle-shadow { stroke: #080a0c; stroke-width: 5; stroke-linecap: round; }
+.encoder-knob-needle { stroke: #f4f7f9; stroke-width: 2.5; stroke-linecap: round; }
+.encoder-knob-center { fill: #f4f7f9; }
+.encoder-knob-touched-dot { fill: #f2b647; filter: drop-shadow(0 0 2px rgb(242 182 71 / 70%)); }
+
+/* ---------- Vertical value strip ---------- */
+.encoder-value-strip {
+    position: relative;
+    width: 20px;
+    height: 92px;
+    touch-action: none;
+    user-select: none;
+    cursor: ns-resize;
+}
+.encoder-value-strip:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.encoder-value-strip-rail { position: absolute; inset: 12px 7px; background: #0c1013; border: 1px solid #3c4650; border-radius: 2px; }
+.encoder-value-strip-fill { position: absolute; left: 8px; right: 8px; bottom: 12px; max-height: calc(100% - 24px); background: linear-gradient(#47afe7, #176d9f); pointer-events: none; }
+.encoder-value-strip-handle { position: absolute; left: 3px; right: 3px; height: 6px; background: #e9eef2; border: 1px solid #101418; box-shadow: 0 1px 2px #000; pointer-events: none; }
+.encoder-value-strip-marker { position: absolute; left: 1px; right: 1px; height: 2px; background: #f2b647; box-shadow: 0 0 2px rgb(242 182 71 / 70%); pointer-events: none; }
+.encoder-value-strip.mixed .encoder-value-strip-handle { opacity: .25; }
+.encoder-value-strip-max, .encoder-value-strip-min { position: absolute; left: 23px; color: #68747e; font: 700 7px/1 "Consolas", monospace; pointer-events: none; }
+.encoder-value-strip-max { top: 3px; }
+.encoder-value-strip-min { bottom: 3px; }
+
+/* ============================================================
+   Encoder Drawer (work-plan Milestone 1) - persistent, always
+   present, open/closed rather than conjured by context.
+   ============================================================ */
+
+.encoder-drawer {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    border-right: 1px solid var(--border);
+    background: var(--panel-alt);
+    overflow: auto;
+}
+.encoder-drawer-header { display: flex; align-items: center; min-height: 30px; padding-bottom: 5px; border-bottom: 1px solid #3a444d; }
+.encoder-drawer-heading { display: flex; align-items: baseline; gap: 10px; color: #e8edf1; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+.encoder-drawer-heading small { color: #75818b; font-size: 9px; letter-spacing: .06em; }
+.encoder-drawer-workarea { min-height: 0; display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 7px; }
+.encoder-drawer-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.encoder-category-rail { display: grid; align-content: start; gap: 4px; padding-right: 6px; border-right: 1px solid #3a444d; }
+.encoder-category-key { min-height: 39px; display: grid; grid-template-columns: 25px minmax(0, 1fr); align-items: center; gap: 4px; padding: 4px; border: 1px solid #48535d; border-left: 3px solid transparent; border-radius: 2px; background: linear-gradient(#303840, #242a30); color: #b9c2c9; font-size: 8px; font-weight: 750; text-align: left; cursor: pointer; }
+.encoder-category-key:hover:not(:disabled) { color: #fff; border-color: #66737e; }
+.encoder-category-key.active { border-color: #238ac5; border-left-color: #59b9ed; background: linear-gradient(90deg, #154e70, #22343f); color: #fff; box-shadow: inset 0 0 0 1px rgb(79 184 238 / 12%); }
+.encoder-category-key:disabled { opacity: .26; cursor: default; }
+.encoder-category-abbr { color: #f2b647; font: 800 9px/1 "Consolas", monospace; }
+.encoder-category-key.active .encoder-category-abbr { color: #fff; }
+.encoder-drawer-empty-state { min-height: 190px; display: grid; place-content: center; gap: 7px; text-align: center; color: #77838d; border: 1px dashed #3c4650; }
+.encoder-drawer-empty-state strong { color: #a8b1b8; font-size: 12px; letter-spacing: .08em; }
+.encoder-drawer-empty-state span { font-size: 10px; }
+
+.encoder-drawer-collapsed {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    min-height: 44px;
+    border-right: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    background: var(--panel-alt);
+    cursor: pointer;
+}
+.encoder-drawer-collapsed-label { color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; }
+.encoder-drawer-collapsed-count { color: var(--text-dim); font-size: 12px; }
+.encoder-drawer-collapsed-preview { display: flex; flex-wrap: wrap; gap: 8px; overflow: hidden; flex: 1 1 auto; min-width: 0; }
+.encoder-drawer-collapsed-chip { color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.encoder-drawer-close { margin-left: auto; }
+
+.encoder-drawer-paging { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); }
+
+/* ---------- Context panels: Position + Color ---------- */
+.encoder-special-panel { min-height: 142px; display: grid; grid-template-rows: 26px minmax(95px, 1fr) 22px; border: 1px solid #3b4650; border-radius: 3px; background: #171c20; overflow: hidden; }
+.encoder-special-panel > header { display: flex; align-items: center; gap: 10px; padding: 0 8px; border-bottom: 1px solid #343d45; color: #7f8b94; font-size: 9px; letter-spacing: .05em; }
+.encoder-special-panel > header strong { color: #e5ebef; font-size: 10px; }
+.encoder-panel-warning { margin-left: auto; color: #f2b647; font-weight: 800; }
+.encoder-special-panel > footer { display: flex; align-items: center; gap: 12px; padding: 0 8px; border-top: 1px solid #343d45; color: #b5bec5; font: 700 9px/1 "Consolas", monospace; }
+.encoder-special-panel.unavailable { min-height: 72px; grid-template-rows: auto auto; place-content: center; gap: 5px; padding: 12px; color: #7f8b94; text-align: center; }
+.encoder-special-panel.unavailable strong { color: #f2b647; font-size: 11px; }
+.encoder-special-panel.unavailable span { font-size: 10px; }
+
+.encoder-position-pad { position: relative; min-height: 112px; margin: 7px; border: 1px solid #46515b; background-color: #11161a; background-image: linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px); background-size: 20% 20%; touch-action: none; cursor: crosshair; overflow: hidden; }
+.position-axis { position: absolute; background: #53606a; pointer-events: none; }
+.position-axis.horizontal { left: 0; right: 0; top: 50%; height: 1px; }
+.position-axis.vertical { top: 0; bottom: 0; left: 50%; width: 1px; }
+.position-marker { position: absolute; width: 10px; height: 10px; translate: -50% -50%; border: 2px solid #f4f7f9; border-radius: 50%; background: #238ac5; box-shadow: 0 0 0 1px #0c1013, 0 0 5px rgb(35 138 197 / 70%); pointer-events: none; }
+.position-marker.mixed-marker { width: 6px; height: 6px; border-width: 1px; border-color: #f2b647; background: transparent; box-shadow: none; }
+
+.encoder-color-picker { position: relative; min-height: 112px; margin: 7px; border: 1px solid #46515b; background-image: linear-gradient(to top, #fff, transparent), linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%); touch-action: none; cursor: crosshair; }
+.color-picker-marker { position: absolute; width: 12px; height: 12px; translate: -50% -50%; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000, 0 1px 4px #000; pointer-events: none; }
+.color-preview { width: 18px; height: 12px; border: 1px solid #78848e; }
+
+/* Component wrappers keep the five physical strips visible below the contextual panel. */
+.encoder-position-pad-wrap, .encoder-color-picker-wrap { display: grid; grid-template-rows: 25px minmax(112px, 1fr); border: 1px solid #3b4650; border-radius: 3px; background: #171c20; overflow: hidden; }
+.encoder-position-pad-label, .encoder-color-picker-label { display: flex; align-items: center; gap: 8px; padding: 0 8px; border-bottom: 1px solid #343d45; color: #e5ebef; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+.encoder-position-pad-badge { margin-left: auto; padding: 2px 5px; border: 1px solid #816323; color: #f2b647; font: 800 8px/1 "Consolas", monospace; }
+.encoder-position-pad-wrap .encoder-position-pad { margin: 7px; }
+.encoder-position-pad-crosshair-h, .encoder-position-pad-crosshair-v { position: absolute; background: #53606a; pointer-events: none; }
+.encoder-position-pad-crosshair-h { left: 0; right: 0; top: 50%; height: 1px; }
+.encoder-position-pad-crosshair-v { top: 0; bottom: 0; left: 50%; width: 1px; }
+.encoder-position-pad-dot { position: absolute; width: 11px; height: 11px; translate: -50% -50%; border: 2px solid #f4f7f9; border-radius: 50%; background: #238ac5; box-shadow: 0 0 0 1px #0c1013, 0 0 5px rgb(35 138 197 / 70%); pointer-events: none; }
+.encoder-position-pad.mixed .encoder-position-pad-dot { border-color: #f2b647; background: transparent; }
+.encoder-position-pad-mixed-range { display: grid; place-items: center; color: #f2b647; font-size: 12px; font-weight: 800; letter-spacing: .08em; cursor: default; }
+
+.encoder-color-picker-plane { position: relative; min-height: 112px; margin: 7px; border: 1px solid #46515b; background-image: linear-gradient(to bottom, transparent, #fff), linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%); touch-action: none; cursor: crosshair; }
+.encoder-color-picker-dot { position: absolute; width: 12px; height: 12px; translate: -50% -50%; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #000, 0 1px 4px #000; pointer-events: none; }
+.encoder-color-picker-partial { display: grid; place-items: center; background: #11161a; color: #f2b647; font-size: 12px; font-weight: 800; letter-spacing: .08em; cursor: default; }
 
 /* ============================================================
    Command Line / Command Surface (H1.5) - persistent console
@@ -392,6 +630,35 @@ html, body {
 .command-line-error { color: var(--danger); font-size: 13px; font-family: "Segoe UI", system-ui, sans-serif; }
 .command-line-expected { color: var(--text-dim); font-size: 12px; font-family: "Segoe UI", system-ui, sans-serif; }
 
+/* MACROS §13 - recording state must always be visible, never hidden. */
+.command-line-macro-status {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.command-line-macro-recording { background: #3a1414; color: #ff6b6b; }
+.command-line-macro-armed { background: #201a05; color: #f2b647; }
+.macro-recording-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #ff6b6b;
+    animation: macro-recording-pulse 1.2s ease-in-out infinite;
+}
+@keyframes macro-recording-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.macro-recording-cancel {
+    margin-left: auto; background: transparent; border: 1px solid #ff6b6b; color: #ff6b6b;
+    border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.macro-recording-cancel:hover { background: #ff6b6b; color: #1a1a1a; }
+
+/* Wraps ParameterPicker + .command-surface as one flex child of .console-input-row, so the
+   picker's rail sits directly above the keypad without disturbing the row's own layout. */
+.command-surface-column { flex: none; display: flex; flex-direction: column; }
+
 .command-surface {
     flex: none;
     display: flex;
@@ -400,14 +667,70 @@ html, body {
     outline: none;
 }
 
-.command-surface-context {
-    flex: 1 1 auto;
-    min-width: 0;
-    padding: 8px;
-    border-right: 1px solid var(--border);
+/* PARAMETER PICKER - a compact horizontal rail, not a new screen (docs/COMMAND_SURFACE_KEY_SPEC.md
+   PARAMETER PICKER slice). Appears above the keypad only while a family is armed. */
+.parameter-picker {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
 }
-.context-soft-keys { display: flex; flex-direction: column; gap: 6px; height: 100%; }
-.context-soft-keys-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+.parameter-picker-family {
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    margin-right: 4px;
+}
+.parameter-picker-tile {
+    position: relative;
+    min-height: 36px;
+    min-width: 44px;
+    padding: 0 12px;
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.parameter-picker-tile:hover { border-color: var(--accent); }
+.parameter-picker-tile:active { background: var(--accent); color: #fff; }
+.parameter-picker-tile.partial { border-color: #f2b647; color: #f2b647; }
+.parameter-picker-partial-dot {
+    display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #f2b647;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+.parameter-picker-empty {
+    flex: none;
+    padding: 8px 10px;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.command-surface-collapsed {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 12px;
+    min-height: 44px;
+    cursor: pointer;
+}
+.command-surface-collapsed-label { color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; }
+.command-surface-close { flex: none; align-self: center; margin-top: 4px; }
+
 .context-soft-keys-empty {
     flex: 1 1 auto;
     display: flex;
@@ -421,8 +744,15 @@ html, body {
     padding: 10px;
 }
 
-.command-keypad { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px; width: 280px; }
+/* docs/COMMAND_SURFACE_KEY_SPEC.md §20: LEFT action bank (object keys, Shift, Release, Clear)
+   and RIGHT command bank (family keys/Preset, Home/Full, Next/Last, numeric cluster) side by
+   side - a spatial concept, not a pixel-exact template. .command-keypad kept as an alias so
+   nothing else referencing the old single-column class breaks. */
+.command-keypad, .command-bank { flex: none; display: flex; flex-direction: column; gap: 4px; padding: 8px; }
+.command-bank-left { width: 150px; border-right: 1px solid var(--border); }
+.command-bank-right { width: 280px; }
 .keypad-row { display: flex; gap: 4px; }
+.keypad-row-spacer { flex: 1 1 auto; min-height: 4px; }
 
 .key {
     flex: 1 1 0;
@@ -438,14 +768,27 @@ html, body {
 }
 .key:hover { border-color: var(--accent); }
 .key:active { background: var(--accent); color: #fff; }
+.key:disabled, .key.key-disabled { opacity: 0.4; cursor: not-allowed; }
+.key:disabled:hover, .key.key-disabled:hover { border-color: var(--border); }
 
 .key-num { font-variant-numeric: tabular-nums; }
 .key-wide { flex: 2 1 0; }
 .key-op { color: var(--accent); }
 .key-object { font-size: 13px; color: var(--text-dim); }
+.key-family { font-size: 12px; }
 .key-danger { color: var(--danger); border-color: var(--danger); }
 .key-enter { flex: 2 1 0; background: var(--go); color: #fff; border-color: var(--go); }
 .key-enter:hover { background: var(--go-active); }
+
+/* SHIFT armed (docs/COMMAND_SURFACE_KEY_SPEC.md §18) - visibly distinct so the operator can see
+   the modifier is waiting to be consumed by the next key press. */
+.key-shift-armed { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* MACROS - LEARN MACRO / MACRO 1-4 physical keys. Armed (waiting for a slot) and actively
+   recording are visibly distinct states, matching key-shift-armed's own precedent. */
+.key-macro { font-size: 13px; }
+.key-macro-armed { background: #f2b647; color: #1a1a1a; border-color: #f2b647; }
+.key-macro-recording { background: #ff6b6b; color: #1a1a1a; border-color: #ff6b6b; animation: macro-recording-pulse 1.2s ease-in-out infinite; }
 
 /* ---------- Fader bank ---------- */
 .fader-bank {
@@ -580,6 +923,36 @@ html, body {
 .console-shell { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
 .console-chrome { flex: none; }
 .console-shell-workspace { flex: 1 1 auto; min-height: 0; display: flex; }
+
+/* Encoder Drawer + Command Surface share one responsive row: side by side on wide screens,
+   stacked (drawer above keypad) on narrow ones - work-plan Milestone 1 §81. */
+.console-input-row { flex: none; display: flex; flex-direction: row; }
+.console-input-row .command-surface { border-right: none; }
+@media (max-width: 900px) {
+    .console-input-row { flex-direction: column; }
+    .console-input-row .encoder-drawer { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+    .encoder-drawer-workarea { grid-template-columns: 1fr; }
+    .encoder-category-rail { grid-template-columns: repeat(6, minmax(70px, 1fr)); overflow-x: auto; padding: 0 0 5px; border-right: none; border-bottom: 1px solid #3a444d; }
+    .encoder-category-key { grid-template-columns: 1fr; place-items: center; text-align: center; min-height: 36px; }
+    .encoder-bank { grid-template-columns: repeat(5, minmax(124px, 1fr)); overflow-x: auto; padding-bottom: 4px; }
+    .encoder-special-panel { min-height: 130px; }
+}
+
+@media (max-width: 620px) {
+    .encoder-drawer { padding: 6px; }
+    .encoder-bank { grid-template-columns: repeat(5, 118px); }
+    .encoder-slot { min-height: 222px; }
+    .encoder-category-key span:last-child { display: none; }
+    .encoder-category-rail { grid-template-columns: repeat(6, minmax(48px, 1fr)); }
+
+    /* Command Surface's two side-by-side banks (§20) don't fit a narrow phone width - stack
+       LEFT above RIGHT instead, same "stack on narrow, side by side on wide" rule the
+       Encoder Drawer/Command Surface row itself already follows at 900px. */
+    .command-surface { flex-direction: column; }
+    .command-bank-left { width: auto; border-right: none; border-bottom: 1px solid var(--border); flex-direction: row; flex-wrap: wrap; }
+    .command-bank-left .keypad-row-spacer { display: none; }
+    .command-bank-right { width: auto; }
+}
 
 .workspace-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 

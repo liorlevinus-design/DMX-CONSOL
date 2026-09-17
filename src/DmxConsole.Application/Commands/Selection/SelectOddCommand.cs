@@ -6,4 +6,6 @@ public sealed class SelectOddCommand : SelectionCommandBase
     protected override ConsoleActionType ActionType => ConsoleActionType.SelectOdd;
 
     protected override void Apply(ConsoleContext context) => context.Selection.FilterOdd();
+
+    public override IConsoleCommand CreateFreshInstance() => new SelectOddCommand();
 }

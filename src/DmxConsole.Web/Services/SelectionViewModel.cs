@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
+using DmxConsole.Application.Commands;
 using DmxConsole.Application.Commands.Groups;
 using DmxConsole.Application.Commands.Selection;
 using DmxConsole.Core.Fixtures;
@@ -23,9 +24,7 @@ public partial class SelectionViewModel : ObservableObject
     public FixtureSelection Selection => _context.Selection;
     public GroupManager Groups => _context.Groups;
 
-    /// <summary>Fixture number a "Thru" is waiting to be completed against, or null if not armed.</summary>
     [ObservableProperty] private int? _pendingThruStart;
-
     [ObservableProperty] private string _newGroupName = string.Empty;
     [ObservableProperty] private string _statusMessage = string.Empty;
 
@@ -35,18 +34,17 @@ public partial class SelectionViewModel : ObservableObject
         _dispatcher = dispatcher;
     }
 
-    /// <summary>Tapping a fixture number: completes a pending Thru range if armed, otherwise toggles it.</summary>
     [RelayCommand]
     private void TapFixtureNumber(PatchedFixture fixture)
     {
         if (PendingThruStart is int startNumber)
         {
-            _dispatcher.Dispatch(new SelectRangeCommand(startNumber, fixture.Number));
+            DispatchSelectionGesture(new SelectRangeCommand(startNumber, fixture.Number));
             PendingThruStart = null;
         }
         else
         {
-            _dispatcher.Dispatch(new ToggleFixtureCommand(fixture));
+            DispatchSelectionGesture(new ToggleFixtureCommand(fixture));
         }
     }
 
@@ -64,22 +62,45 @@ public partial class SelectionViewModel : ObservableObject
     }
 
     [RelayCommand] private void SelectOdd() => _dispatcher.Dispatch(new SelectOddCommand());
-
     [RelayCommand] private void SelectEven() => _dispatcher.Dispatch(new SelectEvenCommand());
 
     [RelayCommand]
     private void ClearSelection()
     {
         _dispatcher.Dispatch(new ClearSelectionCommand());
+        _context.SelectionCycle.ClearGestureHistory();
+        _context.SelectionCycle.MarkSelectionStarted();
         PendingThruStart = null;
     }
 
-    [RelayCommand] private void Next() => _dispatcher.Dispatch(new NextFixtureCommand());
-
-    [RelayCommand] private void Previous() => _dispatcher.Dispatch(new PreviousFixtureCommand());
+    [RelayCommand] private void Next() => DispatchSelectionGesture(new NextFixtureCommand());
+    [RelayCommand] private void Previous() => DispatchSelectionGesture(new PreviousFixtureCommand());
 
     [RelayCommand]
-    private void AddGroupToSelection(FixtureGroup group) => _dispatcher.Dispatch(new AddGroupToSelectionCommand(group));
+    private void AddGroupToSelection(FixtureGroup group) =>
+        DispatchSelectionGesture(new AddGroupToSelectionCommand(group));
+
+    private void DispatchSelectionGesture(IConsoleCommand command)
+    {
+        bool startsFresh = _context.SelectionCycle.StartFreshOnNextSelection;
+        IReadOnlyList<PatchedFixture> baseline = startsFresh
+            ? Array.Empty<PatchedFixture>()
+            : Selection.Items.ToList();
+
+        IConsoleCommand operation = command;
+        if (startsFresh)
+        {
+            operation = new CompositeCommand(new IConsoleCommand[]
+            {
+                new ClearSelectionCommand(),
+                command,
+            });
+        }
+
+        var result = _dispatcher.Dispatch(operation);
+        if (result.Success)
+            _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+    }
 
     [RelayCommand]
     private void SaveGroup()

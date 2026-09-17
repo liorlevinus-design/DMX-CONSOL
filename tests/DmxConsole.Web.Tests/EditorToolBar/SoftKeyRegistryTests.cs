@@ -54,7 +54,31 @@ public class SoftKeyRegistryTests
 
         var timeContextKeys = registry.For("Cue.Time");
         Assert.NotEmpty(timeContextKeys);
-        Assert.Contains(timeContextKeys, k => k.Label == "POSITION");
+        // H1.6 Slice 2 - Cue.Time matches Vector's actual Time mode, not grandMA3's per-attribute
+        // GENERAL/INTENSITY/POSITION/COLOR/BEAM tree this test used to check for.
+        Assert.Contains(timeContextKeys, k => k.Label == "TIME-IN");
+        Assert.Contains(timeContextKeys, k => k.Label == "DELAY-IN");
+        Assert.Contains(timeContextKeys, k => k.Label == "FOLLOW ON" && k.ActionType == SoftKeyActionType.ContextAction && k.Implemented);
+        Assert.Contains(timeContextKeys, k => k.Label == "MANUAL" && k.ActionType == SoftKeyActionType.ContextAction && k.Implemented);
+    }
+
+    [Fact]
+    public void Builder_CueContext_HasAStoreOptionsKeyThatEntersANestedContext_WithFiveImplementedFilters()
+    {
+        var registry = SoftKeyRegistryBuilder.Build();
+
+        var cueKeys = registry.For("Cue");
+        var storeOptionsKey = Assert.Single(cueKeys, k => k.Label == "STORE OPTIONS");
+        Assert.Equal(SoftKeyActionType.EnterContext, storeOptionsKey.ActionType);
+
+        var storeOptionsContextKeys = registry.For("Cue.StoreOptions").ToList();
+        Assert.Equal(5, storeOptionsContextKeys.Count);
+        Assert.All(storeOptionsContextKeys, k => Assert.True(k.ActionType == SoftKeyActionType.ContextAction && k.Implemented));
+        Assert.Contains(storeOptionsContextKeys, k => k.Label == "ALL EDITOR");
+        Assert.Contains(storeOptionsContextKeys, k => k.Label == "ACTIVE ONLY");
+        Assert.Contains(storeOptionsContextKeys, k => k.Label == "ALL STAGE");
+        Assert.Contains(storeOptionsContextKeys, k => k.Label == "ALL PARAMS FOR SELECTED");
+        Assert.Contains(storeOptionsContextKeys, k => k.Label == "ALL PARAMS IF ACTIVE");
     }
 
     [Fact]

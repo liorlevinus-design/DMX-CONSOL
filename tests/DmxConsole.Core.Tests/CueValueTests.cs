@@ -1,12 +1,28 @@
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Presets;
+using DmxConsole.Core.Selection;
 using Xunit;
 
 namespace DmxConsole.Core.Tests;
 
 public class CueValueTests
 {
+    private sealed class StubEffectiveOutputReader : IEffectiveOutputReader
+    {
+        public byte GetEffectiveValue(int universeId, int channelIndex) => 0;
+        public OutputOwner? GetOwner(int universeId, int channelIndex) => null;
+    }
+
+    private static readonly FixtureSelection EmptySelection = new();
+    private static readonly IEffectiveOutputReader Stub = new StubEffectiveOutputReader();
+
+    /// <summary>Zero fade/delay - most of these tests call Go() and immediately assert the
+    /// resolved value, which needs an instant transition, not CueStoreOptions.Default's 3s fade.</summary>
+    private static readonly CueStoreOptions ZeroOptions = new(
+        new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+        CueTriggerMode.Manual, TimeSpan.Zero, CueStoreFilter.AllStage);
+
     private static FixtureProfile PanTiltMover() => new()
     {
         Id = "test-pan-tilt",
@@ -50,7 +66,7 @@ public class CueValueTests
 
         var cueList = new CueList(presetResolver: presets);
         var overrides = new Dictionary<AttributeClass, Preset> { [AttributeClass.Position] = preset };
-        var cue = cueList.RecordCueWithPresetRefs(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero, overrides);
+        var cue = cueList.RecordCueWithPresetRefs(patch, programmer, EmptySelection, Stub, "Cue 1", 1, ZeroOptions, overrides);
 
         var panValue = cue.Levels[(0, 0)];
         var tiltValue = cue.Levels[(0, 1)];
@@ -74,7 +90,7 @@ public class CueValueTests
 
         var cueList = new CueList(presetResolver: presets);
         var overrides = new Dictionary<AttributeClass, Preset> { [AttributeClass.Position] = preset };
-        cueList.RecordCueWithPresetRefs(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero, overrides);
+        cueList.RecordCueWithPresetRefs(patch, programmer, EmptySelection, Stub, "Cue 1", 1, ZeroOptions, overrides);
         cueList.Go();
 
         Assert.True(cueList.TryGetChannelValue(0, 0, out var value));
@@ -94,7 +110,7 @@ public class CueValueTests
 
         var cueList = new CueList(presetResolver: presets);
         var overrides = new Dictionary<AttributeClass, Preset> { [AttributeClass.Position] = preset };
-        cueList.RecordCueWithPresetRefs(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero, overrides);
+        cueList.RecordCueWithPresetRefs(patch, programmer, EmptySelection, Stub, "Cue 1", 1, ZeroOptions, overrides);
         cueList.Go();
 
         presets.Remove(preset);
@@ -117,7 +133,7 @@ public class CueValueTests
 
         var cueList = new CueList(presetResolver: presets);
         var overrides = new Dictionary<AttributeClass, Preset> { [AttributeClass.Position] = preset };
-        cueList.RecordCueWithPresetRefs(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero, overrides);
+        cueList.RecordCueWithPresetRefs(patch, programmer, EmptySelection, Stub, "Cue 1", 1, ZeroOptions, overrides);
         cueList.Go();
 
         preset.Values.Remove(ChannelType.Pan); // e.g. re-recorded without Pan among the targets
@@ -138,7 +154,7 @@ public class CueValueTests
 
         var cueList = new CueList(presetResolver: presets);
         var overrides = new Dictionary<AttributeClass, Preset> { [AttributeClass.Position] = preset };
-        cueList.RecordCueWithPresetRefs(patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero, overrides);
+        cueList.RecordCueWithPresetRefs(patch, programmer, EmptySelection, Stub, "Cue 1", 1, ZeroOptions, overrides);
         cueList.Go();
 
         Assert.True(cueList.TryGetChannelValue(0, 0, out var before));
@@ -151,33 +167,19 @@ public class CueValueTests
     }
 
     [Fact]
-    public void TimingPrecedence_AttributeOverride_BeatsGeneral_ChannelOverride_BeatsBoth()
+    public void RecordCue_StoresOptionsTiming_TriggerMode_AndWaitTime_OnTheCue()
     {
         var (patch, _) = BuildPatch();
         var programmer = new Programmer();
-        programmer.SetChannel(0, 0, 50); // Pan
-        programmer.SetChannel(0, 1, 50); // Tilt
+
+        var timing = new CueTiming(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
+        var options = new CueStoreOptions(timing, CueTriggerMode.Follow, TimeSpan.FromSeconds(3), CueStoreFilter.AllStage);
 
         var cueList = new CueList();
-        var general = new CueTiming(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
-        var positionOverride = new CueTiming(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
-        var channelOverride = new CueTiming(TimeSpan.FromSeconds(9), TimeSpan.FromSeconds(9));
+        var cue = cueList.RecordCue(patch, programmer, EmptySelection, Stub, "Cue 1", 1, options);
 
-        var cue = cueList.RecordCue(patch, programmer, "Cue 1", 1, general.FadeInTime, general.FadeOutTime);
-        var withTiming = new Cue
-        {
-            Number = cue.Number,
-            Name = cue.Name,
-            GeneralTiming = general,
-            AttributeTiming = new Dictionary<AttributeClass, CueTiming> { [AttributeClass.Position] = positionOverride },
-            ChannelTiming = new Dictionary<(int, int), CueTiming> { [(0, 0)] = channelOverride },
-            Levels = cue.Levels,
-        };
-
-        var panValue = withTiming.Levels[(0, 0)];
-        var tiltValue = withTiming.Levels[(0, 1)];
-
-        Assert.Equal(channelOverride, withTiming.TimingFor((0, 0), panValue)); // channel override wins for Pan
-        Assert.Equal(positionOverride, withTiming.TimingFor((0, 1), tiltValue)); // no channel override -> AttributeTiming for Position
+        Assert.Equal(timing, cue.Timing);
+        Assert.Equal(CueTriggerMode.Follow, cue.TriggerMode);
+        Assert.Equal(TimeSpan.FromSeconds(3), cue.WaitTime);
     }
 }

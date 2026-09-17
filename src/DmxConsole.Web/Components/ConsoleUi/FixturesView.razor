@@ -1,20 +1,31 @@
 @using DmxConsole.Core
 @using DmxConsole.Core.Engine
 @using DmxConsole.Core.Fixtures
+@using DmxConsole.Application.Live
 @implements IDisposable
 @inject MainViewModel Vm
 
 @*
-    Phase H1's second real View redesign: one row per intelligent fixture, showing concise
-    live SEMANTIC state (Intensity/Position/Color/Beam - Step A's AttributeClass grouping, not
-    a wall of raw channels), plus selected/active/owner exactly like the Channels View. Not
-    every raw parameter at once - a fixture with several Beam-class channels (Gobo/Zoom/Focus/
-    Shutter/Prism) shows a short summary, not five separate columns.
+    OPERATOR_UX_ROADMAP.md §4: Fixtures LIVE - one row per fixture, one column per semantic
+    parameter family (Intensity/Position/Color/Beam/Image/Shape - the same AttributeClass grouping
+    the Encoder Drawer already uses). Built entirely from
+    DmxConsole.Application.Live.FixtureLiveState - no parameter/provenance/pending logic lives
+    here, only formatting of an already-computed read model, so this view can never disagree with
+    Channels LIVE or the Editor Inspector about the same channel. This is a summary + selection
+    surface, NOT an editor - the Encoder Drawer remains the primary place to change a value.
 *@
 
 <div class="channels-view">
     <div class="channels-view-header">
-        <span class="channels-view-title">Fixtures</span>
+        <span class="channels-view-title">Fixtures — LIVE</span>
+        <select class="pane-add-view channels-filter" @bind="Filter" aria-label="Filter fixtures">
+            <option value="All">All</option>
+            <option value="EditorOnly">Editor Only</option>
+            <option value="Patched">Patched</option>
+            <option value="UsedInShow">Used in Show</option>
+            <option value="LiveOnStage">Live on Stage</option>
+            <option value="Selected">Selected</option>
+        </select>
         <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
         @if (Vm.SelectionVm.Selection.Items.Count > 0)
         {
@@ -32,38 +43,31 @@
                     <th>Position</th>
                     <th>Color</th>
                     <th>Beam</th>
-                    <th>Source</th>
+                    <th>Image</th>
+                    <th>Shape</th>
                 </tr>
             </thead>
             <tbody>
-                @foreach (var fixture in Vm.Patch.Fixtures.OrderBy(f => f.Number))
+                @foreach (var state in FilteredRows())
                 {
-                    bool isSelected = Vm.SelectionVm.Selection.Contains(fixture);
-                    var owner = DescribeFixtureOwner(fixture, out bool isActive);
-
-                    <tr class="channels-row @(isSelected ? "selected" : "") @(isActive ? "active" : "")" @onclick="() => Toggle(fixture)">
-                        <td class="ch-cell">@fixture.Number</td>
-                        <td>@fixture.Name</td>
-                        <td>@DescribeIntensity(fixture)</td>
-                        <td>@DescribePosition(fixture)</td>
-                        <td>
-                            @{ var swatchStyle = ColorSwatchStyle(fixture); }
-                            @if (swatchStyle is null)
-                            {
-                                <span>—</span>
-                            }
-                            else
-                            {
-                                <span class="color-swatch" style="@swatchStyle"></span>
-                            }
-                        </td>
-                        <td>@DescribeBeam(fixture)</td>
-                        <td class="source-cell @ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(owner))">@(owner?.Kind == OwnerKind.Executor ? ProvenanceClassifier.DescribeExecutorOwner(owner, Vm.ExecutorVm.Bank) : (owner?.DisplayName ?? (isActive ? "Mixed" : "—")))</td>
+                    <tr class="channels-row @(state.IsSelected ? "selected" : "") @(state.IsLiveOnStage ? "active" : "") @(state.HasEditorValue ? "programmer" : "")" @onclick="() => Toggle(state.Fixture)">
+                        <td class="ch-cell">@state.Fixture.Number</td>
+                        <td>@state.Fixture.Name</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Intensity))">@FormatIntensity(state.Family(AttributeClass.Intensity))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Position))">@FormatPosition(state.Family(AttributeClass.Position))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Color))">@FormatColor(state.Family(AttributeClass.Color))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Beam))">@FormatChannelList(state.Family(AttributeClass.Beam))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Image))">@FormatChannelList(state.Family(AttributeClass.Image))</td>
+                        <td class="@FamilyCellClass(state.Family(AttributeClass.Shape))">@FormatChannelList(state.Family(AttributeClass.Shape))</td>
                     </tr>
                 }
                 @if (Vm.Patch.Fixtures.Count == 0)
                 {
-                    <tr><td colspan="7" class="channels-empty">No fixtures patched yet.</td></tr>
+                    <tr><td colspan="8" class="channels-empty">No fixtures patched yet.</td></tr>
+                }
+                else if (!FilteredRows().Any())
+                {
+                    <tr><td colspan="8" class="channels-empty">Nothing matches this filter.</td></tr>
                 }
             </tbody>
         </table>
@@ -72,6 +76,17 @@
 
 @code {
     private System.Threading.Timer? _liveTimer;
+
+    // The filter itself lives on MainViewModel (Vm.FixturesLiveFilter), not as a field here -
+    // Blazor recreates this component (and any local field) every time the operator switches to
+    // another pane tab and back, which was silently resetting the filter to All. MainViewModel is
+    // the one long-lived singleton every view already shares, so storing it there is "use an
+    // existing ViewModel", not a new parallel state.
+    private string Filter
+    {
+        get => Vm.FixturesLiveFilter.ToString();
+        set { if (Enum.TryParse<LiveFilter>(value, out var parsed)) Vm.FixturesLiveFilter = parsed; }
+    }
 
     protected override void OnInitialized()
     {
@@ -82,77 +97,113 @@
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    private void Toggle(PatchedFixture fixture) => Vm.SelectionVm.TapFixtureNumberCommand.Execute(fixture);
-
-    private void ClearSelection() => Vm.SelectionVm.ClearSelectionCommand.Execute(null);
-
-    private byte EffectiveValue(PatchedFixture fixture, FixtureChannel channel) =>
-        Vm.Engine.GetEffectiveValue(fixture.UniverseId, fixture.AbsoluteIndex(channel));
-
-    private string DescribeIntensity(PatchedFixture fixture)
+    private IEnumerable<FixtureLiveState> FilteredRows()
     {
-        var channel = fixture.ChannelsForAttribute(AttributeClass.Intensity).FirstOrDefault();
-        if (channel is null) return "—";
-        int percent = (int)Math.Round(EffectiveValue(fixture, channel) / 255.0 * 100);
-        return $"{percent}%";
+        var context = Vm.ProgrammerVm.Context;
+        var usedInShow = ShowUsageQuery.ReferencedAddresses(context);
+        foreach (var fixture in Vm.Patch.Fixtures.OrderBy(f => f.Number))
+        {
+            bool isSelected = Vm.SelectionVm.Selection.Contains(fixture);
+            var state = FixtureLiveState.For(context, fixture, isSelected, usedInShow);
+            if (state.Matches(Vm.FixturesLiveFilter)) yield return state;
+        }
     }
 
-    private string DescribePosition(PatchedFixture fixture)
+    private void Toggle(PatchedFixture fixture)
     {
-        var pan = fixture.FindChannel(ChannelType.Pan);
-        var tilt = fixture.FindChannel(ChannelType.Tilt);
+        Vm.SelectionVm.TapFixtureNumberCommand.Execute(fixture);
+        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
+        // Same shared EditorContext path as ChannelsView/Command Surface - a click here is just
+        // another way to select, never a parallel selection mechanism.
+        Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture,
+            "FIXTURE", fixture, $"Fixture {fixture.Number}");
+    }
+
+    private void ClearSelection()
+    {
+        Vm.SelectionVm.ClearSelectionCommand.Execute(null);
+        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
+    }
+
+    // ---------- Pure formatting over the already-computed FixtureFamilyState - no decisions
+    // about pending/live/mixed happen here, only turning already-decided facts into text/CSS. ----------
+
+    private static string FamilyCellClass(FixtureFamilyState? family)
+    {
+        if (family is null || family.Channels.Count == 0) return "source-cell src-none";
+        if (family.IsMixedProvenance) return "source-cell family-mixed";
+        return "source-cell " + ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(family.CommonOwner));
+    }
+
+    private static int Percent(byte value) => (int)Math.Round(value / 255.0 * 100);
+
+    private static string EditorBadge(LiveChannelState state) => state.HasEditorValue ? $" E{Percent(state.EditorValue!.Value)}%" : "";
+
+    private static string FormatIntensity(FixtureFamilyState? family)
+    {
+        if (family is null || family.Channels.Count == 0) return "—";
+        if (family.IsMixedProvenance) return "MIXED";
+        var (_, state) = family.Channels[0];
+        return $"{Percent(state.EffectiveValue)}%{EditorBadge(state)}";
+    }
+
+    private static string FormatPosition(FixtureFamilyState? family)
+    {
+        if (family is null) return "—";
+        var pan = family.Find(ChannelType.Pan);
+        var tilt = family.Find(ChannelType.Tilt);
         if (pan is null && tilt is null) return "—";
-        string panText = pan is null ? "-" : $"{(int)Math.Round(EffectiveValue(fixture, pan) / 255.0 * 100)}%";
-        string tiltText = tilt is null ? "-" : $"{(int)Math.Round(EffectiveValue(fixture, tilt) / 255.0 * 100)}%";
+        if (family.IsMixedProvenance) return "MIXED";
+
+        string panText = pan is null ? "-" : $"{Percent(pan.Value.EffectiveValue)}%{EditorBadge(pan.Value)}";
+        string tiltText = tilt is null ? "-" : $"{Percent(tilt.Value.EffectiveValue)}%{EditorBadge(tilt.Value)}";
         return $"P {panText} / T {tiltText}";
     }
 
-    private string? ColorSwatchStyle(PatchedFixture fixture)
+    private static string? ColorSwatchStyle(FixtureFamilyState? family)
     {
-        var red = fixture.FindChannel(ChannelType.ColorRed);
-        var green = fixture.FindChannel(ChannelType.ColorGreen);
-        var blue = fixture.FindChannel(ChannelType.ColorBlue);
+        if (family is null) return null;
+        var red = family.Find(ChannelType.ColorRed);
+        var green = family.Find(ChannelType.ColorGreen);
+        var blue = family.Find(ChannelType.ColorBlue);
         if (red is null && green is null && blue is null) return null;
 
-        byte r = red is null ? (byte)0 : EffectiveValue(fixture, red);
-        byte g = green is null ? (byte)0 : EffectiveValue(fixture, green);
-        byte b = blue is null ? (byte)0 : EffectiveValue(fixture, blue);
+        byte r = red?.EffectiveValue ?? 0;
+        byte g = green?.EffectiveValue ?? 0;
+        byte b = blue?.EffectiveValue ?? 0;
         return $"background:rgb({r},{g},{b})";
     }
 
-    private string DescribeBeam(PatchedFixture fixture)
-    {
-        var beamChannels = fixture.ChannelsForAttribute(AttributeClass.Beam).ToList();
-        if (beamChannels.Count == 0) return "—";
-
-        var first = beamChannels[0];
-        int percent = (int)Math.Round(EffectiveValue(fixture, first) / 255.0 * 100);
-        string label = $"{first.Type} {percent}%";
-        return beamChannels.Count > 1 ? $"{label} (+{beamChannels.Count - 1})" : label;
-    }
-
-    /// <summary>Fixture-level ownership: if every channel that has an owner shares the SAME
-    /// owner, that's the fixture's owner; if channels are split across different owners (e.g.
-    /// Intensity from the Programmer, Position from a running Cue), there's no single answer -
-    /// isActive is still true, but the caller falls back to "Mixed" rather than picking one
-    /// arbitrarily.</summary>
-    private OutputOwner? DescribeFixtureOwner(PatchedFixture fixture, out bool isActive)
-    {
-        OutputOwner? common = null;
-        bool first = true;
-        isActive = false;
-
-        foreach (var channel in fixture.Mode.Channels)
+    /// <summary>Color is presented as an RGB swatch when the fixture actually has RGB channels -
+    /// MIXED provenance still shows the swatch (each channel's own real value, not invented) but
+    /// with a visibly different border so the operator knows the three components aren't all
+    /// coming from the same source. A fixture whose Color family has no RGB (e.g. a Color Wheel-
+    /// only profile) falls back to the same channel+percent text every other non-RGB family uses -
+    /// never hides a real ColorWheel channel just because it isn't RGB.</summary>
+    private RenderFragment FormatColor(FixtureFamilyState? family) => @<text>
+        @{ var swatchStyle = ColorSwatchStyle(family); }
+        @if (swatchStyle is not null)
         {
-            var owner = Vm.Engine.GetOwner(fixture.UniverseId, fixture.AbsoluteIndex(channel));
-            if (owner is null) continue;
-            isActive = true;
+            <span class="color-swatch @(family!.IsMixedProvenance ? "mixed" : "")" style="@swatchStyle" title="@(family.IsMixedProvenance ? "MIXED source" : "")"></span>
+        }
+        else
+        {
+            @FormatChannelList(family)
+        }
+    </text>;
 
-            if (first) { common = owner; first = false; }
-            else if (common?.Id != owner.Id) return null; // mixed - no single owner
+    private static string FormatChannelList(FixtureFamilyState? family)
+    {
+        if (family is null || family.Channels.Count == 0) return "—";
+        if (family.IsMixedProvenance)
+        {
+            var (type, _) = family.Channels[0];
+            return $"{type} MIXED" + (family.Channels.Count > 1 ? $" (+{family.Channels.Count - 1})" : "");
         }
 
-        return common;
+        var (firstType, firstState) = family.Channels[0];
+        string label = $"{firstType} {Percent(firstState.EffectiveValue)}%{EditorBadge(firstState)}";
+        return family.Channels.Count > 1 ? $"{label} (+{family.Channels.Count - 1})" : label;
     }
 
     public void Dispose()
