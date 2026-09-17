@@ -630,6 +630,31 @@ html, body {
 .command-line-error { color: var(--danger); font-size: 13px; font-family: "Segoe UI", system-ui, sans-serif; }
 .command-line-expected { color: var(--text-dim); font-size: 12px; font-family: "Segoe UI", system-ui, sans-serif; }
 
+/* MACROS §13 - recording state must always be visible, never hidden. */
+.command-line-macro-status {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+.command-line-macro-recording { background: #3a1414; color: #ff6b6b; }
+.command-line-macro-armed { background: #201a05; color: #f2b647; }
+.macro-recording-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #ff6b6b;
+    animation: macro-recording-pulse 1.2s ease-in-out infinite;
+}
+@keyframes macro-recording-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.macro-recording-cancel {
+    margin-left: auto; background: transparent; border: 1px solid #ff6b6b; color: #ff6b6b;
+    border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.macro-recording-cancel:hover { background: #ff6b6b; color: #1a1a1a; }
+
 .command-surface {
     flex: none;
     display: flex;
@@ -702,6 +727,12 @@ html, body {
 /* SHIFT armed (docs/COMMAND_SURFACE_KEY_SPEC.md §18) - visibly distinct so the operator can see
    the modifier is waiting to be consumed by the next key press. */
 .key-shift-armed { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* MACROS - LEARN MACRO / MACRO 1-4 physical keys. Armed (waiting for a slot) and actively
+   recording are visibly distinct states, matching key-shift-armed's own precedent. */
+.key-macro { font-size: 13px; }
+.key-macro-armed { background: #f2b647; color: #1a1a1a; border-color: #f2b647; }
+.key-macro-recording { background: #ff6b6b; color: #1a1a1a; border-color: #ff6b6b; animation: macro-recording-pulse 1.2s ease-in-out infinite; }
 
 /* ---------- Fader bank ---------- */
 .fader-bank {

@@ -1,3 +1,4 @@
+using DmxConsole.Application.Macros;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Effects;
 using DmxConsole.Core.Fixtures;
@@ -53,9 +54,13 @@ public sealed class ConsoleContext
     public ExecutorBank Executors { get; }
     public EffectBank Effects { get; }
 
+    /// <summary>The show's Macro slots (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS §10) - Application-layer
+    /// show data, same as Presets/Groups/Executors, not only Web ViewModel state.</summary>
+    public MacroBank Macros { get; }
+
     public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups,
         IEffectiveOutputReader effectiveOutput, PresetLibrary presets, ExecutorBank executors,
-        EffectBank? effects = null)
+        EffectBank? effects = null, MacroBank? macros = null)
     {
         Patch = patch;
         Programmer = programmer;
@@ -66,5 +71,6 @@ public sealed class ConsoleContext
         Presets = presets;
         Executors = executors;
         Effects = effects ?? new EffectBank();
+        Macros = macros ?? new MacroBank();
     }
 }

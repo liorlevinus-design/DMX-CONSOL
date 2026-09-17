@@ -3,6 +3,7 @@ using DmxConsole.Application.CommandSurface;
 using DmxConsole.Application.Commands.Playback;
 using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Application.Commands.Selection;
+using DmxConsole.Application.Macros;
 using DmxConsole.Core;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Web.EditorToolBar;
@@ -19,10 +20,24 @@ public sealed class CommandSurfaceViewModel
     private readonly ConsoleContext _context;
     private readonly CommandDispatcher _dispatcher;
     private readonly EditorContextStack _editorContext;
+    private readonly MacroRecorder _macroRecorder;
+    private readonly MacroPlaybackService _macroPlayer;
     private CommandComposer _composer;
     private string _pendingDigits = string.Empty;
     private bool _clearArmedForFullSelection;
     private bool _mirrorsExistingSelection;
+
+    /// <summary>Set the instant LEARN MACRO is pressed with no recording in progress - the next
+    /// MACRO N press chooses which slot to record into and starts recording (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS §3). A second LEARN MACRO press while armed (no slot chosen yet) cancels the arm -
+    /// the same "armed for exactly the next relevant key" idiom as ShiftArmed.</summary>
+    private bool _learnArmed;
+
+    /// <summary>Set when a LEARN MACRO + MACRO N press targets a slot that already holds a
+    /// non-empty Macro - re-arms LEARN so pressing the SAME slot again explicitly confirms
+    /// overwrite (§11: no silent overwrite), the same two-press-to-confirm idiom this Command
+    /// Surface already uses for CLEAR CLEAR / RELEASE ENTER.</summary>
+    private int? _pendingOverwriteSlot;
 
     /// <summary>Set the instant a bare RELEASE (empty command line) fires "release current
     /// selection" - if ENTER is the very next press, with nothing else in between, it escalates
@@ -66,8 +81,20 @@ public sealed class CommandSurfaceViewModel
         _dispatcher = dispatcher;
         _editorContext = editorContext;
         _composer = new CommandComposer(context);
+        _macroRecorder = new MacroRecorder(dispatcher, context.Macros);
+        _macroPlayer = new MacroPlaybackService(dispatcher, context.Macros, _macroRecorder);
         Current = _composer.Current;
     }
+
+    /// <summary>True the instant LEARN MACRO is armed, waiting for a MACRO key to pick the slot -
+    /// distinct from <see cref="IsRecordingMacro"/> (actively recording into a chosen slot).</summary>
+    public bool IsLearnArmed => _learnArmed;
+
+    /// <summary>True while a Macro slot is actively recording (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS §13 - "no hidden recording state").</summary>
+    public bool IsRecordingMacro => _macroRecorder.IsRecording;
+
+    public int? RecordingMacroSlot => _macroRecorder.RecordingSlot;
 
     public string DisplayPreview => _pendingDigits.Length == 0 ? Current.PreviewText : $"{Current.PreviewText} {_pendingDigits}".TrimStart();
 
@@ -82,6 +109,7 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
         _composer.Reset();
 
         var ordered = fixtures.Distinct().OrderBy(f => f.Number).ToList();
@@ -106,6 +134,7 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
 
         // A number added to a mirrored selection is a new selection gesture unless it is the
         // value following AT. This matters for single-CLEAR history.
@@ -122,6 +151,7 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
 
         // DMX Universe.Address (§8's dot ambiguity): while the composer is expecting a
         // DmxAddress next, "." is a literal Universe/Address separator - never Recall, never an
@@ -161,6 +191,7 @@ public sealed class CommandSurfaceViewModel
         {
             _releaseArmedForFullClear = false;
             ShiftArmed = false;
+            DisarmLearn();
             var result = _dispatcher.Dispatch(new ReleaseCommand(_context.Patch.Fixtures.ToList(), null));
             DispatchError = result.Success ? null : (result.Error ?? "Release failed.");
             Changed?.Invoke();
@@ -168,6 +199,7 @@ public sealed class CommandSurfaceViewModel
         }
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
 
         CommitPendingDigits();
 
@@ -211,6 +243,7 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
         _pendingDigits = string.Empty;
         _composer.Reset();
 
@@ -245,6 +278,7 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
         CommitPendingDigits();
         _mirrorsExistingSelection = false;
 
@@ -264,6 +298,7 @@ public sealed class CommandSurfaceViewModel
     public void PressRelease()
     {
         _clearArmedForFullSelection = false;
+        DisarmLearn();
 
         if (ShiftArmed)
         {
@@ -305,6 +340,7 @@ public sealed class CommandSurfaceViewModel
         _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
         _mirrorsExistingSelection = false;
 
         if (_pendingDigits.Length > 0)
@@ -332,6 +368,7 @@ public sealed class CommandSurfaceViewModel
     {
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
+        DisarmLearn();
 
         if (_pendingDigits.Length > 0)
         {
@@ -385,6 +422,140 @@ public sealed class CommandSurfaceViewModel
         _composer.ReplaceSelectionOnResolve = false;
         Current = _composer.Current;
         Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// LEARN MACRO (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS §1/§3) - a toggle: with no recording
+    /// in progress, arms/disarms "waiting for a MACRO key to pick the slot" (the next MACRO N
+    /// press starts recording into that slot - see <see cref="PressMacroSlot"/>); while actively
+    /// recording, stops and saves. Always instant/self-terminating, always resets any in-progress
+    /// command-line composition first, exactly like CAPTURE ALL - it is a fixed physical key, not
+    /// part of the composed grammar.
+    /// </summary>
+    public void PressLearnMacro()
+    {
+        _clearArmedForFullSelection = false;
+        _releaseArmedForFullClear = false;
+        // SHIFT + LEARN MACRO is reserved for a future Macro Manager/Edit screen (§1) - not
+        // implemented in v1, so it silently behaves like a bare LEARN MACRO press, the same
+        // "unassigned combo" rule ShiftArmed's own doc comment already establishes for every
+        // other undefined Shift combination.
+        ShiftArmed = false;
+        _pendingDigits = string.Empty;
+        _composer.Reset();
+        DispatchError = null;
+
+        if (_macroRecorder.IsRecording)
+        {
+            var stopResult = _macroRecorder.Stop();
+            DispatchError = stopResult.Success ? null : stopResult.Error;
+            _learnArmed = false;
+            _pendingOverwriteSlot = null;
+            Current = _composer.Current;
+            Changed?.Invoke();
+            return;
+        }
+
+        if (_learnArmed)
+        {
+            // Second LEARN MACRO with no slot chosen yet (or while an overwrite confirmation was
+            // pending) cancels the arm - explicit, no hidden state (§12).
+            _learnArmed = false;
+            _pendingOverwriteSlot = null;
+        }
+        else
+        {
+            _learnArmed = true;
+        }
+
+        Current = _composer.Current;
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// MACRO 1-4 (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS §1/§4). SHIFT+MACRO N resolves to slot
+    /// N+4 (§1's fixed mapping) - Shift is consumed here exactly like every other key consumes an
+    /// armed Shift. Three behaviors depending on state:
+    ///   - LEARN MACRO armed, slot free (or this exact slot's overwrite already confirmed once):
+    ///     starts recording into the slot.
+    ///   - LEARN MACRO armed, slot already holds a non-empty Macro, not yet confirmed: rejects
+    ///     with a structured message and re-arms for an explicit second press of the SAME slot to
+    ///     confirm overwrite (§11 - no silent overwrite).
+    ///   - Not armed: plays the Macro back immediately (self-terminating, no ENTER - §4). Rejected
+    ///     cleanly by MacroPlaybackService if a Macro is currently recording or already playing
+    ///     back (§8/§9 - no nested/recursive playback).
+    /// </summary>
+    public void PressMacroSlot(int baseSlot)
+    {
+        _clearArmedForFullSelection = false;
+        _releaseArmedForFullClear = false;
+
+        int slot = ShiftArmed ? baseSlot + 4 : baseSlot;
+        ShiftArmed = false;
+        _pendingDigits = string.Empty;
+        _composer.Reset();
+        DispatchError = null;
+
+        if (_learnArmed)
+        {
+            bool confirmOverwrite = _pendingOverwriteSlot == slot;
+            _pendingOverwriteSlot = null;
+
+            var startResult = _macroRecorder.Start(slot, confirmOverwrite);
+            if (startResult.Success)
+            {
+                _learnArmed = false; // now actively recording - the next LEARN MACRO press stops/saves, not re-arms
+            }
+            else if (startResult.Macro is not null)
+            {
+                // "Already exists" - re-arm for an explicit second press of this SAME slot to
+                // confirm overwrite, the same two-press-to-confirm idiom this Command Surface
+                // already uses for CLEAR CLEAR / RELEASE ENTER.
+                _pendingOverwriteSlot = slot;
+                DispatchError = $"{startResult.Error} Press MACRO {slot} again to overwrite, or LEARN MACRO to cancel.";
+                Current = _composer.Current;
+                Changed?.Invoke();
+                return;
+            }
+
+            DispatchError = startResult.Success ? null : startResult.Error;
+            Current = _composer.Current;
+            Changed?.Invoke();
+            return;
+        }
+
+        var playResult = _macroPlayer.Play(slot);
+        DispatchError = playResult.Success ? null : (playResult.Error ?? "Macro playback failed.");
+        Current = _composer.Current;
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Explicit cancel for an in-progress LEARN MACRO recording (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS §12) - discards everything recorded so far, leaving the slot's previous Macro
+    /// definition (if any) completely unchanged. No dedicated physical key was specified for this
+    /// v1 slice (CLEAR/Backspace/Escape all keep their own normal meanings per §12's own
+    /// instruction) - exposed here as a small UI affordance next to the recording indicator; a
+    /// future Macro Manager (SHIFT+LEARN MACRO, §1/§14) is the natural home for a more
+    /// discoverable control later.
+    /// </summary>
+    public void CancelLearnMacro()
+    {
+        DispatchError = null;
+        if (_macroRecorder.IsRecording)
+        {
+            var result = _macroRecorder.Cancel();
+            DispatchError = result.Success ? null : result.Error;
+        }
+        _learnArmed = false;
+        _pendingOverwriteSlot = null;
+        Changed?.Invoke();
+    }
+
+    private void DisarmLearn()
+    {
+        _learnArmed = false;
+        _pendingOverwriteSlot = null;
     }
 
     private void CommitPendingDigits()

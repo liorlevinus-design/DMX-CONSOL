@@ -48,6 +48,21 @@ else
             <div class="keypad-row">
                 <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Editor - not Select All">Capture All</button>
             </div>
+            <div class="keypad-row">
+                <button class="key @(Sfc.IsRecordingMacro ? "key-macro-recording" : Sfc.IsLearnArmed ? "key-macro-armed" : "")"
+                        @onclick="Sfc.PressLearnMacro"
+                        title="LEARN MACRO - press a MACRO key to choose the slot to record into; press LEARN MACRO again to stop and save">
+                    Learn Macro
+                </button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 1 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(1)" title="Macro 1 - Shift+Macro 1 = Macro 5">Macro 1</button>
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 2 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(2)" title="Macro 2 - Shift+Macro 2 = Macro 6">Macro 2</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 3 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(3)" title="Macro 3 - Shift+Macro 3 = Macro 7">Macro 3</button>
+                <button class="key key-macro @(Sfc.RecordingMacroSlot == 4 ? "key-macro-recording" : "")" @onclick="() => Sfc.PressMacroSlot(4)" title="Macro 4 - Shift+Macro 4 = Macro 8">Macro 4</button>
+            </div>
             <div class="keypad-row keypad-row-spacer"></div>
             <div class="keypad-row">
                 <button class="key @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressShift" title="Shift - modifies the next key press (only Shift+Release is defined in v1)">Shift</button>

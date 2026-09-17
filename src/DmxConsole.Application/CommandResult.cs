@@ -1,3 +1,4 @@
+using DmxConsole.Application.Macros;
 using DmxConsole.Core;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Effects;
@@ -86,6 +87,20 @@ public enum ConsoleActionType
     /// (IConsoleAction - never enters Undo history), never touches Editor values or Selection,
     /// never deletes show data.</summary>
     ReleaseAllPlaybacks,
+
+    // MACROS - LEARN MACRO workflow. Starting/stopping/canceling a recording is its own small
+    // orchestration (MacroRecorder), not itself dispatched as an IConsoleCommand/IConsoleAction -
+    // these ActionTypes exist purely so the resulting CommandResult follows the same structured
+    // shape as everything else (see MacroRecorder's own doc comment).
+    LearnMacroStart,
+    LearnMacroStop,
+    LearnMacroCancel,
+
+    /// <summary>MACRO N playback (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS §4) - replays a Macro's
+    /// recorded steps, each through its own normal Dispatch/DispatchAction call (see
+    /// MacroPlaybackService). Not itself an IConsoleCommand/IConsoleAction either, for the same
+    /// reason - it never invents a single "macro transaction" Undo entry.</summary>
+    PlayMacro,
 }
 
 /// <summary>
@@ -116,6 +131,11 @@ public record CommandResult
     /// <summary>Populated by Effect Commands and Actions (Step G).</summary>
     public EffectPhaser? Effect { get; init; }
 
+    /// <summary>Populated by the LEARN MACRO workflow and by MACRO N playback (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS slice) - on LearnMacroStart's "already exists" rejection, the existing Macro being
+    /// asked about; on LearnMacroStop and PlayMacro, the Macro that was saved/played.</summary>
+    public Macro? Macro { get; init; }
+
     /// <summary>Attribute classes this action touched - e.g. [Intensity] for AdjustIntensity, [Color] for a "clear color" ClearAttribute.</summary>
     public IReadOnlyList<AttributeClass> AffectedAttributes { get; init; } = Array.Empty<AttributeClass>();
 
@@ -132,11 +152,12 @@ public record CommandResult
         new Dictionary<(Guid, ChannelType), byte>();
 
     /// <summary>
-    /// Populated only when <see cref="ActionType"/> is <see cref="ConsoleActionType.Batch"/> -
-    /// the individual result of every command in the transaction, in dispatch order, so a
-    /// caller (a future Natural Language layer especially) can report on each sub-action
-    /// instead of only seeing the last one. Includes the failing command's result too when
-    /// the batch as a whole failed and rolled back.
+    /// Populated when <see cref="ActionType"/> is <see cref="ConsoleActionType.Batch"/> or
+    /// <see cref="ConsoleActionType.PlayMacro"/> - the individual result of every command/action
+    /// in the transaction or Macro, in dispatch order, so a caller (a future Natural Language
+    /// layer especially) can report on each sub-action instead of only seeing the last one.
+    /// For Batch, includes the failing command's result too when the batch as a whole failed and
+    /// rolled back.
     /// </summary>
     public IReadOnlyList<CommandResult> ChildResults { get; init; } = Array.Empty<CommandResult>();
 
