@@ -314,6 +314,59 @@ Keep Selection History, Recall History and Undo History conceptually separate.
 
 ---
 
+## 9A. Parameter-level Value and Time Fans
+
+Added after v1's initial functional definition, per explicit operator instruction — an authoritative addition, not a proposal.
+
+### Principle
+
+Every fixture parameter (channel) supports its own **Fade Time** and **Delay Time**, independent of every other parameter on the same fixture and independent of every other fixture. Cue-level timing (`docs/COMMAND_SURFACE_KEY_SPEC.md` §6/§13's `CueTiming` — `TIME-IN`/`TIME-OUT`/`DELAY-IN`/`DELAY-OUT`) is only the **default** a parameter falls back to when it has no explicit override of its own.
+
+`THRU` is not limited to a two-endpoint range. It also expresses an **ordered multi-point fan**: a sequence of control-point values distributed across the resolved, ordered fixture selection, with linear interpolation between adjacent control points.
+
+### Examples
+
+```
+FIXTURE 1 THRU 6 AT INTENSITY 30 THRU 80
+= distribute intensity linearly from 30 to 80 across the ordered selection (2 control points, 6 fixtures).
+
+FIXTURE 1 THRU 6 INTENSITY TIME 4 THRU 8
+= distribute individual Intensity fade times from 4s to 8s across the same ordered selection.
+
+FIXTURE 1 THRU 10 AT INTENSITY 30 THRU 80 THRU 30
+= symmetric multi-point value fan - 3 control points (30, 80, 30). The 80 peak sits at the
+  center of the ordered selection; with an even fixture count the center peak is duplicated
+  across the two middle fixtures to preserve symmetry (there is no single "middle" position).
+
+FIXTURE 1 THRU 10 INTENSITY TIME 2 THRU 8 THRU 2
+= the same multi-point fan behavior applied to individual parameter Fade Times instead of values.
+```
+
+### Requirements
+
+- **Values, Fade Time, and Delay Time all distribute through the same shared multi-point fan engine.** One algorithm, parameterized by what quantity is being distributed (a byte-range value, or a `TimeSpan`) — never three separate implementations of "spread N control points across M targets."
+- Distribution follows the resolved **selection order** — the exact order fixtures were added to the current selection (`SelectionCycleState`/`FixtureSelection`'s own ordering), including the order fixtures arrived via a resolved **Group** (§10's "operate on resolved ordered fixture selection, not group IDs" applies identically here). Never re-sorted by fixture number.
+- Each fixture/parameter **receives and stores its own calculated concrete value/time** — the fan is resolved once, at execution time, into N concrete per-fixture numbers; nothing downstream (Programmer, Cue) stores "a fan," only plain per-channel values and per-channel timing overrides, exactly like any other Programmer write.
+- Any number of control points may be expressed through repeated `THRU` (`30 THRU 80 THRU 30` is 3 points defining 2 linear segments; `30 THRU 50 THRU 70 THRU 20` is 4 points / 3 segments, and so on) — the engine is not hardcoded to 2 or 3 points.
+- **Odd-length selections get one exact center fixture** (the middle control point's value lands on exactly one fixture). **Even-length selections duplicate the center peak** across the two middle fixtures, so the fan stays symmetric rather than landing the peak arbitrarily on one side.
+- **Reverse ranges must work** — both a descending fixture range (`FIXTURE 10 THRU 1`) and a descending control-point value (`80 THRU 30`) distribute correctly; the fan engine works on "N ordered targets, M ordered control points," not on the sign of any particular number.
+- **Explicit parameter timing overrides Cue timing** — once a channel has its own Fade/Delay override (from a Time-fan command, or a future single-parameter `INTENSITY TIME 4` with no fan), playback for that specific channel uses the override instead of the owning Cue's flat `CueTiming`, for as long as the override exists.
+- **Releasing a parameter-time override falls back to Cue timing** — a family/parameter `RELEASE` (§7) that clears a channel's Editor-owned timing override removes the override entirely; that channel then reverts to whatever `CueTiming` the owning Cue already specifies. This is the same "Release removes Editor ownership, exposes what's underneath" principle §7 already defines, applied to timing instead of value.
+- **STORE and UPDATE must preserve individual parameter Fade/Delay values** — recording or updating a Cue while a channel has a live parameter-timing override captures that override into the stored Cue (per-channel, alongside its `CueValue`), not just the channel's value. A Cue that's never had any per-channel override behaves exactly as today (flat `CueTiming` only) — this is a strictly additive, opt-in layer per channel, not a mandatory per-channel field every Cue must populate.
+- **Do not implement a separate family-timing storage model.** H1.6 Slice 2 deliberately removed grandMA3-style per-`AttributeClass` Cue timing in favor of one flat `CueTiming` per Cue (`docs/COMMAND_SURFACE_KEY_SPEC.md` §23 and `Cue.cs`'s own doc comment) — that decision stands. A **family-scoped operation** (e.g. `COLOR TIME 5`) is a convenience that applies the *same per-channel override mechanism* to every channel in that family at once; there is no second storage bucket keyed by `AttributeClass` anywhere in the data model. Per-channel is the only storage granularity below the flat Cue default.
+- **Do not map generic `Speed` to `Position` without explicit fixture-profile semantics** (already corrected in the family-model migration — restated here since it's directly relevant to any future per-parameter timing UI for movement-adjacent channels).
+
+### Precedence (for a single channel, playback time)
+
+```
+1. This channel's own explicit timing override (if the Editor/Cue-stored data has one) - highest priority.
+2. The owning Cue's flat CueTiming - the default every channel falls back to.
+```
+
+No third layer, no per-family layer — consistent with the point above.
+
+---
+
 ## 10. ODD / EVEN
 
 `ODD` and `EVEN` are **NOT** fixed physical keys.
@@ -766,6 +819,18 @@ No `Shift` state exists on `CommandSurfaceViewModel`, no visual Shift key, no ph
 
 `IConsoleCommand` vs `IConsoleAction`, `CommandDispatcher.Dispatch` (pushes to `UndoRedoService`) vs `CommandDispatcher.DispatchAction` (never touches `UndoRedoService`) already implement §16's rule precisely, including for every existing Playback action (`GoAction`/`PauseAction`/`FlashPressAction`/etc., all `IConsoleAction`, none Undoable). No conflict; `SHIFT + RELEASE` (§23.6) should be built as a new `IConsoleAction` following this exact existing pattern.
 
+### 23.19 Parameter-level Value/Time Fans (§9A) — entirely new; no existing engine, storage, or grammar
+
+§9A was added after the rest of this spec's first pass, per explicit operator instruction. Nothing in the codebase today implements any part of it:
+
+- **No shared multi-point fan/interpolation engine exists anywhere.** The closest existing concept is `EffectPhaser.Spread` (`DmxConsole.Core/Effects/EffectPhaser.cs`) — a per-fixture **phase offset** for a running, continuously-evaluated effect. It solves a related-but-different problem (staggering *when* each fixture repeats a cycle) and its math does not directly produce "N linearly-interpolated concrete values across M ordered targets with symmetric center-peak handling for even counts." §9A's fan engine is new, standalone code — it should not be bolted onto `EffectPhaser`.
+- **`CommandComposer`'s grammar has no concept of a value fan at all.** Today, `AT <number>` (`CommandComposer.Build`'s `At` branch) applies exactly one numeric value, uniformly, to every resolved target via `AdjustIntensityCommand(targets, Absolute, atValue)` — there is no path where `THRU` appears *after* `AT`, and no path where a family keyword (`INTENSITY`) appears inside the value-clause grammar at all (`INTENSITY`/`POSITION`/`COLOR`/`BEAM` are reserved `CommandTokenKind` values per `CommandTokenKind.cs`'s own comment — "not yet interpreted by the composer"). `FIXTURE 1 THRU 6 AT INTENSITY 30 THRU 80` requires new grammar, not an extension of the existing single-clause `At` handling.
+- **No `TIME` token/grammar exists in `CommandComposer`** for parameter-level timing entry (distinct from `SoftKeyRegistryBuilder`'s already-registered-but-`NotImplemented` `cue.time.timein`/etc. soft keys, §23.9's sibling gap — those are Cue-level, entered through a form today, not through the keypad's own grammar).
+- **No per-channel timing override storage exists.** `CueValue` (`DmxConsole.Core/Engine/CueValue.cs`) carries `Kind`/`ChannelType`/`AbsoluteValue`/`PresetId` — no `FadeTime`/`DelayTime` fields. `Cue.Timing` (`DmxConsole.Core/Engine/Cue.cs`) is one flat `CueTiming` for the whole Cue (H1.6 Slice 2's deliberate replacement of the earlier per-`AttributeClass` model — see that type's own doc comment) — there is no dictionary or per-channel structure to hang an override off of. `Programmer` (`DmxConsole.Core/Engine/Programmer.cs`) stores only a value + knockout flag per `(universe, channel)` — no timing field either. A per-channel timing override (Editor-held, then optionally captured into a Cue on Store/Update) needs a new data structure at both the Programmer layer (to hold a live, not-yet-stored override) and the Cue/`CueValue` layer (to persist one that was captured) — genuinely new, not a gap in an existing mechanism.
+- **Precedence/Release interaction is new but composes cleanly with existing pieces.** §9A's 2-layer precedence (per-channel override → Cue's flat `CueTiming`) and "Release removes the override, falls back to Cue timing" reuse `ReleaseCommand`/`ProgrammerChannelCommandBase`'s existing snapshot-and-restore pattern (§23.1's resolution) in spirit — once a `FadeTime`/`DelayTime` field exists on whatever holds the per-channel override, releasing it is the same "clear this holder for this channel" operation Release already performs for values, just on a second piece of per-channel state.
+- **Selection order is already available and correct for this purpose.** `SelectionCycleState`/`FixtureSelection` (§9, §23.10) already preserve operator-chosen order, including through Group resolution — the fan engine can consume `context.Selection.Items` (or an explicitly-resolved ordered list from a `CommandComposer` clause) directly; no new ordering mechanism is needed, only a new consumer of the existing one.
+- **This does not reopen the H1.6 Slice 2 decision.** That decision removed *family-level* (`AttributeClass`-keyed) Cue timing in favor of one flat per-Cue default. §9A's per-*channel* override is a different, finer granularity added *underneath* that flat default, not a family-level bucket reintroduced above it — the two decisions are compatible, and this spec (§9A) says so explicitly ("Do not implement a separate family-timing storage model").
+
 ---
 
-**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.12–§23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10, §23.15 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt.
+**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.12–§23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10, §23.15 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first.
