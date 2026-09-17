@@ -17,8 +17,8 @@ public sealed class FixtureFamilyState
     public AttributeClass Category { get; }
 
     /// <summary>Every channel of the fixture that maps to this family, each with its own already-
-    /// computed LiveChannelState - e.g. Position typically holds Pan and Tilt (and PanFine/
-    /// TiltFine/Speed if the profile has them) as separate entries, never blended into one.</summary>
+    /// computed LiveChannelState - e.g. Position typically holds Pan and Tilt (and PanFine/TiltFine
+    /// if the profile has them) as separate entries, never blended into one.</summary>
     public IReadOnlyList<(ChannelType Type, LiveChannelState State)> Channels { get; }
 
     public FixtureFamilyState(AttributeClass category, IReadOnlyList<(ChannelType Type, LiveChannelState State)> channels)

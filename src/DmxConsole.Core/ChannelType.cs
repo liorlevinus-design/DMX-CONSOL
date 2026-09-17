@@ -91,13 +91,18 @@ public static class ChannelTypeExtensions
     /// channel types and for explicit fixture-profile overrides). A future per-profile override
     /// field on FixtureChannel (not built yet - no such field exists today) would be the intended
     /// way to reclassify a specific fixture's Shutter as a framing device rather than a beam
-    /// effect, WITHOUT introducing a second family taxonomy alongside this one.</summary>
+    /// effect, WITHOUT introducing a second family taxonomy alongside this one.
+    /// <see cref="ChannelType.Speed"/> is deliberately generic/unclassified (<see cref="AttributeClass.Other"/>)
+    /// by default - a generic "Speed" channel could mean movement speed, color-wheel speed, or a
+    /// gobo-rotation speed depending on the fixture, so classifying it as Position by default would
+    /// be a guess this project explicitly refuses to make. Only explicit fixture-profile semantics
+    /// (not built yet) may reclassify a specific fixture's Speed channel into a real family.</summary>
     public static AttributeClass ToAttributeClass(this ChannelType type) => type switch
     {
         ChannelType.Dimmer => AttributeClass.Intensity,
 
         ChannelType.Pan or ChannelType.PanFine or ChannelType.Tilt or ChannelType.TiltFine
-            or ChannelType.Speed => AttributeClass.Position,
+            => AttributeClass.Position,
 
         ChannelType.ColorRed or ChannelType.ColorGreen or ChannelType.ColorBlue or
         ChannelType.ColorWhite or ChannelType.ColorAmber or ChannelType.ColorUv or

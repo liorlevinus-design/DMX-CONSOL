@@ -5,9 +5,11 @@ namespace DmxConsole.Core.Tests;
 /// <summary>The one authoritative six-family model (docs/COMMAND_SURFACE_KEY_SPEC.md §23.1) -
 /// this used to be two separate types (a 4-value AttributeClass for Release/Presets, a 6-value
 /// EncoderCategory for the Encoder Drawer). Now unified: Prism and Shutter/Strobe (beam effects)
-/// classify as Beam, not Image/Shape; Gobo/GoboRotation classify as Image; Speed classifies as
-/// Position ("movement speed", per Vector's own documented banks); nothing in today's ChannelType
-/// enum represents a framing-shutter/blade/keystone mechanism, so Shape has no default member yet.</summary>
+/// classify as Beam, not Image/Shape; Gobo/GoboRotation classify as Image; Speed stays Other/
+/// unclassified by default (a generic "Speed" channel could mean movement, color-wheel, or gobo
+/// speed - never guessed without explicit fixture-profile semantics); nothing in today's
+/// ChannelType enum represents a framing-shutter/blade/keystone mechanism, so Shape has no
+/// default member yet.</summary>
 public class AttributeClassTests
 {
     [Theory]
@@ -16,7 +18,7 @@ public class AttributeClassTests
     [InlineData(ChannelType.PanFine, AttributeClass.Position)]
     [InlineData(ChannelType.Tilt, AttributeClass.Position)]
     [InlineData(ChannelType.TiltFine, AttributeClass.Position)]
-    [InlineData(ChannelType.Speed, AttributeClass.Position)] // Vector: "Pan, tilt, movement speed"
+    [InlineData(ChannelType.Speed, AttributeClass.Other)] // generic - could be movement/color-wheel/gobo speed; never guessed
     [InlineData(ChannelType.ColorRed, AttributeClass.Color)]
     [InlineData(ChannelType.ColorGreen, AttributeClass.Color)]
     [InlineData(ChannelType.ColorBlue, AttributeClass.Color)]
