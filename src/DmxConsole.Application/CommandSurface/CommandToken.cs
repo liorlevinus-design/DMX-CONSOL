@@ -74,6 +74,7 @@ public sealed record CommandToken
         CommandTokenKind.Full => "Full",
         CommandTokenKind.Home => "Home",
         CommandTokenKind.Dmx => "Dmx",
+        CommandTokenKind.Fan => "Fan",
         _ => kind.ToString(),
     };
 }

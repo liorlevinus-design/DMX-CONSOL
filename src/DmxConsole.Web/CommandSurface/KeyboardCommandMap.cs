@@ -67,6 +67,9 @@ public static class KeyboardCommandMap
         Token("d", CommandTokenKind.Dmx);
         Token("D", CommandTokenKind.Dmx);
 
+        Token("n", CommandTokenKind.Fan);
+        Token("N", CommandTokenKind.Fan);
+
         return map;
     }
 }
