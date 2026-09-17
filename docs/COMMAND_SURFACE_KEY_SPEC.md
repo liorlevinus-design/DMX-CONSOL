@@ -291,6 +291,8 @@ It is an Editor capture operation.
 
 The button name should be `CAPTURE ALL` for now.
 
+**Status: implemented.** `CaptureAllCommand` (`DmxConsole.Application.Commands.Programmer`) - an undoable `IConsoleCommand`, reusing `ProgrammerChannelCommandBase`'s existing snapshot/undo machinery unchanged. For every patched fixture's every channel, if `IEffectiveOutputReader.GetOwner` is non-null (the same "LiveOnStage" ownership test `LiveChannelState` already uses - no new provenance system), the channel's current `GetEffectiveValue` is written into the Programmer. Scoped to the whole patch, never the current Selection (per this section's own wording); gated on ownership, never on Intensity>0, so a fixture live only via Position/Color/Beam/Image/Shape at Intensity 0 is still captured. Self-terminating (`CommandTokenKind.CaptureAll`), never requires ENTER. Command Surface entry point: `CommandSurfaceViewModel.PressCaptureAll()` - deliberately bypasses the generic token-composition completion path (which records a `SelectionCycleState` gesture on every successful dispatch) since CAPTURE ALL never touches Selection at all. Manually verified end-to-end: Cue A (20%) → Cue B (80%) over an 8s fade, paused mid-transition at 52%, CAPTURE ALL captured exactly 52% (never 20 or 80), playback stayed paused on Cue 2 throughout, and RELEASE afterward correctly revealed the underlying paused-at-52% Cue value again with its original provenance.
+
 ---
 
 ## 9. Selection / range keys

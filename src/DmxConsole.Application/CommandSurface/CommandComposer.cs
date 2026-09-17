@@ -94,6 +94,19 @@ public sealed class CommandComposer
             };
         }
 
+        // CAPTURE ALL (§8) - always instant/self-terminating, resolved against the whole patch
+        // (never the current Selection, and never gated on any family). The caller
+        // (CommandSurfaceViewModel.PressCaptureAll) resets the composer before pushing this so it
+        // is always the sole token here in practice, but the check itself doesn't depend on that.
+        if (_tokens.Count == 1 && _tokens[0].Kind == CommandTokenKind.CaptureAll)
+        {
+            return new CommandComposition
+            {
+                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true,
+                ReadyOperation = new CaptureAllCommand(_context.Patch.Fixtures.ToList()),
+            };
+        }
+
         // CUE establishes object context for the current command (§2/§3), symmetric with FIXTURE/
         // GROUP as a head token. But there is no existing Application-layer command for targeting
         // a Cue by number from the Command Surface yet - Cues aren't a FixtureSelection-like

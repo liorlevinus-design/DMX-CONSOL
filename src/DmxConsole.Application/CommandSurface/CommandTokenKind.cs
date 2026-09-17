@@ -42,6 +42,11 @@ public enum CommandTokenKind
     /// <summary>Bare, or family-qualified (e.g. COLOR HOME) - self-terminating, see §6.</summary>
     Home,
 
+    /// <summary>CAPTURE ALL (docs/COMMAND_SURFACE_KEY_SPEC.md §8) - always instant/self-terminating,
+    /// never composed with anything else. Not "Select All" and not scoped to the current
+    /// Selection - reads the whole patch's current effective live output into the Editor.</summary>
+    CaptureAll,
+
     /// <summary>Addresses one semantic parameter (e.g. PAN, ZOOM) rather than a whole family -
     /// carries the specific ChannelType via CommandToken.SemanticPayload (see CommandToken.Parameter).
     /// Only "&lt;Parameter&gt; RELEASE" is defined in v1 (docs/COMMAND_SURFACE_KEY_SPEC.md §7) -

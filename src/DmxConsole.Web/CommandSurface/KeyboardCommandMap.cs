@@ -59,6 +59,10 @@ public static class KeyboardCommandMap
         Token("h", CommandTokenKind.Home);
         Token("H", CommandTokenKind.Home);
 
+        // CAPTURE ALL (docs/COMMAND_SURFACE_KEY_SPEC.md §8) - "a" for capture-All.
+        Token("a", CommandTokenKind.CaptureAll);
+        Token("A", CommandTokenKind.CaptureAll);
+
         return map;
     }
 }

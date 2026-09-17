@@ -179,6 +179,45 @@ public sealed class CommandSurfaceViewModel
     }
 
     /// <summary>
+    /// CAPTURE ALL (docs/COMMAND_SURFACE_KEY_SPEC.md §8) - always instant/self-terminating
+    /// regardless of whatever partial command is in progress (there is no composed variant,
+    /// unlike RELEASE) - cancels any in-progress composition first, then dispatches directly.
+    /// Deliberately does NOT go through the generic Push() completion path used for
+    /// selection-building commands: Push() also records a SelectionCycleState gesture and
+    /// remembers "last selection" on every successful dispatch, which is correct for commands
+    /// that build/mutate Selection but would be a spurious, meaningless gesture entry for CAPTURE
+    /// ALL, which never touches Selection at all (§5/§9 of the requesting spec are explicit that
+    /// CAPTURE ALL must not alter selection - bypassing Push() here is what keeps that literally
+    /// true rather than merely "the value didn't change but a gesture was recorded anyway").
+    /// </summary>
+    public void PressCaptureAll()
+    {
+        _clearArmedForFullSelection = false;
+        _releaseArmedForFullClear = false;
+        ShiftArmed = false;
+        _pendingDigits = string.Empty;
+        _composer.Reset();
+
+        var composition = _composer.Push(CommandToken.Simple(CommandTokenKind.CaptureAll));
+        DispatchError = null;
+
+        if (composition.IsComplete && composition.ReadyOperation is not null)
+        {
+            var result = _dispatcher.Dispatch(composition.ReadyOperation);
+            DispatchError = result.Success ? null : (result.Error ?? "Capture All failed.");
+            _composer.Reset();
+            Current = _composer.Current; // idle line - "reverts to idle after successful execution"
+        }
+        else
+        {
+            DispatchError = composition.Error;
+            Current = composition;
+        }
+
+        Changed?.Invoke();
+    }
+
+    /// <summary>
     /// PARAMETER RELEASE's addressed-channel key (docs/COMMAND_SURFACE_KEY_SPEC.md §7, e.g. "PAN")
     /// - the Command Surface's entry point for a Parameter token, mirroring PressToken but for a
     /// token that carries a ChannelType payload rather than being a bare CommandTokenKind. Like

@@ -43,6 +43,12 @@ public enum ConsoleActionType
     AdjustIntensity,
     SetAttributeValue,
 
+    /// <summary>CAPTURE ALL (docs/COMMAND_SURFACE_KEY_SPEC.md §8): reads the current effective
+    /// live output for every actively-owned channel across the whole patch and writes it into
+    /// the Programmer as a new Editor value - an undoable editing command (IConsoleCommand), not
+    /// a runtime action, since it genuinely creates new Editor state.</summary>
+    CaptureAll,
+
     StorePreset,
     ApplyPreset,
     RemovePreset,

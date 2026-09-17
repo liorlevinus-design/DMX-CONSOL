@@ -45,6 +45,9 @@ else
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Cue)">Cue</button>
                 <button class="key key-object key-disabled" disabled title="DMX addressing - not implemented yet">DMX</button>
             </div>
+            <div class="keypad-row">
+                <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Editor - not Select All">Capture All</button>
+            </div>
             <div class="keypad-row keypad-row-spacer"></div>
             <div class="keypad-row">
                 <button class="key @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressShift" title="Shift - modifies the next key press (only Shift+Release is defined in v1)">Shift</button>
@@ -141,6 +144,7 @@ else
             if (kind == CommandTokenKind.Backspace) Sfc.PressBackspace();
             else if (kind == CommandTokenKind.Clear) Sfc.PressClear();
             else if (kind == CommandTokenKind.Release) Sfc.PressRelease();
+            else if (kind == CommandTokenKind.CaptureAll) Sfc.PressCaptureAll();
             else Sfc.PressToken(kind);
         }
     }
