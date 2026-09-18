@@ -24,7 +24,6 @@ public sealed class CommandSurfaceViewModel
     private readonly MacroPlaybackService _macroPlayer;
     private CommandComposer _composer;
     private string _pendingDigits = string.Empty;
-    private bool _clearArmedForFullSelection;
     private bool _mirrorsExistingSelection;
 
     /// <summary>Set the instant LEARN MACRO is pressed with no recording in progress - the next
@@ -36,14 +35,19 @@ public sealed class CommandSurfaceViewModel
     /// <summary>Set when a LEARN MACRO + MACRO N press targets a slot that already holds a
     /// non-empty Macro - re-arms LEARN so pressing the SAME slot again explicitly confirms
     /// overwrite (§11: no silent overwrite), the same two-press-to-confirm idiom this Command
-    /// Surface already uses for CLEAR CLEAR / RELEASE ENTER.</summary>
+    /// Surface already uses for RELEASE ENTER.</summary>
     private int? _pendingOverwriteSlot;
 
     /// <summary>Set the instant a bare RELEASE (empty command line) fires "release current
     /// selection" - if ENTER is the very next press, with nothing else in between, it escalates
     /// to "Clear Entire Editor/Programmer" for every patched fixture (docs/COMMAND_SURFACE_KEY_SPEC.md
-    /// §7's "RELEASE ENTER"). Any other press disarms it - this is the same two-press-gesture
-    /// pattern as _clearArmedForFullSelection/CLEAR CLEAR, applied to RELEASE/RELEASE-ENTER.</summary>
+    /// §7's "RELEASE ENTER"). Any other key that composes or edits the command line disarms it -
+    /// this is the same two-press-gesture pattern used elsewhere on this keypad (see the
+    /// Macro-overwrite confirmation). CLEAR is the one deliberate exception: CLEAR is selection-only
+    /// and must not touch unrelated interaction state, so it leaves this arm exactly as it was (see
+    /// PressClear). That guarantee is intentionally left untested in this slice - its only observable
+    /// effect today is this legacy two-press escalation, which the RELEASE-panel slice replaces -
+    /// see the DEFERRED note in CommandSurfaceViewModelClearTests.</summary>
     private bool _releaseArmedForFullClear;
 
     public CommandComposition Current { get; private set; }
@@ -106,7 +110,6 @@ public sealed class CommandSurfaceViewModel
     {
         _pendingDigits = string.Empty;
         DispatchError = null;
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
@@ -131,13 +134,12 @@ public sealed class CommandSurfaceViewModel
     public void PressDigit(char digit)
     {
         if (digit is < '0' or > '9') return;
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
 
         // A number added to a mirrored selection is a new selection gesture unless it is the
-        // value following AT. This matters for single-CLEAR history.
+        // value following AT. This matters for the recorded selection-gesture history.
         if (_mirrorsExistingSelection && !Current.Tokens.Any(t => t.Kind == CommandTokenKind.At))
             _mirrorsExistingSelection = false;
 
@@ -148,7 +150,6 @@ public sealed class CommandSurfaceViewModel
 
     public void PressDecimalPoint()
     {
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
@@ -181,7 +182,13 @@ public sealed class CommandSurfaceViewModel
 
     public void PressToken(CommandTokenKind kind)
     {
-        _clearArmedForFullSelection = false;
+        // Backspace and Clear each have exactly ONE behavior, implemented by their own dedicated
+        // key handler (PressBackspace / PressClear). Delegating here - before any token-composition
+        // logic runs - guarantees that a generic/programmatic caller (a physical keyboard binding,
+        // a future MIDI/HID surface, a soft key, a test) can never reach a second, divergent
+        // meaning for either key.
+        if (kind == CommandTokenKind.Backspace) { PressBackspace(); return; }
+        if (kind == CommandTokenKind.Clear) { PressClear(); return; }
 
         // RELEASE ENTER (§7): bare ENTER pressed immediately after a bare RELEASE, with nothing
         // else typed in between, escalates to Clear Entire Editor/Programmer for every patched
@@ -255,7 +262,6 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressCaptureAll()
     {
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
@@ -297,7 +303,6 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressParameter(ChannelType channelType)
     {
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
@@ -320,7 +325,6 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressRelease()
     {
-        _clearArmedForFullSelection = false;
         DisarmLearn();
 
         if (ShiftArmed)
@@ -360,7 +364,6 @@ public sealed class CommandSurfaceViewModel
 
     public void PressBackspace()
     {
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         ShiftArmed = false;
         DisarmLearn();
@@ -377,73 +380,33 @@ public sealed class CommandSurfaceViewModel
     }
 
     /// <summary>
-    /// CLEAR (docs/COMMAND_SURFACE_KEY_SPEC.md §15). Priority, highest first: (A) while a numeric
-    /// token is being entered, CLEAR behaves exactly like Backspace, one digit at a time - this is
-    /// the same digit buffer PressBackspace already edits, so it shares that exact behavior rather
-    /// than discarding the whole partial number the way this method used to. (B) with no pending
-    /// digit but an active command line, CLEAR removes the last logical token/gesture (pushed to
-    /// the composer, same as before). (C)/(D) with an empty command line, CLEAR follows the
-    /// operator-defined selection semantics: first CLEAR removes the last selection gesture (a
-    /// whole Group/range counts as one); a second consecutive CLEAR clears the entire selection.
-    /// Both mutations are ordinary undoable Application commands.
+    /// CLEAR (docs/COMMAND_SURFACE_KEY_SPEC.md §15, redefined for this slice). CLEAR immediately
+    /// clears the CURRENT Fixture Selection and nothing else. It is one stateless gesture: there is
+    /// no CLEAR CLEAR escalation and no "remove the last selection gesture" step - a single press
+    /// clears the whole current selection, and pressing it again simply clears an already-empty
+    /// selection again.
+    ///
+    /// It deliberately does NOT modify the command line's partial composition (CommandComposer) and
+    /// does NOT modify the pending-digit buffer - Backspace is the single editor of command-line
+    /// input (see PressBackspace). It also does NOT modify Programmer/Editor values, does NOT modify
+    /// the shared EditorContextStack, and never dispatches Release (§15: for completed state
+    /// changes use Undo or Release, which are separate keys).
+    ///
+    /// It is SELECTION-ONLY: it must not touch unrelated interaction state either. Any Shift arm,
+    /// LEARN MACRO arm/recording, or RELEASE-ENTER arm that happens to be live is left exactly as it
+    /// was - those belong to their own keys, and CLEAR silently disarming them would make an
+    /// unrelated key's next press behave differently for no reason the operator could see.
+    ///
+    /// Applied as a non-undoable <see cref="ClearSelectionAction"/> through
+    /// CommandDispatcher.DispatchAction, so CLEAR can never enter Undo history and can never clear
+    /// the Redo stack. That same action is also excluded from Macro recording (see MacroRecorder) -
+    /// clearing the operating selection is a navigation gesture, never a replayable console step.
     /// </summary>
     public void PressClear()
     {
-        _releaseArmedForFullClear = false;
-        ShiftArmed = false;
-        DisarmLearn();
+        var result = _dispatcher.DispatchAction(new ClearSelectionAction());
 
-        if (_pendingDigits.Length > 0)
-        {
-            _pendingDigits = _pendingDigits[..^1];
-            Changed?.Invoke();
-            return;
-        }
-
-        if (Current.Tokens.Count > 0)
-        {
-            _clearArmedForFullSelection = false;
-            _mirrorsExistingSelection = false;
-            Push(CommandToken.Simple(CommandTokenKind.Clear));
-            return;
-        }
-
-        DispatchError = null;
-
-        if (_clearArmedForFullSelection)
-        {
-            var result = _dispatcher.Dispatch(new ClearSelectionCommand());
-            if (result.Success)
-            {
-                _context.SelectionCycle.ClearGestureHistory();
-                _context.SelectionCycle.MarkSelectionStarted();
-            }
-            _clearArmedForFullSelection = false;
-            _composer.Reset();
-            Current = _composer.Current;
-            Changed?.Invoke();
-            return;
-        }
-
-        if (_context.SelectionCycle.TryPopGesture(out var baseline))
-        {
-            var result = _dispatcher.Dispatch(new ReplaceSelectionCommand(baseline));
-            _clearArmedForFullSelection = result.Success;
-        }
-        else if (_context.Selection.Items.LastOrDefault() is { } last)
-        {
-            // Compatibility fallback for a selection that predates gesture tracking.
-            var result = _dispatcher.Dispatch(new RemoveFixtureFromSelectionCommand(last));
-            _clearArmedForFullSelection = result.Success;
-        }
-        else
-        {
-            _clearArmedForFullSelection = true;
-        }
-
-        _composer.Reset();
-        _composer.ReplaceSelectionOnResolve = false;
-        Current = _composer.Current;
+        DispatchError = result.Success ? null : (result.Error ?? "Clear failed.");
         Changed?.Invoke();
     }
 
@@ -457,7 +420,6 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressLearnMacro()
     {
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
         // SHIFT + LEARN MACRO is reserved for a future Macro Manager/Edit screen (§1) - not
         // implemented in v1, so it silently behaves like a bare LEARN MACRO press, the same
@@ -510,7 +472,6 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressMacroSlot(int baseSlot)
     {
-        _clearArmedForFullSelection = false;
         _releaseArmedForFullClear = false;
 
         int slot = ShiftArmed ? baseSlot + 4 : baseSlot;
@@ -533,7 +494,7 @@ public sealed class CommandSurfaceViewModel
             {
                 // "Already exists" - re-arm for an explicit second press of this SAME slot to
                 // confirm overwrite, the same two-press-to-confirm idiom this Command Surface
-                // already uses for CLEAR CLEAR / RELEASE ENTER.
+                // already uses for RELEASE ENTER.
                 _pendingOverwriteSlot = slot;
                 DispatchError = $"{startResult.Error} Press MACRO {slot} again to overwrite, or LEARN MACRO to cancel.";
                 Current = _composer.Current;

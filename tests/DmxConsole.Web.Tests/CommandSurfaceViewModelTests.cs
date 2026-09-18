@@ -13,7 +13,8 @@ namespace DmxConsole.Web.Tests;
 
 /// <summary>docs/COMMAND_SURFACE_KEY_SPEC.md §7/§15/§18 - the UI-level gestures that live above
 /// CommandComposer's pure grammar: bare RELEASE's two-press escalation to "Clear Entire Editor",
-/// SHIFT+RELEASE (Release All Playbacks), and CLEAR's digit-backspace priority.</summary>
+/// SHIFT+RELEASE (Release All Playbacks), and CLEAR's "pending digits are left alone" boundary
+/// (Backspace, not CLEAR, is the single command-line editor).</summary>
 public class CommandSurfaceViewModelTests
 {
     private static FixtureProfile Dimmer1() => new()
@@ -178,20 +179,26 @@ public class CommandSurfaceViewModelTests
         Assert.False(surface.ShiftArmed);
     }
 
+    /// <summary>CLEAR no longer edits the command line (§15 redefined for this slice): the pending
+    /// digits and the partial composition both survive it completely intact. Backspace - not CLEAR -
+    /// is the single digit-backspace key. (CLEAR's full behavior lives in
+    /// CommandSurfaceViewModelClearTests.)</summary>
     [Fact]
-    public void Clear_WhileDigitPending_BackspacesOneDigit_BeforeTouchingSelectionOrTokens()
+    public void Clear_WhileDigitPending_LeavesPendingDigitsAndCompositionUntouched()
     {
-        var (context, _, surface, _) = BuildRig();
+        var (_, _, surface, _) = BuildRig();
         surface.PressToken(CommandTokenKind.Fixture);
         surface.PressDigit('1');
         surface.PressToken(CommandTokenKind.At);
         surface.PressDigit('5');
         surface.PressDigit('7');
+        Assert.Equal("FIXTURE 1 AT 57", surface.DisplayPreview.ToUpperInvariant());
 
-        surface.PressClear(); // "AT 57" -> "AT 5"
+        surface.PressClear();
+
+        Assert.Equal("FIXTURE 1 AT 57", surface.DisplayPreview.ToUpperInvariant());
+
+        surface.PressBackspace(); // Backspace is the single digit editor
         Assert.Equal("FIXTURE 1 AT 5", surface.DisplayPreview.ToUpperInvariant());
-
-        surface.PressClear(); // "AT 5" -> "AT "
-        Assert.Equal("FIXTURE 1 AT", surface.DisplayPreview.ToUpperInvariant());
     }
 }

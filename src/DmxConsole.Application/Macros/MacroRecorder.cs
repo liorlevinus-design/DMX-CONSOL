@@ -1,4 +1,5 @@
 using DmxConsole.Application.Commands;
+using DmxConsole.Application.Commands.Selection;
 
 namespace DmxConsole.Application.Macros;
 
@@ -17,8 +18,9 @@ namespace DmxConsole.Application.Macros;
 /// CompositeCommand, every one of its children, recursively) implements IReplayableCommand - see
 /// that type's own doc comment for why. A command that doesn't is explicitly reported as skipped
 /// (surfaced on Stop()'s CommandResult.Warning) rather than stored/replayed unsafely. IConsoleAction
-/// needs no such check - Actions hold no per-execution mutable state and are never pushed onto
-/// the Undo stack, so redispatching the same instance is inherently safe.
+/// needs no such safety check - Actions hold no per-execution mutable state and are never pushed onto
+/// the Undo stack, so redispatching the same instance is inherently safe - but an individual Action
+/// can still be excluded from Macros entirely on operator-meaning grounds (see OnActionExecuted).
 /// </summary>
 public sealed class MacroRecorder
 {
@@ -80,7 +82,24 @@ public sealed class MacroRecorder
         else _skippedOperationTypeNames.Add(command.GetType().Name);
     }
 
-    private void OnActionExecuted(IConsoleAction action) => _steps.Add(MacroStep.ForAction(action));
+    /// <summary>
+    /// Records a successfully dispatched Action, EXCEPT one deliberately excluded from Macros on
+    /// OPERATOR-MEANING grounds: CLEAR's ClearSelectionAction is a pure selection-NAVIGATION
+    /// gesture, not a console operation worth replaying - a recorded Macro that cleared the
+    /// operating selection would wipe whatever the operator had selected mid-show for no visible
+    /// reason. This is a narrow, explicit exclusion of that one action type, not a general
+    /// recordability mechanism for Actions: every other Action is still recorded unconditionally
+    /// (see this type's own doc comment for why Actions need no replay-safety check at all).
+    ///
+    /// Excluded silently rather than via _skippedOperationTypeNames: that list exists to WARN about
+    /// an operation the operator probably did want recorded but that could not be stored safely,
+    /// whereas this is an intentional "never a Macro step in the first place" omission.
+    /// </summary>
+    private void OnActionExecuted(IConsoleAction action)
+    {
+        if (action is ClearSelectionAction) return;
+        _steps.Add(MacroStep.ForAction(action));
+    }
 
     /// <summary>A CompositeCommand (e.g. "Fixture 1 THRU 5 AT 70" - one atomic transaction) is
     /// safely recordable only if EVERY child is, recursively - a partially-fresh composite would
