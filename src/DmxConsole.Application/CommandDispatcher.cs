@@ -12,6 +12,17 @@ public sealed class CommandDispatcher
     private readonly ConsoleContext _context;
     private readonly UndoRedoService _undoRedo;
 
+    /// <summary>Fired right after a successful IConsoleCommand.Execute (right after it's pushed
+    /// onto the Undo stack) - the hook Macros/MacroRecorder attaches to while LEARN MACRO is
+    /// recording (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS slice). Never fires for a failed
+    /// dispatch - nothing happened, nothing to record.</summary>
+    public event Action<IConsoleCommand>? CommandExecuted;
+
+    /// <summary>Same as <see cref="CommandExecuted"/>, for a successful IConsoleAction - fires
+    /// independently of Undo, since Actions never touch UndoRedoService (see DispatchAction's own
+    /// doc comment).</summary>
+    public event Action<IConsoleAction>? ActionExecuted;
+
     public CommandDispatcher(ConsoleContext context, UndoRedoService undoRedo)
     {
         _context = context;
@@ -21,7 +32,11 @@ public sealed class CommandDispatcher
     public CommandResult Dispatch(IConsoleCommand command)
     {
         var result = command.Execute(_context);
-        if (result.Success) _undoRedo.Push(command);
+        if (result.Success)
+        {
+            _undoRedo.Push(command);
+            CommandExecuted?.Invoke(command);
+        }
         return result;
     }
 
@@ -32,5 +47,10 @@ public sealed class CommandDispatcher
     /// <summary>Executes an operational/runtime Action - Go/Back/Stop/Pause/Resume/Flash. Never
     /// touches UndoRedoService (no push, no clear) - this is the structural guarantee that
     /// operational actions can never enter Undo history and can never clear the Redo stack.</summary>
-    public CommandResult DispatchAction(IConsoleAction action) => action.Execute(_context);
+    public CommandResult DispatchAction(IConsoleAction action)
+    {
+        var result = action.Execute(_context);
+        if (result.Success) ActionExecuted?.Invoke(action);
+        return result;
+    }
 }

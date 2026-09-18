@@ -54,4 +54,6 @@ public sealed class AdjustIntensityCommand : ProgrammerChannelCommandBase
         context.Programmer.SetChannel(fixture.UniverseId, idx, newValue);
         return true;
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new AdjustIntensityCommand(Targets, _operation, _percent);
 }

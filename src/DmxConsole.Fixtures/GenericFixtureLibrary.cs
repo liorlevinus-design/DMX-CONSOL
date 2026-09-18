@@ -33,7 +33,7 @@ public static class GenericFixtureLibrary
                 Name = "1-channel",
                 Channels = new[]
                 {
-                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0 },
+                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0, Unit = "%", MinValue = 0, MaxValue = 100 },
                 },
             },
         },
@@ -92,11 +92,13 @@ public static class GenericFixtureLibrary
                 Name = "8-channel",
                 Channels = new[]
                 {
+                    // No physical calibration for a generic profile - Pan/Tilt stay raw DMX 0-255
+                    // until a real fixture profile declares an actual, measured range.
                     new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 0 },
                     new FixtureChannel { Name = "Pan Fine", Type = ChannelType.PanFine, Offset = 1 },
                     new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 2 },
                     new FixtureChannel { Name = "Tilt Fine", Type = ChannelType.TiltFine, Offset = 3 },
-                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 4 },
+                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 4, Unit = "%", MinValue = 0, MaxValue = 100 },
                     new FixtureChannel { Name = "Shutter/Strobe", Type = ChannelType.Shutter, Offset = 5 },
                     new FixtureChannel { Name = "Color Wheel", Type = ChannelType.ColorWheel, Offset = 6 },
                     new FixtureChannel { Name = "Gobo", Type = ChannelType.Gobo, Offset = 7 },

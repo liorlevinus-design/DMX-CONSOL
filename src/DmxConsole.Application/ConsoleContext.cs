@@ -1,3 +1,4 @@
+using DmxConsole.Application.Macros;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Effects;
 using DmxConsole.Core.Fixtures;
@@ -34,6 +35,17 @@ public sealed class ConsoleContext
     /// </summary>
     public IEffectiveOutputReader EffectiveOutput { get; }
 
+    /// <summary>
+    /// Narrow write-capability to allocate a Universe (make it exist/trackable for merge and
+    /// output) WITHOUT patching a fixture into it - see IUniverseAllocator's own doc comment for
+    /// why this is deliberately separate from EffectiveOutput (a pure reader) and from the
+    /// engine's Start/Stop/layer-registration surface (still off-limits). Null when
+    /// effectiveOutput doesn't implement it (e.g. a test double) - a caller that needs this
+    /// degrades gracefully (skips allocation) rather than throwing, exactly like any other
+    /// optional capability in this codebase.
+    /// </summary>
+    public IUniverseAllocator? UniverseAllocator { get; }
+
     public PresetLibrary Presets { get; }
 
     /// <summary>The show's Executors - Step F. Playback Sources (CueLists today) are assigned
@@ -42,17 +54,23 @@ public sealed class ConsoleContext
     public ExecutorBank Executors { get; }
     public EffectBank Effects { get; }
 
+    /// <summary>The show's Macro slots (docs/COMMAND_SURFACE_KEY_SPEC.md MACROS §10) - Application-layer
+    /// show data, same as Presets/Groups/Executors, not only Web ViewModel state.</summary>
+    public MacroBank Macros { get; }
+
     public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups,
         IEffectiveOutputReader effectiveOutput, PresetLibrary presets, ExecutorBank executors,
-        EffectBank? effects = null)
+        EffectBank? effects = null, MacroBank? macros = null)
     {
         Patch = patch;
         Programmer = programmer;
         Selection = selection;
         Groups = groups;
         EffectiveOutput = effectiveOutput;
+        UniverseAllocator = effectiveOutput as IUniverseAllocator;
         Presets = presets;
         Executors = executors;
         Effects = effects ?? new EffectBank();
+        Macros = macros ?? new MacroBank();
     }
 }

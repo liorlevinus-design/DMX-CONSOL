@@ -10,6 +10,21 @@
     view of the structured composition, never the source of truth.
 *@
 
+@* MACROS §13 - recording state must be clearly visible, never hidden, and never hides the
+   normal command-line feedback below it. *@
+@if (Sfc.IsRecordingMacro)
+{
+    <div class="command-line-macro-status command-line-macro-recording">
+        <span class="macro-recording-dot"></span>
+        <span>LEARN MACRO @Sfc.RecordingMacroSlot RECORDING</span>
+        <button class="macro-recording-cancel" @onclick="Sfc.CancelLearnMacro">Cancel</button>
+    </div>
+}
+else if (Sfc.IsLearnArmed)
+{
+    <div class="command-line-macro-status command-line-macro-armed">LEARN MACRO - press a MACRO key to choose a slot</div>
+}
+
 <div class="command-line @(HasError ? "has-error" : "")">
     <span class="command-line-prompt">&gt;</span>
     <span class="command-line-text">@(string.IsNullOrEmpty(Sfc.DisplayPreview) ? " " : Sfc.DisplayPreview)</span>

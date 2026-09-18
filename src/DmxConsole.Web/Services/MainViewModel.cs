@@ -3,6 +3,7 @@ using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
+using DmxConsole.Application.Live;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Effects;
 using DmxConsole.Core.Fixtures;
@@ -36,6 +37,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public GroupsViewModel GroupsVm { get; }
     public CommandSurfaceViewModel CommandSurfaceVm { get; }
     public EncoderDrawerViewModel EncoderDrawerVm { get; }
+    public ParameterPickerViewModel ParameterPickerVm { get; }
 
     /// <summary>The ONE shared operator context (H1.6 §19) - View row clicks, the Command
     /// Surface, and EditorToolBarVm all read/write this same instance. Never construct a second
@@ -95,6 +97,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string? _selectedComPort;
     [ObservableProperty] private int _usbUniverseId;
 
+    /// <summary>The operator's chosen LIVE filter for Channels/Fixtures - held here (the one
+    /// long-lived singleton every view shares), not as local Razor component state, because
+    /// Blazor recreates a pane's inactive-tab components (including their private fields) every
+    /// time the operator switches away and back - a local field would silently reset to All on
+    /// every revisit. Defaults to All from first load, per the roadmap's own requirement that the
+    /// initial visit stays unaffected by this fix.</summary>
+    [ObservableProperty] private LiveFilter _channelsLiveFilter = LiveFilter.All;
+    [ObservableProperty] private LiveFilter _fixturesLiveFilter = LiveFilter.All;
+
     public MainViewModel()
     {
         Engine = new DmxOutputEngine(Patch);
@@ -127,6 +138,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext);
         EditorToolBarVm = new EditorToolBarViewModel(EditorContext, SoftKeyRegistryBuilder.Build(), this, CueListVm, GroupsVm, SelectionVm);
         EncoderDrawerVm = new EncoderDrawerViewModel(dispatcher, ProgrammerVm);
+        ParameterPickerVm = new ParameterPickerViewModel(consoleContext, CommandSurfaceVm);
 
         _artNetSender = new ArtNetSender();
         _sacnSender = new SacnSender();
@@ -237,7 +249,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void ClearProgrammer()
     {
         Programmer.ClearAll();
-        foreach (var fader in Faders) fader.Value = fader.Channel.DefaultValue;
+        foreach (var fader in Faders) fader.RefreshFromProgrammer(fader.Channel.DefaultValue);
         StatusMessage = "Programmer cleared.";
     }
 

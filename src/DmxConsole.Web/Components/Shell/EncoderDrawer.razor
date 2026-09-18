@@ -1,80 +1,189 @@
 @using DmxConsole.Core
 @inject MainViewModel Vm
+@inject WorkspaceViewModel Wvm
 @implements IDisposable
 
 @*
     Work-plan Milestone 1 (2026-09-16): the fixed Encoder Drawer - persistent console
     infrastructure, exactly like EditorToolBar/CommandLine/CommandSurface. Always present,
     open/closed rather than conjured by context (replaces the old context-dependent
-    FixtureEncoderBank). Categories are Vector's own documented banks (EncoderCategory), not
-    AttributeClass. Every control here is a thin proxy to EncoderDrawerViewModel - no business
-    logic lives in this markup.
+    FixtureEncoderBank). Categories are Vector's own documented banks, grouped via the one
+    authoritative AttributeClass family model (docs/COMMAND_SURFACE_KEY_SPEC.md §23.1). Every
+    control here is a thin proxy to EncoderDrawerViewModel - no business logic lives in this markup.
 *@
 
 @if (!Drawer.IsOpen)
 {
     <div class="encoder-drawer encoder-drawer-collapsed" @onclick="Drawer.Open">
         <span class="encoder-drawer-collapsed-label">@(Drawer.ActiveCategory?.ToString().ToUpperInvariant() ?? "ENCODERS")</span>
-        <span class="encoder-drawer-collapsed-count">@SelectionCount fixture(s)</span>
+        @if (SelectionCount == 0)
+        {
+            <span class="encoder-drawer-collapsed-count">No selection</span>
+        }
+        else
+        {
+            <div class="encoder-drawer-collapsed-preview">
+                @foreach (var slot in Drawer.SlotsForCurrentPage().Where(s => s.Type is not null))
+                {
+                    <span class="encoder-drawer-collapsed-chip">@slot.Label: @(slot.Mixed ? "MIXED" : FormatValue(slot))</span>
+                }
+            </div>
+        }
         <button class="editor-nav-btn" title="Open encoder drawer" @onclick="Drawer.Open" @onclick:stopPropagation="true">▲ OPEN</button>
     </div>
 }
 else
 {
     <div class="encoder-drawer">
-        <div class="encoder-drawer-categories">
-            @foreach (var category in Drawer.AvailableCategories())
-            {
-                <button class="soft-key @(Drawer.ActiveCategory == category ? "active" : "")" @onclick="() => Drawer.SelectCategory(category)">
-                    @category.ToString().ToUpperInvariant()
-                </button>
-            }
-            @if (Drawer.AvailableCategories().Count == 0)
-            {
-                <span class="context-soft-keys-empty">Select fixtures to control parameters</span>
-            }
-            <button class="editor-nav-btn encoder-drawer-close" title="Close encoder drawer" @onclick="Drawer.Close">▼ CLOSE</button>
-        </div>
-
-        @if (Drawer.PageCount() > 1)
-        {
-            <div class="encoder-drawer-paging">
-                <button class="editor-nav-btn" disabled="@(Drawer.Page == 0)" @onclick="Drawer.PreviousPage">◀ Page</button>
-                <span>Page @(Drawer.Page + 1) / @Drawer.PageCount()</span>
-                <button class="editor-nav-btn" disabled="@(Drawer.Page + 1 >= Drawer.PageCount())" @onclick="Drawer.NextPage">Page ▶</button>
+        <header class="encoder-drawer-header">
+            <div class="encoder-drawer-heading">
+                <span>ENCODERS</span>
+                <small>@(SelectionCount == 0 ? "NO SELECTION" : $"{SelectionCount} SELECTED")</small>
             </div>
-        }
+            <button class="editor-nav-btn encoder-drawer-close" title="Close encoder drawer" @onclick="Drawer.Close">▼ CLOSE</button>
+        </header>
 
-        <div class="encoder-bank">
-            @foreach (var slot in Drawer.SlotsForCurrentPage())
-            {
-                @if (slot.Type is { } type)
+        <div class="encoder-drawer-workarea">
+            <nav class="encoder-category-rail" aria-label="Encoder categories">
+                @foreach (var category in Drawer.AvailableCategories())
                 {
-                    <div class="encoder-slot">
-                        <div class="encoder-slot-header">
-                            <span class="encoder-name">@slot.Label</span>
-                            @if (slot.IsProgrammerTouched)
-                            {
-                                <span class="encoder-touched-badge" title="Value is captured in the Programmer">●</span>
-                            }
-                        </div>
-                        <input type="range" min="0" max="255" value="@slot.Value" @oninput="e => SetEncoder(type, e.Value)" />
-                        <span class="encoder-value">@(slot.Mixed ? "MIXED" : $"{Percent(slot.Value)}%")</span>
-                        <div class="encoder-slot-actions">
-                            <button class="editor-nav-btn" title="Home" @onclick="() => Drawer.Home(type)">HOME</button>
-                            <button class="editor-nav-btn" title="Min" @onclick="() => Drawer.Min(type)">MIN</button>
-                            <button class="editor-nav-btn" title="Max" @onclick="() => Drawer.Max(type)">MAX</button>
-                            <button class="editor-nav-btn" disabled title="Next - not implemented yet">NEXT</button>
-                            <button class="editor-nav-btn" disabled title="Last - not implemented yet">LAST</button>
-                            <button class="editor-nav-btn" disabled title="Mode - not implemented yet">MODE</button>
-                        </div>
+                    <button class="encoder-category-key @(Drawer.ActiveCategory == category ? "active" : "")"
+                            aria-pressed="@(Drawer.ActiveCategory == category)"
+                            @onclick="() => Drawer.SelectCategory(category)">
+                        <span class="encoder-category-abbr">@CategoryAbbreviation(category)</span>
+                        <span>@category.ToString().ToUpperInvariant()</span>
+                    </button>
+                }
+                @if (Drawer.AvailableCategories().Count == 0)
+                {
+                    @foreach (var category in EncoderDrawerViewModel.CategoryOrder)
+                    {
+                        <button class="encoder-category-key" disabled>
+                            <span class="encoder-category-abbr">@CategoryAbbreviation(category)</span>
+                            <span>@category.ToString().ToUpperInvariant()</span>
+                        </button>
+                    }
+                }
+            </nav>
+
+            <div class="encoder-drawer-content">
+            @if (SelectionCount > 0)
+            {
+                @if (Drawer.PageCount() > 1)
+                {
+                    <div class="encoder-drawer-paging">
+                        <button class="editor-nav-btn" disabled="@(Drawer.Page == 0)" @onclick="Drawer.PreviousPage">◀ Page</button>
+                        <span>Page @(Drawer.Page + 1) / @Drawer.PageCount()</span>
+                        <button class="editor-nav-btn" disabled="@(Drawer.Page + 1 >= Drawer.PageCount())" @onclick="Drawer.NextPage">Page ▶</button>
                     </div>
                 }
-                else
+
+                @if (Drawer.ActiveCategory == AttributeClass.Position)
                 {
-                    <div class="encoder-slot encoder-empty"><span>—</span></div>
+                    if (Drawer.ShowsPositionPad())
+                    {
+                        <EncoderPositionPad Pan="Drawer.SlotFor(ChannelType.Pan)"
+                                            Tilt="Drawer.SlotFor(ChannelType.Tilt)"
+                                            Drawer="Drawer" />
+                    }
                 }
+                else if (Drawer.ActiveCategory == AttributeClass.Color)
+                {
+                    if (Drawer.ShowsColorPicker())
+                    {
+                        <EncoderColorPicker Red="Drawer.SlotFor(ChannelType.ColorRed)"
+                                            Green="Drawer.SlotFor(ChannelType.ColorGreen)"
+                                            Blue="Drawer.SlotFor(ChannelType.ColorBlue)"
+                                            Drawer="Drawer" />
+                    }
+                    else if (Drawer.ColorPickerIsPartial())
+                    {
+                        <div class="encoder-special-panel unavailable">
+                            <strong>COLOR PICKER · PARTIAL</strong>
+                            <span>Select only fixtures with a complete RGB engine to use the picker.</span>
+                        </div>
+                    }
+                }
+
+            <div class="encoder-bank" role="group" aria-label="Five encoder parameter strips">
+                @foreach (var slot in Drawer.SlotsForCurrentPage())
+                {
+                    @if (slot.Type is { } type)
+                    {
+                        <section class="encoder-slot @(slot.IsProgrammerTouched ? "is-touched" : "")" aria-label="@slot.Label encoder">
+                            <div class="encoder-slot-header">
+                                <span class="encoder-slot-number">E@(Array.IndexOf(Drawer.SlotsForCurrentPage().ToArray(), slot) + 1)</span>
+                                <span class="encoder-name">@slot.Label</span>
+                                @if (slot.IsProgrammerTouched)
+                                {
+                                    <span class="encoder-touched-badge" title="Value is captured in the Programmer">●</span>
+                                }
+                            </div>
+                            <div class="encoder-slot-control">
+                                <EncoderValueStrip Slot="slot" Type="type" Drawer="Drawer" OnLiveValueChanged="v => OnKnobLiveValueChanged(type, v)" />
+                                <EncoderKnob Slot="slot" Type="type" Drawer="Drawer" OnLiveValueChanged="v => OnKnobLiveValueChanged(type, v)" />
+                            </div>
+                            @{ var displaySlot = DisplayedSlot(slot, type); }
+                            @* MIXED and PARTIAL both take precedence over showing a single numeric
+                               value - either state means "this number doesn't represent the whole
+                               selection", so a plain formatted value is never shown alongside them.
+                               Mixed wins if both apply (disagreement is the more urgent fact).
+                               A live gesture in progress (see DisplayedSlot) resolves Mixed to a
+                               real single value, same as the knob's own needle does, so the number
+                               moves in real time right alongside it - it never waits for the
+                               parent's own poll timer to catch up.
+                               Clicking any of the three states still opens numeric entry - typing
+                               an exact value is meaningful even for a partial/mixed selection,
+                               TrySetDisplayValue already only ever writes to fixtures that
+                               actually support the channel. *@
+                            <div class="encoder-value-row">
+                                @if (_editingType == type)
+                                {
+                                    <input class="encoder-value-input" type="number" step="any" autofocus
+                                           @bind="_editingText" @bind:event="oninput"
+                                           @onkeydown="e => OnNumericEntryKeyDown(e, type)"
+                                           @onblur="() => CommitNumericEntry(type)" />
+                                }
+                                else if (displaySlot.Mixed)
+                                {
+                                    <span class="encoder-value encoder-value-mixed" title="Values differ across the selection - click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">MIXED</span>
+                                }
+                                else if (displaySlot.Partial)
+                                {
+                                    <span class="encoder-value encoder-value-partial-label" title="Only some selected fixtures support this parameter - click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">PARTIAL</span>
+                                }
+                                else
+                                {
+                                    <span class="encoder-value" title="Click to type an exact value" @onclick="() => StartNumericEntry(type, slot)">@FormatValue(displaySlot)</span>
+                                }
+                            </div>
+                            <div class="encoder-slot-actions encoder-slot-actions-primary">
+                                <button class="encoder-action-key home" title="Home" @onclick="() => Drawer.Home(type)">HOME</button>
+                                <button class="encoder-action-key" title="Minimum" @onclick="() => Drawer.Min(type)">MIN</button>
+                                <button class="encoder-action-key" title="Maximum" @onclick="() => Drawer.Max(type)">MAX</button>
+                            </div>
+                            <div class="encoder-slot-actions encoder-slot-actions-context">
+                                <button class="encoder-action-key" disabled title="Next - requires discrete-value metadata">NEXT</button>
+                                <button class="encoder-action-key" disabled title="Last - requires discrete-value metadata">LAST</button>
+                                <button class="encoder-action-key more" disabled title="More parameter actions will appear when supported">MORE</button>
+                            </div>
+                        </section>
+                    }
+                    else
+                    {
+                        <div class="encoder-slot encoder-empty"><span>—</span></div>
+                    }
+                }
+                </div>
             }
+            else
+            {
+                <div class="encoder-drawer-empty-state">
+                    <strong>SELECT FIXTURES</strong>
+                    <span>Available parameter banks will light up here.</span>
+                </div>
+            }
+            </div>
         </div>
     </div>
 }
@@ -83,12 +192,48 @@ else
     private EncoderDrawerViewModel Drawer => Vm.EncoderDrawerVm;
     private int SelectionCount => Vm.SelectionVm.Selection.Items.Count;
 
+    private static string CategoryAbbreviation(AttributeClass category) => category switch
+    {
+        AttributeClass.Intensity => "INT",
+        AttributeClass.Position => "POS",
+        AttributeClass.Color => "COL",
+        AttributeClass.Beam => "BEA",
+        AttributeClass.Image => "IMG",
+        AttributeClass.Shape => "SHP",
+        _ => "---"
+    };
+
     private System.Threading.Timer? _liveTimer;
+
+    /// <summary>Per-channel live-preview override reported by each EncoderKnob's own local drag/
+    /// wheel state (see EncoderKnob.OnLiveValueChanged) - what lets the numeric value display
+    /// here (which otherwise only ever reflects the parent-supplied, poll-refreshed Slot) move in
+    /// real time during a gesture too, not just the knob's own needle.</summary>
+    private readonly Dictionary<ChannelType, byte> _liveOverrides = new();
+
+    private void OnKnobLiveValueChanged(ChannelType type, byte? value)
+    {
+        if (value is { } v) _liveOverrides[type] = v;
+        else _liveOverrides.Remove(type);
+    }
+
+    /// <summary>slot with its Value swapped for the live override when one is active - Mixed is
+    /// also resolved to false in that case, since an active gesture is unifying the whole
+    /// selection onto one real value, same treatment EncoderKnob's own needle gives it.</summary>
+    private EncoderSlot DisplayedSlot(EncoderSlot slot, ChannelType type) =>
+        _liveOverrides.TryGetValue(type, out var live) ? slot with { Value = live, Mixed = false } : slot;
 
     protected override void OnInitialized()
     {
+        // Restore persisted state (open/category/page) from the active Workspace before wiring
+        // up live sync - a fresh page load or a workspace switch both need to start from what
+        // was actually saved, not the ViewModel's own just-constructed defaults.
+        Drawer.RestoreState(Wvm.Current.EncoderDrawer);
+        Drawer.RevalidateActiveCategory();
+
         Drawer.PropertyChanged += OnChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged += OnSelectionChanged;
+        Wvm.Changed += OnWorkspaceChanged;
         // Slot values come from the engine's live merged output (Context.EffectiveOutput), which
         // ticks on a background thread with no change notification of its own - same "poll the
         // engine's live state" approach ChannelsView/FixturesView already use, needed so a value
@@ -96,25 +241,72 @@ else
         _liveTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, 200, 200);
     }
 
-    private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+    private void OnChanged(object? sender, EventArgs e)
+    {
+        // Mirror into the active Workspace's own EncoderDrawer field - not written to disk until
+        // an explicit Save (same as every other layout edit: Lock/Split/Resize), but "reload
+        // preserves state" then falls straight out of Workspace/WorkspaceSerializer's existing
+        // Save/Load round-trip - no separate persistence path needed.
+        Drawer.CopyStateInto(Wvm.Current.EncoderDrawer);
+        InvokeAsync(StateHasChanged);
+    }
 
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
+        Drawer.CancelActiveGestureIfAny();
         Drawer.RevalidateActiveCategory();
         InvokeAsync(StateHasChanged);
     }
 
-    private void SetEncoder(ChannelType type, object? raw)
+    /// <summary>The active Workspace itself changed (switch/new/save-as/duplicate/delete-of-
+    /// current) - re-sync from whatever THAT workspace's own EncoderDrawer state is.</summary>
+    private void OnWorkspaceChanged()
     {
-        if (byte.TryParse(raw?.ToString(), out var value)) Drawer.SetValue(type, value);
+        Drawer.CancelActiveGestureIfAny();
+        Drawer.RestoreState(Wvm.Current.EncoderDrawer);
+        Drawer.RevalidateActiveCategory();
+        InvokeAsync(StateHasChanged);
     }
 
-    private static int Percent(byte value) => (int)Math.Round(value / 255d * 100);
+    /// <summary>"DMX" is the honest default unit (no calibration) - shown as a bare integer with
+    /// the "DMX" label, since a raw byte has no meaningful decimal places. A calibrated unit
+    /// (%, °) shows one decimal place.</summary>
+    private static string FormatValue(EncoderSlot slot) =>
+        slot.Unit == "DMX" ? $"{(int)Math.Round(slot.DisplayValue)} DMX" : $"{slot.DisplayValue:0.#}{slot.Unit}";
+
+    // ---------- Direct numeric entry ----------
+    private ChannelType? _editingType;
+    private string _editingText = string.Empty;
+
+    private void StartNumericEntry(ChannelType type, EncoderSlot slot)
+    {
+        _editingType = type;
+        _editingText = slot.Mixed ? string.Empty : Math.Round(slot.DisplayValue, 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private void CancelNumericEntry() => _editingType = null;
+
+    private void CommitNumericEntry(ChannelType type)
+    {
+        if (_editingType != type) return; // already committed/cancelled (e.g. Enter fired before blur)
+        _editingType = null;
+
+        if (double.TryParse(_editingText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            Drawer.TrySetDisplayValue(type, parsed);
+    }
+
+    private void OnNumericEntryKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e, ChannelType type)
+    {
+        if (e.Key == "Enter") CommitNumericEntry(type);
+        else if (e.Key == "Escape") CancelNumericEntry();
+    }
 
     public void Dispose()
     {
+        Drawer.CancelActiveGestureIfAny();
         Drawer.PropertyChanged -= OnChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
+        Wvm.Changed -= OnWorkspaceChanged;
         _liveTimer?.Dispose();
     }
 }

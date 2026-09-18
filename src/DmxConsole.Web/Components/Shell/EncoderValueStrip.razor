@@ -1,0 +1,131 @@
+@using DmxConsole.Core
+@using DmxConsole.Web.Services
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JS
+
+<div class="encoder-value-strip @(Slot.Mixed && _liveValue is null ? "mixed" : "")"
+     role="slider" tabindex="0" aria-label="@($"{Slot.Label} value")"
+     aria-valuemin="0" aria-valuemax="255" aria-valuenow="@DisplayedValue"
+     @ref="_stripRef"
+     @onpointerdown="OnPointerDown"
+     @onpointermove="OnPointerMove"
+     @onpointerup="OnPointerUp"
+     @onpointercancel="OnPointerCancel">
+    <div class="encoder-value-strip-rail"></div>
+    <div class="encoder-value-strip-fill" style="height: @TrackHeight(DisplayedValue)"></div>
+
+    @if (Slot.Mixed && _liveValue is null)
+    {
+        @foreach (var marker in Slot.AllValuesOrEmpty.Distinct())
+        {
+            <span class="encoder-value-strip-marker mixed-marker" style="bottom: @TrackPosition(marker)"></span>
+        }
+    }
+
+    <span class="encoder-value-strip-handle" style="bottom: calc(@TrackPosition(DisplayedValue) - 3px)"></span>
+    <span class="encoder-value-strip-max">MAX</span>
+    <span class="encoder-value-strip-min">MIN</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EncoderSlot Slot { get; set; } = null!;
+    [Parameter, EditorRequired] public ChannelType Type { get; set; }
+    [Parameter, EditorRequired] public EncoderDrawerViewModel Drawer { get; set; } = null!;
+    [Parameter] public EventCallback<byte?> OnLiveValueChanged { get; set; }
+
+    private Microsoft.AspNetCore.Components.ElementReference _stripRef;
+    private EncoderGesture? _gesture;
+    private byte? _liveValue;
+    private byte _startValue;
+    private long? _pointerId;
+    private double _top;
+    private double _height = 1;
+    private long _lastPreviewAt;
+    private byte? _lastPreviewed;
+    private byte DisplayedValue => _liveValue ?? Slot.Value;
+
+    private async Task OnPointerDown(PointerEventArgs e)
+    {
+        var rect = await JS.InvokeAsync<StripRect>("dmxEncoderKnob.getRect", _stripRef);
+        _top = rect.Top;
+        _height = Math.Max(1, rect.Height);
+        _startValue = Slot.Value;
+        _gesture = Drawer.BeginGesture(Type);
+        _pointerId = e.PointerId;
+        _lastPreviewAt = 0;
+        _lastPreviewed = null;
+        await JS.InvokeVoidAsync("dmxEncoderKnob.capture", _stripRef, e.PointerId);
+        await UpdateFromPointer(e.ClientY);
+    }
+
+    private Task OnPointerMove(PointerEventArgs e) => _gesture is null ? Task.CompletedTask : UpdateFromPointer(e.ClientY);
+
+    private async Task UpdateFromPointer(double clientY)
+    {
+        byte value = (byte)Math.Clamp(Math.Round((1 - ((clientY - _top) / _height)) * 255), 0, 255);
+        _liveValue = value;
+        if (OnLiveValueChanged.HasDelegate) await OnLiveValueChanged.InvokeAsync(value);
+
+        if (_gesture is null || _lastPreviewed == value) return;
+        long now = Environment.TickCount64;
+        if (_lastPreviewAt != 0 && now - _lastPreviewAt < 20) return;
+        _lastPreviewAt = now;
+        _lastPreviewed = value;
+        Drawer.PreviewGesture(_gesture, Type, value);
+    }
+
+    private async Task OnPointerUp(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+        var gesture = _gesture;
+        byte finalValue = DisplayedValue;
+        _gesture = null;
+        await ClearLiveAndRelease();
+
+        if (finalValue == _startValue) Drawer.CancelGesture(gesture);
+        else Drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [Type] = finalValue });
+    }
+
+    private async Task OnPointerCancel(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+        var gesture = _gesture;
+        _gesture = null;
+        await ClearLiveAndRelease();
+        Drawer.CancelGesture(gesture);
+    }
+
+    private async Task ClearLiveAndRelease()
+    {
+        _liveValue = null;
+        if (OnLiveValueChanged.HasDelegate) await OnLiveValueChanged.InvokeAsync(null);
+        if (_pointerId is { } pointerId)
+        {
+            _pointerId = null;
+            await JS.InvokeVoidAsync("dmxEncoderKnob.release", _stripRef, pointerId);
+        }
+    }
+
+    private static string TrackHeight(byte value) => CssPixels(value / 255d * 68d);
+    private static string TrackPosition(byte value) => CssPixels(12d + value / 255d * 68d);
+    private static string CssPixels(double value) =>
+        value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "px";
+
+    private sealed class StripRect
+    {
+        public double Top { get; set; }
+        public double Height { get; set; }
+    }
+
+    public void Dispose()
+    {
+        if (_gesture is { } gesture)
+        {
+            _gesture = null;
+            Drawer.CancelGesture(gesture);
+            if (OnLiveValueChanged.HasDelegate) _ = OnLiveValueChanged.InvokeAsync(null);
+        }
+    }
+}

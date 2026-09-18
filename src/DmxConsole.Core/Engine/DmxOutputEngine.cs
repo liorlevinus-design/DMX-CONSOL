@@ -10,7 +10,7 @@ namespace DmxConsole.Core.Engine;
 /// universe, applies per-fixture pan/tilt calibration, and publishes the result via
 /// <see cref="UniverseOutputReady"/> for protocol senders to transmit.
 /// </summary>
-public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader, IOutputLayerRegistry
+public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader, IOutputLayerRegistry, IUniverseAllocator
 {
     private readonly Patch _patch;
     private readonly ConcurrentDictionary<int, Universe> _universes = new();
@@ -48,6 +48,11 @@ public sealed class DmxOutputEngine : IDisposable, IEffectiveOutputReader, IOutp
 
     public Universe EnsureUniverse(int universeId) =>
         _universes.GetOrAdd(universeId, id => new Universe(id));
+
+    /// <summary>IUniverseAllocator's narrow void-returning surface - a thin explicit-interface
+    /// wrapper over the existing public EnsureUniverse(int): Universe above, which stays
+    /// unchanged for every other (Core-internal) caller.</summary>
+    void IUniverseAllocator.EnsureUniverse(int universeId) => EnsureUniverse(universeId);
 
     public IReadOnlyCollection<Universe> Universes => _universes.Values.ToList();
 

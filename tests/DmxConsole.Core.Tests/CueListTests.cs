@@ -13,6 +13,7 @@ public class CueListTests
     private sealed class StubEffectiveOutputReader : IEffectiveOutputReader
     {
         public byte GetEffectiveValue(int universeId, int channelIndex) => 0;
+        public OutputOwner? GetOwner(int universeId, int channelIndex) => null;
     }
 
     private static readonly FixtureSelection EmptySelection = new();
@@ -375,5 +376,27 @@ public class CueListTests
         cueList.Tick(TimeSpan.Zero);
 
         Assert.Equal(0, cueList.CurrentCueIndex); // still on Cue 1 - nothing auto-advanced it
+    }
+
+    [Fact]
+    public void ReferencedAddresses_UnionsEveryCuesLevels_NoDuplicates()
+    {
+        var (patch, fixture) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        Record(cueList, patch, programmer, "Cue 2", 2, TimeSpan.Zero, TimeSpan.Zero);
+
+        var addresses = cueList.ReferencedAddresses();
+
+        Assert.Contains((fixture.UniverseId, fixture.AbsoluteIndex(fixture.Mode.Channels[0])), addresses);
+        Assert.Single(addresses); // both cues store the same single dimmer address - union, not sum
+    }
+
+    [Fact]
+    public void ReferencedAddresses_EmptyCueList_ReturnsEmptySet()
+    {
+        var cueList = new CueList();
+        Assert.Empty(cueList.ReferencedAddresses());
     }
 }

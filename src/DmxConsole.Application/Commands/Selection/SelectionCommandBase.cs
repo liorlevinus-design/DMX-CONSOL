@@ -6,7 +6,7 @@ namespace DmxConsole.Application.Commands.Selection;
 /// before applying the change, and restore it verbatim on Undo. This is simpler and safer
 /// than hand-writing an inverse for Toggle/Range/Odd/Even/Next/Previous individually.
 /// </summary>
-public abstract class SelectionCommandBase : IConsoleCommand
+public abstract class SelectionCommandBase : IConsoleCommand, IReplayableCommand
 {
     private List<Core.Fixtures.PatchedFixture>? _previousSelection;
 
@@ -14,6 +14,11 @@ public abstract class SelectionCommandBase : IConsoleCommand
 
     /// <summary>Performs the actual selection mutation - runs after the previous state has been captured.</summary>
     protected abstract void Apply(ConsoleContext context);
+
+    /// <summary>Builds a brand-new instance with this command's own construction-time
+    /// parameters, never sharing this instance's own _previousSelection snapshot (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS "REPLAY INSTANCE SAFETY").</summary>
+    public abstract IConsoleCommand CreateFreshInstance();
 
     public CommandResult Execute(ConsoleContext context)
     {

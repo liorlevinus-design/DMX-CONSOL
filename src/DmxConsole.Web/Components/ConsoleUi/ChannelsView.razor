@@ -1,25 +1,29 @@
 @using DmxConsole.Core.Engine
 @using DmxConsole.Core.Fixtures
+@using DmxConsole.Application.Live
 @implements IDisposable
 @inject MainViewModel Vm
 
 @*
-    Phase H1's first real View redesign. Must answer, at a glance: what channel is this, what
-    level is it at, is it selected, is it active, and who owns it right now (Step F's
-    DmxOutputEngine.GetOwner) - never raw DMX as the primary language (channel identity is
-    Fixture.Number + attribute name, not a universe/address pair).
+    OPERATOR_UX_ROADMAP.md §1-3: Channels is the primary LIVE grid - Effective Live Value,
+    Editor/Pending Value, and Provenance for every channel, at a glance, without opening a
+    separate Programmer view. Uses the shared DmxConsole.Application.Live model (LiveFilter/
+    LiveChannelState) - the exact same predicates ProgrammerPanel (Editor inspector) and
+    FixturesView use, so "what counts as pending/live/used" can never drift between them.
 *@
 
 <div class="channels-view">
     <div class="channels-view-header">
-        <span class="channels-view-title">Channels</span>
-        <select class="pane-add-view channels-filter" @bind="_filter" aria-label="Filter channels">
+        <span class="channels-view-title">Channels — LIVE</span>
+        <select class="pane-add-view channels-filter" @bind="Filter" aria-label="Filter channels">
             <option value="All">All</option>
+            <option value="EditorOnly">Editor Only</option>
+            <option value="Patched">Patched</option>
+            <option value="UsedInShow">Used in Show</option>
+            <option value="LiveOnStage">Live on Stage</option>
             <option value="Selected">Selected</option>
-            <option value="Active">Active</option>
-            <option value="Programmer">Programmer</option>
         </select>
-        <span class="channels-legend"><i class="legend-dot selected"></i>Selected <i class="legend-dot active"></i>Live <i class="legend-dot programmer"></i>Programmer</span>
+        <span class="channels-legend"><i class="legend-dot selected"></i>Selected <i class="legend-dot active"></i>Live <i class="legend-dot programmer"></i>Editor</span>
         <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
         @if (Vm.SelectionVm.Selection.Items.Count > 0)
         {
@@ -39,23 +43,19 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var fader in FilteredFaders())
+                @foreach (var (fader, state) in FilteredRows())
                 {
-                    var owner = Vm.Engine.GetOwner(fader.UniverseId, fader.ChannelIndex);
-                    bool isSelected = Vm.SelectionVm.Selection.Contains(fader.Fixture);
-                    bool isActive = owner is not null;
-                    bool isProgrammer = Vm.Programmer.HasStoredValue(fader.UniverseId, fader.ChannelIndex, out var programmerValue);
-                    int levelPercent = (int)Math.Round(Vm.Engine.GetEffectiveValue(fader.UniverseId, fader.ChannelIndex) / 255.0 * 100);
+                    int levelPercent = Percent(state.EffectiveValue);
 
-                    <tr class="channels-row @(isSelected ? "selected" : "") @(isActive ? "active" : "") @(isProgrammer ? "programmer" : "")" @onclick="() => Toggle(fader.Fixture)">
+                    <tr class="channels-row @(state.IsSelected ? "selected" : "") @(state.Owner is not null ? "active" : "") @(state.HasEditorValue ? "programmer" : "")" @onclick="() => Toggle(fader.Fixture)">
                         <td class="ch-cell">@($"{fader.Fixture.Number}.{OrdinalWithin(fader)}")</td>
                         <td class="fixture-name-column">@fader.FixtureName</td>
-                        <td><span class="attribute-name">@fader.ChannelTypeName</span>@if (isProgrammer) { <span class="programmer-chip" title="Programmer captured value">P @Percent(programmerValue)%</span> }</td>
+                        <td><span class="attribute-name">@fader.ChannelTypeName</span>@if (state.HasEditorValue) { <span class="programmer-chip" title="Editor/Pending value">E @Percent(state.EditorValue!.Value)%</span> }</td>
                         <td class="level-cell">
                             <div class="level-bar"><div class="level-bar-fill" style="width:@(levelPercent)%"></div></div>
                             <span>@levelPercent%</span>
                         </td>
-                        <td class="source-cell source-column @ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(owner))">@DescribeOwner(owner)</td>
+                        <td class="source-cell source-column @ProvenanceClassifier.CssClass(ProvenanceClassifier.Classify(state.Owner))">@DescribeOwner(state.Owner)</td>
                     </tr>
                 }
                 @if (Vm.Faders.Count == 0)
@@ -69,7 +69,17 @@
 
 @code {
     private System.Threading.Timer? _liveTimer;
-    private string _filter = "All";
+
+    // The filter itself lives on MainViewModel (Vm.ChannelsLiveFilter), not as a field here -
+    // Blazor recreates this component (and any local field) every time the operator switches to
+    // another pane tab and back, which was silently resetting the filter to All. MainViewModel is
+    // the one long-lived singleton every view already shares, so storing it there is "use an
+    // existing ViewModel", not a new parallel state.
+    private string Filter
+    {
+        get => Vm.ChannelsLiveFilter.ToString();
+        set { if (Enum.TryParse<LiveFilter>(value, out var parsed)) Vm.ChannelsLiveFilter = parsed; }
+    }
 
     protected override void OnInitialized()
     {
@@ -83,13 +93,17 @@
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
 
-    private IEnumerable<ChannelFaderViewModel> FilteredFaders() => _filter switch
+    private IEnumerable<(ChannelFaderViewModel Fader, LiveChannelState State)> FilteredRows()
     {
-        "Selected" => Vm.Faders.Where(f => Vm.SelectionVm.Selection.Contains(f.Fixture)),
-        "Active" => Vm.Faders.Where(f => Vm.Engine.GetOwner(f.UniverseId, f.ChannelIndex) is not null),
-        "Programmer" => Vm.Faders.Where(f => Vm.Programmer.HasStoredValue(f.UniverseId, f.ChannelIndex, out _)),
-        _ => Vm.Faders,
-    };
+        var usedInShow = ShowUsageQuery.ReferencedAddresses(Vm.ProgrammerVm.Context);
+        foreach (var fader in Vm.Faders)
+        {
+            bool isSelected = Vm.SelectionVm.Selection.Contains(fader.Fixture);
+            var state = LiveChannelState.For(Vm.ProgrammerVm.Context, fader.UniverseId, fader.ChannelIndex, isSelected, usedInShow);
+            if (!state.Matches(Vm.ChannelsLiveFilter)) continue;
+            yield return (fader, state);
+        }
+    }
 
     private static int Percent(byte value) => (int)Math.Round(value / 255.0 * 100);
 

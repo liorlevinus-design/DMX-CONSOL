@@ -1,0 +1,318 @@
+@using DmxConsole.Core
+@using DmxConsole.Web.Services
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JS
+
+@*
+    A single rotary encoder - vertical-drag/wheel driven, "infinite rotary" (Ableton/DAW-knob
+    style): the pointer never has to travel a literal circular path (EncoderMath owns the actual
+    drag/wheel-to-value formulas, kept pure/testable there).
+
+    Owns its own gesture lifecycle directly against EncoderDrawerViewModel's
+    BeginGesture/PreviewGesture/CommitGesture/CancelGesture (EncoderGesture, per-target snapshot -
+    see EncoderGesture.cs's own doc comment) - never SetValue directly. Local `_liveValue` is what
+    the SVG actually renders from during a gesture, updated synchronously inside every pointer/
+    wheel handler, so the needle/arc/value move immediately without waiting on the parent's own
+    poll timer or a server round-trip.
+*@
+
+<div class="encoder-knob-wrap">
+    <svg class="encoder-knob-svg" viewBox="0 0 100 100" tabindex="0"
+         @ref="_svgRef"
+         @onpointerdown="OnPointerDown"
+         @onpointermove="OnPointerMove"
+         @onpointerup="OnPointerUp"
+         @onpointercancel="OnPointerCancel"
+         @onkeydown="OnKeyDown"
+         @onwheel="OnWheel" @onwheel:preventDefault="true">
+        @* Tick marks around the 270° sweep (-135°..135°). *@
+        @foreach (var tickAngle in TickAngles)
+        {
+            var (x1, y1) = PointOnCircle(50, 50, 40, tickAngle);
+            var (x2, y2) = PointOnCircle(50, 50, 45, tickAngle);
+            <line class="encoder-knob-tick" x1="@F(x1)" y1="@F(y1)" x2="@F(x2)" y2="@F(y2)" />
+        }
+
+        @* Track (full sweep) + value arc (from -135° to the current value's angle). *@
+        <path class="encoder-knob-track" d="@ArcPath(50, 50, 36, -135, 135)" />
+        @if (!ShowMixedRing)
+        {
+            <path class="encoder-knob-value-arc" d="@ArcPath(50, 50, 36, -135, ValueAngle)" />
+        }
+
+        <circle class="encoder-knob-shadow" cx="50" cy="52" r="29" />
+        <circle class="encoder-knob-bezel @(ShowMixedRing ? "mixed" : "") @(Slot.Partial ? "partial" : "")" cx="50" cy="50" r="29" />
+        <circle class="encoder-knob-body" cx="50" cy="50" r="24" />
+        <circle class="encoder-knob-cap" cx="50" cy="50" r="15" />
+
+        @* Needle - not drawn at all in Mixed state (no single value to point at), unless a live
+           gesture is actively unifying the selection onto one value right now. *@
+        @if (!ShowMixedRing)
+        {
+            var (nx, ny) = PointOnCircle(50, 50, 24, ValueAngle);
+            <line class="encoder-knob-needle-shadow" x1="50" y1="51" x2="@F(nx)" y2="@F(ny + 1)" />
+            <line class="encoder-knob-needle" x1="50" y1="50" x2="@F(nx)" y2="@F(ny)" />
+            <circle class="encoder-knob-center" cx="50" cy="50" r="2.5" />
+        }
+
+        @if (Slot.IsProgrammerTouched)
+        {
+            <circle class="encoder-knob-touched-dot" cx="50" cy="14" r="3" />
+        }
+    </svg>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EncoderSlot Slot { get; set; } = null!;
+    [Parameter, EditorRequired] public ChannelType Type { get; set; }
+    [Parameter, EditorRequired] public EncoderDrawerViewModel Drawer { get; set; } = null!;
+
+    /// <summary>Reports this knob's own local live-preview value (null when no gesture is
+    /// active) to the parent on every change, so the numeric value/value-strip display outside
+    /// this component's own SVG - which is NOT local state, it's driven by the parent's Slot
+    /// parameter - can move in real time too, not just the needle/arc drawn in here.</summary>
+    [Parameter] public EventCallback<byte?> OnLiveValueChanged { get; set; }
+
+    private const long PreviewThrottleMs = 20; // ~50Hz cap on Preview writes to Programmer
+    private const int WheelDebounceMs = 350;
+
+    private Microsoft.AspNetCore.Components.ElementReference _svgRef;
+    private bool _disposed;
+
+    private EncoderGesture? _gesture;
+    private bool _wheelPending;
+    private byte _dragStartValue;
+    private byte? _liveValue;
+    private double _dragStartClientY;
+    private long? _activePointerId;
+
+    private long _lastPreviewSentAt;
+    private byte? _lastPreviewedValue;
+
+    private System.Threading.Timer? _wheelTimer;
+
+    /// <summary>What's actually drawn - the live in-progress value while a gesture is running,
+    /// otherwise the last known Slot.Value from the parent.</summary>
+    private byte DisplayedValue => _liveValue ?? Slot.Value;
+
+    /// <summary>Mixed is a fact about disagreement between fixtures - once a gesture is unifying
+    /// them onto one value, there's a real single value to show, so the mixed ring/no-needle
+    /// treatment only applies when nothing is actively overriding it.</summary>
+    private bool ShowMixedRing => _liveValue is null && Slot.Mixed;
+
+    /// <summary>-135°..135°, matching a typical rotary-knob sweep (0° = straight up).</summary>
+    private double ValueAngle => -135 + (DisplayedValue / 255.0) * 270;
+
+    private static readonly double[] TickAngles = Enumerable.Range(0, 11).Select(i => -135.0 + i * 27.0).ToArray();
+
+    /// <summary>Every write to _liveValue goes through here so the parent always hears about it -
+    /// this is what lets the numeric value/value-strip display outside this component's own SVG
+    /// move in real time too, not just the needle drawn locally.</summary>
+    private async Task SetLiveValue(byte? value)
+    {
+        _liveValue = value;
+        if (OnLiveValueChanged.HasDelegate) await OnLiveValueChanged.InvokeAsync(value);
+    }
+
+    private async Task OnPointerDown(PointerEventArgs e)
+    {
+        await FlushWheelGesture();
+
+        _dragStartValue = _liveValue ?? Slot.Value;
+        await SetLiveValue(_dragStartValue);
+        _dragStartClientY = e.ClientY;
+        _activePointerId = e.PointerId;
+        ResetPreviewThrottle();
+
+        _gesture = Drawer.BeginGesture(Type);
+        await JS.InvokeVoidAsync("dmxEncoderKnob.capture", _svgRef, e.PointerId);
+    }
+
+    private async Task OnPointerMove(PointerEventArgs e)
+    {
+        if (_gesture is null || _liveValue is null) return;
+
+        double deltaPixelsUp = _dragStartClientY - e.ClientY;
+        byte newValue = EncoderMath.ApplyDrag(_dragStartValue, deltaPixelsUp, e.ShiftKey);
+        await SetLiveValue(newValue); // local render always updates immediately, every move
+
+        SendPreviewThrottled(newValue);
+    }
+
+    private async Task OnPointerUp(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+
+        var gesture = _gesture;
+        byte finalValue = _liveValue ?? _dragStartValue;
+        _gesture = null;
+        await SetLiveValue(null);
+
+        if (_activePointerId is { } pid)
+        {
+            _activePointerId = null;
+            await JS.InvokeVoidAsync("dmxEncoderKnob.release", _svgRef, pid);
+        }
+
+        if (finalValue == _dragStartValue) Drawer.CancelGesture(gesture);
+        else Drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [Type] = finalValue });
+    }
+
+    private async Task OnPointerCancel(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+
+        var gesture = _gesture;
+        _gesture = null;
+        await SetLiveValue(null);
+
+        if (_activePointerId is { } pid)
+        {
+            _activePointerId = null;
+            await JS.InvokeVoidAsync("dmxEncoderKnob.release", _svgRef, pid);
+        }
+
+        Drawer.CancelGesture(gesture);
+    }
+
+    private async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape" || _gesture is null) return;
+
+        var gesture = _gesture;
+        _gesture = null;
+        await SetLiveValue(null);
+        Drawer.CancelGesture(gesture);
+        // Pointer capture (if any) is released on the next pointerup/pointercancel the browser
+        // sends after Escape - no separate JS call needed here.
+    }
+
+    private async Task OnWheel(WheelEventArgs e)
+    {
+        if (_gesture is null)
+        {
+            _dragStartValue = Slot.Value;
+            await SetLiveValue(_dragStartValue);
+            ResetPreviewThrottle();
+            _gesture = Drawer.BeginGesture(Type);
+            _wheelPending = true;
+        }
+
+        byte current = _liveValue ?? _dragStartValue;
+        byte newValue = EncoderMath.ApplyWheel(current, e.DeltaY, e.ShiftKey);
+        await SetLiveValue(newValue);
+        Drawer.PreviewGesture(_gesture, Type, newValue); // discrete wheel steps - no extra throttle needed
+
+        RestartWheelTimer();
+    }
+
+    /// <summary>Commits (or cancels, if nothing actually changed) a pending wheel-driven gesture
+    /// synchronously - called before a drag starts, so a wheel nudge immediately followed by a
+    /// drag doesn't get silently rolled back by BeginGesture's own "cancel whatever was active"
+    /// rule.</summary>
+    private async Task FlushWheelGesture()
+    {
+        if (!_wheelPending || _gesture is null) return;
+        StopWheelTimer();
+
+        var gesture = _gesture;
+        byte finalValue = _liveValue ?? _dragStartValue;
+        _gesture = null;
+        _wheelPending = false;
+
+        if (finalValue == _dragStartValue) Drawer.CancelGesture(gesture);
+        else Drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [Type] = finalValue });
+        // _liveValue is left as-is; OnPointerDown immediately overwrites _dragStartValue from it.
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Timer callback runs on a thread-pool thread, never Blazor's render sync context -
+    /// it must never touch component state directly. It only ever marshals back via InvokeAsync,
+    /// and bails out immediately if the component has since been disposed (Dispose can race a
+    /// callback that's already in flight).</summary>
+    private void OnWheelTimerElapsed(object? state)
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(CommitWheelGestureFromTimer);
+    }
+
+    private async Task CommitWheelGestureFromTimer()
+    {
+        if (_disposed || !_wheelPending || _gesture is null) return;
+
+        var gesture = _gesture;
+        byte finalValue = _liveValue ?? _dragStartValue;
+        _gesture = null;
+        _wheelPending = false;
+        await SetLiveValue(null);
+
+        if (finalValue == _dragStartValue) Drawer.CancelGesture(gesture);
+        else Drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [Type] = finalValue });
+        StateHasChanged();
+    }
+
+    private void RestartWheelTimer()
+    {
+        _wheelTimer ??= new System.Threading.Timer(OnWheelTimerElapsed, null, Timeout.Infinite, Timeout.Infinite);
+        _wheelTimer.Change(WheelDebounceMs, Timeout.Infinite);
+    }
+
+    private void StopWheelTimer() => _wheelTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+
+    private void ResetPreviewThrottle()
+    {
+        _lastPreviewSentAt = 0;
+        _lastPreviewedValue = null;
+    }
+
+    private void SendPreviewThrottled(byte value)
+    {
+        if (_gesture is null) return;
+        if (_lastPreviewedValue == value) return;
+
+        long now = Environment.TickCount64;
+        if (_lastPreviewSentAt != 0 && now - _lastPreviewSentAt < PreviewThrottleMs) return;
+
+        _lastPreviewSentAt = now;
+        _lastPreviewedValue = value;
+        Drawer.PreviewGesture(_gesture, Type, value);
+    }
+
+    private static (double X, double Y) PointOnCircle(double cx, double cy, double r, double angleDeg)
+    {
+        double rad = (angleDeg - 90) * Math.PI / 180.0; // -90 so 0° points straight up
+        return (cx + r * Math.Cos(rad), cy + r * Math.Sin(rad));
+    }
+
+    private static string ArcPath(double cx, double cy, double r, double startAngleDeg, double endAngleDeg)
+    {
+        var (x1, y1) = PointOnCircle(cx, cy, r, startAngleDeg);
+        var (x2, y2) = PointOnCircle(cx, cy, r, endAngleDeg);
+        double sweep = endAngleDeg - startAngleDeg;
+        int largeArc = Math.Abs(sweep) > 180 ? 1 : 0;
+        int sweepFlag = sweep >= 0 ? 1 : 0;
+        return $"M {F(x1)} {F(y1)} A {F(r)} {F(r)} 0 {largeArc} {sweepFlag} {F(x2)} {F(y2)}";
+    }
+
+    private static string F(double value) => value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _wheelTimer?.Dispose();
+        _wheelTimer = null;
+
+        if (_gesture is { } gesture)
+        {
+            _gesture = null;
+            _liveValue = null;
+            Drawer.CancelGesture(gesture);
+            // Best-effort, fire-and-forget - can't await in Dispose, but the parent needs to know
+            // this knob's live override is gone even if this component is torn down mid-gesture
+            // (navigation away, selection-driven removal).
+            if (OnLiveValueChanged.HasDelegate) _ = OnLiveValueChanged.InvokeAsync(null);
+        }
+    }
+}

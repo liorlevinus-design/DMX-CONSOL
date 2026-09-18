@@ -1,0 +1,163 @@
+@using DmxConsole.Core
+@using DmxConsole.Web.Services
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using System.Globalization
+@implements IDisposable
+@inject IJSRuntime JS
+
+@*
+    Shown above the five strips (never replacing them) whenever the active category is Position
+    and the selection has both Pan and Tilt. Drag inside changes Pan+Tilt together as ONE gesture
+    (same EncoderGesture pipeline as every other control here) - a single Undo reverts both. Pan
+    and Tilt still also appear as ordinary encoder strips in the grid below, for precise
+    single-axis control.
+
+    MIXED RANGE (Pan-vs-Pan and Tilt-vs-Tilt calibration checked separately - see
+    EncoderSlot.MixedRange) blocks the pad entirely rather than pretending one fixture's range is
+    shared. No physical calibration at all (the common case for a generic profile) still shows the
+    pad, explicitly labeled RAW - a raw-normalized 0..255 space, never degrees that were never
+    declared.
+*@
+
+<div class="encoder-position-pad-wrap">
+    <div class="encoder-position-pad-label">
+        <span>POSITION</span>
+        @if (!MixedRange && Pan.Unit == "DMX" && Tilt.Unit == "DMX")
+        {
+            <span class="encoder-position-pad-badge" title="No physical calibration declared for this profile - raw DMX space, not degrees">RAW</span>
+        }
+    </div>
+
+    @if (MixedRange)
+    {
+        <div class="encoder-position-pad encoder-position-pad-mixed-range">
+            <span>MIXED RANGE</span>
+        </div>
+    }
+    else
+    {
+        double nx = _liveNormX ?? (Pan.Value / 255.0);
+        double ny = _liveNormY ?? (Tilt.Value / 255.0);
+
+        <div class="encoder-position-pad @((Pan.Mixed || Tilt.Mixed) && _liveNormX is null ? "mixed" : "")"
+             @ref="_padRef"
+             @onpointerdown="OnPointerDown"
+             @onpointermove="OnPointerMove"
+             @onpointerup="OnPointerUp"
+             @onpointercancel="OnPointerCancel">
+            <div class="encoder-position-pad-crosshair-h"></div>
+            <div class="encoder-position-pad-crosshair-v"></div>
+            <div class="encoder-position-pad-dot" style="left: @Pct(nx); top: @Pct(1 - ny);"></div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EncoderSlot Pan { get; set; } = null!;
+    [Parameter, EditorRequired] public EncoderSlot Tilt { get; set; } = null!;
+    [Parameter, EditorRequired] public EncoderDrawerViewModel Drawer { get; set; } = null!;
+
+    private bool MixedRange => Pan.MixedRange || Tilt.MixedRange;
+
+    private Microsoft.AspNetCore.Components.ElementReference _padRef;
+    private EncoderGesture? _gesture;
+    private long? _pointerId;
+    private double _top, _left, _width = 1, _height = 1;
+    private double? _liveNormX, _liveNormY;
+    private byte _startPan, _startTilt;
+    private long _lastPreviewAt;
+    private (byte Pan, byte Tilt)? _lastPreviewed;
+
+    private static string Pct(double v) => (Math.Clamp(v, 0, 1) * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%";
+
+    private async Task OnPointerDown(PointerEventArgs e)
+    {
+        var rect = await JS.InvokeAsync<PadRect>("dmxEncoderKnob.getRect", _padRef);
+        _top = rect.Top; _left = rect.Left; _width = Math.Max(1, rect.Width); _height = Math.Max(1, rect.Height);
+
+        _startPan = Pan.Value;
+        _startTilt = Tilt.Value;
+        _gesture = Drawer.BeginGesture(ChannelType.Pan, ChannelType.Tilt);
+        _pointerId = e.PointerId;
+        _lastPreviewAt = 0;
+        _lastPreviewed = null;
+
+        await JS.InvokeVoidAsync("dmxEncoderKnob.capture", _padRef, e.PointerId);
+        await UpdateFromPointer(e.ClientX, e.ClientY);
+    }
+
+    private Task OnPointerMove(PointerEventArgs e) => _gesture is null ? Task.CompletedTask : UpdateFromPointer(e.ClientX, e.ClientY);
+
+    private async Task UpdateFromPointer(double clientX, double clientY)
+    {
+        double nx = Math.Clamp((clientX - _left) / _width, 0, 1);
+        double ny = Math.Clamp(1 - (clientY - _top) / _height, 0, 1); // inverted - up = higher value
+        _liveNormX = nx;
+        _liveNormY = ny;
+
+        byte panByte = (byte)Math.Round(nx * 255);
+        byte tiltByte = (byte)Math.Round(ny * 255);
+
+        if (_gesture is null) return;
+        if (_lastPreviewed == (panByte, tiltByte)) return;
+        long now = Environment.TickCount64;
+        if (_lastPreviewAt != 0 && now - _lastPreviewAt < 20) return;
+        _lastPreviewAt = now;
+        _lastPreviewed = (panByte, tiltByte);
+
+        Drawer.PreviewGesture(_gesture, ChannelType.Pan, panByte);
+        Drawer.PreviewGesture(_gesture, ChannelType.Tilt, tiltByte);
+    }
+
+    private async Task OnPointerUp(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+        var gesture = _gesture;
+        byte panByte = (byte)Math.Round((_liveNormX ?? 0) * 255);
+        byte tiltByte = (byte)Math.Round((_liveNormY ?? 0) * 255);
+        _gesture = null;
+        await ReleasePointer();
+
+        if (panByte == _startPan && tiltByte == _startTilt) Drawer.CancelGesture(gesture);
+        else Drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [ChannelType.Pan] = panByte, [ChannelType.Tilt] = tiltByte });
+    }
+
+    private async Task OnPointerCancel(PointerEventArgs e)
+    {
+        if (_gesture is null) return;
+        var gesture = _gesture;
+        _gesture = null;
+        await ReleasePointer();
+        Drawer.CancelGesture(gesture);
+    }
+
+    private async Task ReleasePointer()
+    {
+        _liveNormX = null;
+        _liveNormY = null;
+        _lastPreviewed = null;
+        if (_pointerId is { } pid)
+        {
+            _pointerId = null;
+            await JS.InvokeVoidAsync("dmxEncoderKnob.release", _padRef, pid);
+        }
+    }
+
+    private sealed class PadRect
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+
+    public void Dispose()
+    {
+        if (_gesture is { } gesture)
+        {
+            _gesture = null;
+            Drawer.CancelGesture(gesture);
+        }
+    }
+}

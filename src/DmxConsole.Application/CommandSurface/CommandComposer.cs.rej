@@ -1,0 +1,12 @@
+--- CommandComposer.cs
++++ CommandComposer.cs
+@@ -47,8 +47,8 @@
+         switch (token.Kind)
+         {
+             case CommandTokenKind.Clear:
+                 _tokens.Clear();
+-                return Build(finalize: false);
++                return Build(finalize: false) with { EmptyClearRequested = true }; // Keep flag for backward compat if needed
+
+             case CommandTokenKind.Backspace:
+                 if (_tokens.Count > 0) _tokens.RemoveAt(_tokens.Count - 1);

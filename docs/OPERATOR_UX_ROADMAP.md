@@ -177,6 +177,10 @@ Priorities include:
 - Highlight / Lowlight / Home;
 - stable Edit actions with honest disabled states when not implemented.
 
+### 9a. Parameter-level Value and Time Fans
+
+Full functional definition, grammar examples, and implementation-gap analysis: `docs/COMMAND_SURFACE_KEY_SPEC.md` §9A/§23.19. Summary: every fixture parameter (channel) carries its own Fade Time and Delay Time, defaulting to the owning Cue's flat timing until explicitly overridden per channel. `THRU` distributes an ordered multi-point fan (not just a two-endpoint range) of values or of per-channel Fade/Delay times across the resolved, ordered fixture selection — one shared interpolation engine for both, symmetric center-peak handling for even selection counts, reverse ranges supported. This is additive to H1.6 Slice 2's flat per-Cue timing model (§9 above), not a reintroduction of the per-`AttributeClass` timing that slice deliberately removed — the new granularity is per-channel, never per-family, and there is no separate family-timing storage bucket. Nothing in this area is implemented yet; see the spec's §23.19 for the exact list of missing engine/grammar/storage pieces.
+
 ## 10. Cue Lists and Executors
 
 Cue List work still required:

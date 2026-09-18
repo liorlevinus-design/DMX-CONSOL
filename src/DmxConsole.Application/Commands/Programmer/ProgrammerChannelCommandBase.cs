@@ -10,17 +10,27 @@ namespace DmxConsole.Application.Commands.Programmer;
 /// value and knockout state before applying the change, and restore both verbatim on Undo -
 /// the same "snapshot then restore" approach <c>SelectionCommandBase</c> uses for selection.
 /// </summary>
-public abstract class ProgrammerChannelCommandBase : IConsoleCommand
+public abstract class ProgrammerChannelCommandBase : IConsoleCommand, IReplayableCommand
 {
     private readonly record struct ChannelSnapshot(int Universe, int Channel, bool HadValue, byte Value, bool WasKnockedOut);
 
     private readonly IReadOnlyList<PatchedFixture> _targets;
     private List<ChannelSnapshot>? _previous;
 
+    /// <summary>The fixtures this command was constructed with - exposed so a subclass's own
+    /// CreateFreshInstance() can pass the same construction-time targets to a brand-new instance,
+    /// never this instance's own accumulated _previous snapshot.</summary>
+    protected IReadOnlyList<PatchedFixture> Targets => _targets;
+
     /// <summary>Null means "every channel of the fixture"; otherwise only channels in this attribute class.</summary>
     protected AttributeClass? AttributeFilter { get; }
 
     protected abstract ConsoleActionType ActionType { get; }
+
+    /// <summary>Builds a brand-new instance with this command's own construction-time
+    /// parameters, never sharing this instance's own _previous snapshot (docs/COMMAND_SURFACE_KEY_SPEC.md
+    /// MACROS "REPLAY INSTANCE SAFETY").</summary>
+    public abstract IConsoleCommand CreateFreshInstance();
 
     protected ProgrammerChannelCommandBase(IReadOnlyList<PatchedFixture> targets, AttributeClass? attributeFilter)
     {
@@ -41,6 +51,14 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
     /// <summary>Hook for a subclass to add its own fields to the result (e.g. ApplyPresetCommand attaching the Preset it applied) via a `with` expression.</summary>
     protected virtual CommandResult DecorateResult(CommandResult result) => result;
 
+    /// <summary>Which of the fixture's channels this command considers. Defaults to the
+    /// AttributeFilter-based family scoping every existing subclass already used before this was
+    /// extracted; a subclass needing finer granularity (e.g. ReleaseParameterCommand, scoped to
+    /// one semantic parameter's ChannelType(s) rather than a whole family) overrides this instead
+    /// of duplicating Execute()'s snapshot/undo machinery.</summary>
+    protected virtual IEnumerable<FixtureChannel> SelectChannels(PatchedFixture fixture) =>
+        AttributeFilter is { } cls ? fixture.ChannelsForAttribute(cls) : fixture.Mode.Channels;
+
     public CommandResult Execute(ConsoleContext context)
     {
         var snapshots = new List<ChannelSnapshot>();
@@ -50,7 +68,7 @@ public abstract class ProgrammerChannelCommandBase : IConsoleCommand
 
         foreach (var fixture in _targets)
         {
-            var channels = AttributeFilter is { } cls ? fixture.ChannelsForAttribute(cls) : fixture.Mode.Channels;
+            var channels = SelectChannels(fixture);
             bool touchedAny = false;
 
             foreach (var channel in channels)

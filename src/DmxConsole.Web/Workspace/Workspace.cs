@@ -1,6 +1,21 @@
+using DmxConsole.Core;
+
 namespace DmxConsole.Web.Workspaces;
 
 public enum WorkspaceScope { Factory, User, Show }
+
+/// <summary>Persisted state of the fixed Encoder Drawer (work-plan Milestone 1 follow-up,
+/// 2026-09-16) - a plain field on Workspace, not a View/pane, since the drawer is persistent
+/// shell chrome (like EditorToolBar/CommandLine), never part of the pane tree. Saved/loaded as
+/// part of the same Workspace document via WorkspaceSerializer - no separate persistence
+/// mechanism. A mutable class (not a record) so EncoderDrawer.razor can mirror live changes into
+/// it in place without replacing Workspace.EncoderDrawer's reference.</summary>
+public sealed class EncoderDrawerState
+{
+    public bool IsOpen { get; set; } = true;
+    public AttributeClass? ActiveCategory { get; set; }
+    public int Page { get; set; }
+}
 
 /// <summary>One "screen" of panes within a Workspace - multi-surface-ready from v1 so adding
 /// external-monitor support later never requires re-modeling persistence. This milestone only
@@ -23,6 +38,10 @@ public sealed class Workspace
     public string Name { get; set; } = "";
     public WorkspaceScope Scope { get; set; } = WorkspaceScope.User;
     public List<WorkspaceSurface> Surfaces { get; set; } = new();
+
+    /// <summary>The fixed Encoder Drawer's open/category/page state, scoped to this Workspace -
+    /// see EncoderDrawerState's own doc comment.</summary>
+    public EncoderDrawerState EncoderDrawer { get; set; } = new();
 
     /// <summary>When true, every structural mutation (Split/Close/Resize/Move/Maximize) offered by
     /// WorkspaceLayoutService fails gracefully instead of mutating the tree - prevents accidental

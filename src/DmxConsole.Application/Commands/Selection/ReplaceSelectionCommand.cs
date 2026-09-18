@@ -20,4 +20,6 @@ public sealed class ReplaceSelectionCommand : SelectionCommandBase
         context.Selection.Clear();
         foreach (var fixture in _target) context.Selection.Add(fixture);
     }
+
+    public override IConsoleCommand CreateFreshInstance() => new ReplaceSelectionCommand(_target);
 }

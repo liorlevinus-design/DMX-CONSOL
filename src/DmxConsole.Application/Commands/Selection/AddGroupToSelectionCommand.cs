@@ -12,4 +12,6 @@ public sealed class AddGroupToSelectionCommand : SelectionCommandBase
     protected override ConsoleActionType ActionType => ConsoleActionType.AddGroupToSelection;
 
     protected override void Apply(ConsoleContext context) => context.Selection.AddGroup(_group);
+
+    public override IConsoleCommand CreateFreshInstance() => new AddGroupToSelectionCommand(_group);
 }

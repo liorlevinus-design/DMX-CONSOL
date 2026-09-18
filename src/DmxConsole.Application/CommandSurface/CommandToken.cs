@@ -1,3 +1,5 @@
+using DmxConsole.Core;
+
 namespace DmxConsole.Application.CommandSurface;
 
 /// <summary>
@@ -37,6 +39,19 @@ public sealed record CommandToken
     public static CommandToken Number(double value) =>
         new() { Kind = CommandTokenKind.Number, NumericValue = value, DisplayText = FormatNumber(value) };
 
+    /// <summary>PARAMETER RELEASE's addressed channel (docs/COMMAND_SURFACE_KEY_SPEC.md §7) -
+    /// carries the specific DmxConsole.Core.ChannelType via SemanticPayload since ChannelType
+    /// isn't itself a CommandTokenKind (there are far too many for a dedicated enum member each,
+    /// unlike the six fixed family keys).</summary>
+    public static CommandToken Parameter(ChannelType channelType) =>
+        new() { Kind = CommandTokenKind.Parameter, SemanticPayload = channelType, DisplayText = channelType.ToString().ToUpperInvariant() };
+
+    /// <summary>A resolved "Universe.Address" pair (DMX DIRECT ADDRESSING slice, §8's dot
+    /// ambiguity) - the ONLY place a Universe/Address pair is bundled into one token; the grammar
+    /// never sees two separate Number tokens it has to reassemble via a decimal point.</summary>
+    public static CommandToken DmxAddress(int universe, int address) =>
+        new() { Kind = CommandTokenKind.DmxAddress, SemanticPayload = (Universe: universe, Address: address), DisplayText = $"{universe}.{address}" };
+
     public static CommandToken Simple(CommandTokenKind kind, string? displayText = null) =>
         new() { Kind = kind, DisplayText = displayText ?? DefaultDisplay(kind) };
 
@@ -54,8 +69,11 @@ public sealed record CommandToken
         CommandTokenKind.Odd => "Odd",
         CommandTokenKind.Even => "Even",
         CommandTokenKind.Next => "Next",
-        CommandTokenKind.Previous => "Previous",
+        CommandTokenKind.Previous => "Last",
         CommandTokenKind.GoTo => "GoTo",
+        CommandTokenKind.Full => "Full",
+        CommandTokenKind.Home => "Home",
+        CommandTokenKind.Dmx => "Dmx",
         _ => kind.ToString(),
     };
 }
