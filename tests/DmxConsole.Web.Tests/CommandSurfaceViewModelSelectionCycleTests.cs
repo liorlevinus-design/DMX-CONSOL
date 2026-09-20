@@ -127,4 +127,97 @@ public class CommandSurfaceViewModelSelectionCycleTests
 
         Assert.Equal(new[] { b }, context.Selection.Items);
     }
+
+    // ---------- RELEASE-panel slice §A: "selection expression completion != programming
+    // execution completion". CommandComposer.Resolve already ties EndsSelectionCycle to
+    // atValue!=null (see Application.Tests.CommandSurface.SelectionCycleComposerTests.
+    // At_ClosesSelectionCycle_SelectionOnlyDoesNot for the composer-only proof) - these tests
+    // audit the FULL round trip through CommandSurfaceViewModel.Push, the thing an operator
+    // actually presses through, for the exact scenarios the spec names. ----------
+
+    /// <summary>"FIXTURE 1 THRU 20 ENTER" (no AT): a pure selection expression. ENTER only
+    /// completes the SELECTION, it is not a programming execution - the cycle must stay open, AND
+    /// the operator-visible Task line must keep representing the selection rather than looking
+    /// idle (§A - it must NOT read the same as "nothing has happened"/right after a CLEAR).</summary>
+    [Fact]
+    public void PureSelectionRange_Enter_KeepsSelectionCycleOpen_AndTaskLineStillRepresentsIt()
+    {
+        var (context, surface, a, b) = BuildRig();
+
+        surface.PressToken(CommandTokenKind.Fixture);
+        surface.PressDigit('1');
+        surface.PressToken(CommandTokenKind.Thru);
+        surface.PressDigit('2');
+        surface.PressToken(CommandTokenKind.Enter);
+
+        Assert.Equal(new[] { a, b }, context.Selection.Items);
+        Assert.False(context.SelectionCycle.StartFreshOnNextSelection); // cycle remains OPEN
+        // The Task line must NOT have cleared back to idle merely because ENTER was pressed -
+        // it must still visibly represent the fixture selection that was just made.
+        Assert.NotEqual(string.Empty, surface.DisplayPreview);
+        Assert.Equal("FIXTURE 1 THRU 2", surface.DisplayPreview.ToUpperInvariant());
+    }
+
+    /// <summary>A pure selection's Task-line echo is superseded (not literally cleared) the moment
+    /// the operator starts composing something new - it never leaks into or gets prepended to the
+    /// next gesture's own display.</summary>
+    [Fact]
+    public void PureSelectionRange_Enter_TaskLineEcho_IsSupersededByTheNextGesture_NeverAppendedTo()
+    {
+        var (_, surface, a, _) = BuildRig();
+
+        SelectFixture(surface, a.Number);
+        Assert.Equal("FIXTURE 1", surface.DisplayPreview.ToUpperInvariant());
+
+        surface.PressToken(CommandTokenKind.Group); // a brand new gesture begins
+
+        Assert.Equal("GROUP", surface.DisplayPreview.ToUpperInvariant()); // not "FIXTURE 1 GROUP"
+    }
+
+    /// <summary>Consecutive pure-selection gestures accumulate while the cycle stays open - no
+    /// AT/HOME/RELEASE/etc. has executed yet, so nothing should have closed it in between.</summary>
+    [Fact]
+    public void PureSelection_ConsecutiveGestures_AccumulateWhileCycleIsOpen()
+    {
+        var (context, surface, a, b) = BuildRig();
+
+        SelectFixture(surface, a.Number);
+        Assert.False(context.SelectionCycle.StartFreshOnNextSelection);
+        Assert.Equal(new[] { a }, context.Selection.Items);
+
+        SelectFixture(surface, b.Number); // a second bare selection gesture, cycle still open
+
+        Assert.False(context.SelectionCycle.StartFreshOnNextSelection);
+        Assert.Equal(new[] { a, b }, context.Selection.Items); // accumulated, NOT replaced
+    }
+
+    /// <summary>"FIXTURE 1 THRU 20 AT 30 ENTER": a programming execution. Intensity is written to
+    /// Programmer, Selection remains visibly selected, the command line returns to idle, and the
+    /// cycle closes so the NEXT Fixture/Group selection starts fresh (replaces).</summary>
+    [Fact]
+    public void SelectionWithAt_Enter_WritesProgrammer_AndClosesSelectionCycle()
+    {
+        var (context, surface, a, b) = BuildRig();
+
+        surface.PressToken(CommandTokenKind.Fixture);
+        surface.PressDigit('1');
+        surface.PressToken(CommandTokenKind.Thru);
+        surface.PressDigit('2');
+        surface.PressToken(CommandTokenKind.At);
+        surface.PressDigit('3');
+        surface.PressDigit('0');
+        surface.PressToken(CommandTokenKind.Enter);
+
+        var dimmerIndex = a.AbsoluteIndex(a.FindChannel(ChannelType.Dimmer)!);
+        Assert.True(context.Programmer.HasStoredValue(a.UniverseId, dimmerIndex, out var value));
+        Assert.Equal((byte)Math.Round(0.30 * 255), value);
+
+        Assert.Empty(surface.Current.Tokens); // command line returned to idle
+        // Distinct from Current.Tokens: DisplayPreview is what the operator actually sees, and it
+        // must ALSO be truly idle here - not showing a leftover selection-context echo from
+        // earlier in the same gesture (see PureSelectionRange_Enter_...TaskLineStillRepresentsIt
+        // for the pure-selection case where it must NOT be idle).
+        Assert.Equal(string.Empty, surface.DisplayPreview);
+        AssertCycleClosedThenReplaces(context, surface, a, b);
+    }
 }

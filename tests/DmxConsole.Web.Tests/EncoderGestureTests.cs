@@ -389,4 +389,140 @@ public class EncoderGestureTests
 
         Assert.False(context.SelectionCycle.StartFreshOnNextSelection);
     }
+
+    // ---------- Value snap-back regression (Encoder Drawer's displayed Slot.Value) ----------
+    //
+    // BuildSlot used to read Context.EffectiveOutput.GetEffectiveValue (the merged/ticked
+    // DmxOutputEngine output) unconditionally - which only reflects a Programmer write once the
+    // engine's background loop has ticked since, and never at all if the engine isn't running
+    // (as in every test rig here: DmxOutputEngine.Start() is never called). The tests above only
+    // ever asserted on context.Programmer.HasStoredValue directly, so none of them caught that
+    // the DRAWER'S OWN DISPLAYED VALUE (drawer.SlotFor(type).Value / SlotsForCurrentPage()) could
+    // still read 0 right after a successful Preview/Commit. These assert on the Slot itself,
+    // with the engine never ticked, exactly reproducing the reported bug's conditions.
+
+    [Fact]
+    public void PreviewGesture_SlotValue_TracksLivePreview_WithoutAnyEngineTick()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        drawer.PreviewGesture(gesture, ChannelType.Dimmer, 180);
+
+        Assert.Equal(180, drawer.SlotFor(ChannelType.Dimmer).Value);
+    }
+
+    [Fact]
+    public void PreviewGesture_SlotValue_DoesNotSnapBackMidGesture_AcrossManyPreviews()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        for (byte v = 10; v < 250; v += 20)
+        {
+            drawer.PreviewGesture(gesture, ChannelType.Dimmer, v);
+            // Simulates the drawer's own 200ms poll timer forcing a fresh BuildSlot mid-drag -
+            // must reflect the just-previewed value every time, never fall back to 0.
+            Assert.Equal(v, drawer.SlotFor(ChannelType.Dimmer).Value);
+        }
+    }
+
+    [Fact]
+    public void CommitGesture_SlotValue_ShowsCommittedProgrammerValue_WithoutAnyEngineTick()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        drawer.PreviewGesture(gesture, ChannelType.Dimmer, 200);
+        drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [ChannelType.Dimmer] = 200 });
+
+        // The regression: this used to read 0 here, because BuildSlot read the merged engine
+        // output and this test rig's DmxOutputEngine is never Start()ed/Tick()ed.
+        var slotAfterCommit = drawer.SlotFor(ChannelType.Dimmer);
+        Assert.Equal(200, slotAfterCommit.Value);
+        Assert.True(slotAfterCommit.IsProgrammerTouched);
+    }
+
+    [Fact]
+    public void CommitGesture_SelectionRemainsSelected()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        drawer.PreviewGesture(gesture, ChannelType.Dimmer, 200);
+        drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [ChannelType.Dimmer] = 200 });
+
+        Assert.Single(context.Selection.Items);
+        Assert.Same(fixture, context.Selection.Items[0]);
+    }
+
+    [Fact]
+    public void CommitGesture_RaisesValuesChanged_SoTheDrawerCanRefreshImmediately()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        int raised = 0;
+        drawer.ValuesChanged += () => raised++;
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        drawer.PreviewGesture(gesture, ChannelType.Dimmer, 200);
+        drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [ChannelType.Dimmer] = 200 });
+
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void PreviewGesture_DoesNotRaiseValuesChanged()
+    {
+        // Preview already renders live via the knob's own local override (EncoderKnob._liveValue)
+        // on every pointer move - forcing a full drawer refresh on every Preview call as well
+        // would defeat SendPreviewThrottled's throttling for no benefit. Only Commit (and the
+        // other direct-write actions: Home/Min/Max/TrySetDisplayValue) force one.
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        int raised = 0;
+        drawer.ValuesChanged += () => raised++;
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        for (byte v = 10; v < 250; v += 20)
+            drawer.PreviewGesture(gesture, ChannelType.Dimmer, v);
+
+        Assert.Equal(0, raised);
+    }
+
+    [Fact]
+    public void Slot_PrefersProgrammerValue_OverStaleEffectiveOutput_WhenBothDisagree()
+    {
+        // Direct regression for the root cause: EffectiveOutput (the merged/ticked engine buffer)
+        // legitimately can hold a different, stale byte from what the Programmer now stores,
+        // whenever nothing has ticked since. The drawer must show the Programmer's own value in
+        // that case - it's the parameter-edit surface for the Programmer, not a live-output monitor.
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        context.Programmer.SetChannel(0, 0, 250); // written directly, engine never ticked
+
+        Assert.Equal(0, context.EffectiveOutput.GetEffectiveValue(0, 0)); // proves the engine buffer is stale/untouched
+        Assert.Equal(250, drawer.SlotFor(ChannelType.Dimmer).Value); // the drawer shows Programmer's value regardless
+    }
 }

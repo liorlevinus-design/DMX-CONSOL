@@ -19,7 +19,7 @@
         <button class="btn" @onclick="() => Sel.SelectEvenCommand.Execute(null)">Even</button>
         <button class="btn" @onclick="() => Sel.PreviousCommand.Execute(null)">◀ Previous</button>
         <button class="btn" @onclick="() => Sel.NextCommand.Execute(null)">Next ▶</button>
-        <button class="btn" @onclick="() => Sel.ClearSelectionCommand.Execute(null)">Clear</button>
+        <button class="btn" @onclick="ClearSelection">Clear</button>
 
         <span class="selection-summary">Selected: @SelectionSummary()</span>
     </div>
@@ -47,6 +47,15 @@
 
     private string SelectionSummary() =>
         Sel.Selection.Items.Count == 0 ? "(none)" : string.Join(", ", Sel.Selection.Items.Select(f => f.Number));
+
+    // The single, shared CLEAR operation (CommandSurfaceViewModel.PressClear) - never a second,
+    // independent selection-clearing path. This bar's own Thru-arm is local UI state (never a
+    // SelectionCycle/command-line concept), so it's reset alongside, not inside, the shared Clear.
+    private void ClearSelection()
+    {
+        Vm.CommandSurfaceVm.PressClear();
+        Sel.PendingThruStart = null;
+    }
 
     protected override void OnInitialized()
     {

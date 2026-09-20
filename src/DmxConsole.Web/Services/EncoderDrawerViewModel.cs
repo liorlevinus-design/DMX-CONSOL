@@ -55,6 +55,13 @@ public partial class EncoderDrawerViewModel : ObservableObject
     /// whatever was in progress first - see BeginGesture.</summary>
     private EncoderGesture? _activeGesture;
 
+    /// <summary>Raised after CommitGesture/Home/Min/Max/TrySetDisplayValue actually write a new
+    /// value into the Programmer - EncoderDrawer.razor listens for this so a committed value
+    /// shows immediately, instead of waiting for its own up-to-200ms poll timer to catch up
+    /// (which, combined with the knob's own live-preview override clearing on release, is what
+    /// used to read as the value snapping back to 0 right after a gesture ended).</summary>
+    public event Action? ValuesChanged;
+
     [ObservableProperty] private bool _isOpen = true;
     [ObservableProperty] private AttributeClass? _activeCategory;
     [ObservableProperty] private int _page;
@@ -240,7 +247,22 @@ public partial class EncoderDrawerViewModel : ObservableObject
             .Where(x => x.Channel is not null)
             .ToList();
 
-        var values = perFixture.Select(x => Context.EffectiveOutput.GetEffectiveValue(x.Fixture.UniverseId, x.Fixture.AbsoluteIndex(x.Channel!))).ToList();
+        // The Encoder Drawer is the PROGRAMMER edit surface (Preview/Commit both write straight
+        // to Programmer, never through the merged/ticked DmxOutputEngine output) - so a channel
+        // the Programmer currently holds must display that stored value directly, not
+        // Context.EffectiveOutput.GetEffectiveValue, which only reflects a Programmer write once
+        // the engine's background loop has ticked since (and never at all if the engine isn't
+        // running). Reading EffectiveOutput unconditionally here was the root cause of a
+        // committed/previewed value visibly snapping back to 0 right after a gesture ended - the
+        // knob's own live-preview override cleared on release, and the fallback (this slot's
+        // Value) was still sourced from a buffer nothing had ticked. Falls back to EffectiveOutput
+        // only when the Programmer holds nothing for this channel, so a value driven by something
+        // else (a Cue, an Effect) still shows live here - unchanged from before.
+        var values = perFixture
+            .Select(x => Context.Programmer.HasStoredValue(x.Fixture.UniverseId, x.Fixture.AbsoluteIndex(x.Channel!), out var stored)
+                ? stored
+                : Context.EffectiveOutput.GetEffectiveValue(x.Fixture.UniverseId, x.Fixture.AbsoluteIndex(x.Channel!)))
+            .ToList();
         bool touched = perFixture.Any(x => Context.Programmer.HasStoredValue(x.Fixture.UniverseId, x.Fixture.AbsoluteIndex(x.Channel!), out _));
 
         byte value = values.Count == 0 ? (byte)0 : values[0];
@@ -327,6 +349,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
         // counts as "a programming action happened."
         if (result.Success) Context.SelectionCycle.MarkExecutionCompleted();
         _programmerVm.RefreshAllFaders();
+        ValuesChanged?.Invoke();
     }
 
     /// <summary>Restores every target to its own private snapshot - no Command, no Undo entry.</summary>
@@ -362,12 +385,21 @@ public partial class EncoderDrawerViewModel : ObservableObject
         if (channel is null) return false;
 
         SetValue(type, channel.FromDisplayValue(displayValue));
+        ValuesChanged?.Invoke();
         return true;
     }
 
-    public void Min(ChannelType type) => _programmerVm.SetEncoderValue(type, 0);
+    public void Min(ChannelType type)
+    {
+        _programmerVm.SetEncoderValue(type, 0);
+        ValuesChanged?.Invoke();
+    }
 
-    public void Max(ChannelType type) => _programmerVm.SetEncoderValue(type, 255);
+    public void Max(ChannelType type)
+    {
+        _programmerVm.SetEncoderValue(type, 255);
+        ValuesChanged?.Invoke();
+    }
 
     /// <summary>Each fixture's own FixtureChannel.DefaultValue, not one shared value - fixtures
     /// with different defaults for this channel type genuinely need different target bytes.
@@ -386,5 +418,6 @@ public partial class EncoderDrawerViewModel : ObservableObject
 
         _dispatcher.DispatchBatch(commands);
         _programmerVm.RefreshAllFaders();
+        ValuesChanged?.Invoke();
     }
 }

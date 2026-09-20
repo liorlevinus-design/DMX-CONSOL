@@ -38,17 +38,30 @@ public sealed class CommandSurfaceViewModel
     /// Surface already uses for RELEASE ENTER.</summary>
     private int? _pendingOverwriteSlot;
 
-    /// <summary>Set the instant a bare RELEASE (empty command line) fires "release current
-    /// selection" - if ENTER is the very next press, with nothing else in between, it escalates
-    /// to "Clear Entire Editor/Programmer" for every patched fixture (docs/COMMAND_SURFACE_KEY_SPEC.md
-    /// §7's "RELEASE ENTER"). Any other key that composes or edits the command line disarms it -
-    /// this is the same two-press-gesture pattern used elsewhere on this keypad (see the
-    /// Macro-overwrite confirmation). CLEAR is the one deliberate exception: CLEAR is selection-only
-    /// and must not touch unrelated interaction state, so it leaves this arm exactly as it was (see
-    /// PressClear). That guarantee is intentionally left untested in this slice - its only observable
-    /// effect today is this legacy two-press escalation, which the RELEASE-panel slice replaces -
-    /// see the DEFERRED note in CommandSurfaceViewModelClearTests.</summary>
-    private bool _releaseArmedForFullClear;
+    /// <summary>RELEASE is a two-step, contextual gesture (RELEASE-panel slice): the first bare
+    /// RELEASE press (empty command line) never mutates anything - it only arms the family-choice
+    /// softkey context (<see cref="ArmedReleaseFamilies"/>), exposed by CommandSurface.razor as
+    /// ALL/INTENSITY/POSITION/COLOR/BEAM/IMAGE/SHAPE. A second RELEASE press, or ENTER, confirms
+    /// whatever families are armed (empty = every family). Any other composing key (a digit, a
+    /// token, Backspace, Shift, a Macro key) disarms it - the same "any other key cancels a
+    /// two-press gesture" idiom already used for Macro-overwrite confirmation. CLEAR is the one
+    /// key documented to dismiss it explicitly (see PressClear) - not merely "any other key", but a
+    /// requirement of its own (§15/§D).</summary>
+    public bool ReleaseArmed { get; private set; }
+
+    private readonly HashSet<AttributeClass> _armedReleaseFamilies = new();
+
+    /// <summary>The family/families chosen so far while <see cref="ReleaseArmed"/> is true - empty
+    /// means "no family chosen yet", which confirms differently depending on HOW it's confirmed
+    /// (see ConfirmArmedRelease's own doc comment). Exposed read-only; CommandSurface.razor's
+    /// softkeys mutate it only through <see cref="ToggleReleaseFamily"/>.</summary>
+    public IReadOnlySet<AttributeClass> ArmedReleaseFamilies => _armedReleaseFamilies;
+
+    private void DisarmReleaseContext()
+    {
+        ReleaseArmed = false;
+        _armedReleaseFamilies.Clear();
+    }
 
     public CommandComposition Current { get; private set; }
     public string? DispatchError { get; private set; }
@@ -100,7 +113,27 @@ public sealed class CommandSurfaceViewModel
 
     public int? RecordingMacroSlot => _macroRecorder.RecordingSlot;
 
-    public string DisplayPreview => _pendingDigits.Length == 0 ? Current.PreviewText : $"{Current.PreviewText} {_pendingDigits}".TrimStart();
+    /// <summary>Selection-expression completion != programming-execution completion (§A). A pure
+    /// selection ("FIXTURE 1 THRU 20 ENTER", no AT) resets the CommandComposer's own working
+    /// tokens immediately - that reset is structural, required so the NEXT gesture dispatches as
+    /// its own small, separate command rather than re-replaying every prior clause in one
+    /// ever-growing composite (see Push's own doc comment) - but the operator-visible Task line
+    /// must NOT look idle just because of that internal reset. This holds the just-resolved
+    /// selection's preview text so DisplayPreview keeps showing it until either a real programming
+    /// execution happens (cleared there - see Push/PressCaptureAll/ConfirmArmedRelease) or the
+    /// operator begins composing something new (superseded there, never explicitly cleared, since
+    /// DisplayPreview always prefers live composer/pending-digit state when either is non-empty).
+    /// Also cleared by PressClear.</summary>
+    private string? _selectionContextEcho;
+
+    public string DisplayPreview
+    {
+        get
+        {
+            if (_pendingDigits.Length > 0) return $"{Current.PreviewText} {_pendingDigits}".TrimStart();
+            return Current.PreviewText.Length > 0 ? Current.PreviewText : (_selectionContextEcho ?? string.Empty);
+        }
+    }
 
     /// <summary>
     /// Mirrors a fixture selection made outside the keypad into the same CommandComposer. The
@@ -110,7 +143,7 @@ public sealed class CommandSurfaceViewModel
     {
         _pendingDigits = string.Empty;
         DispatchError = null;
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
         _composer.Reset();
@@ -134,9 +167,10 @@ public sealed class CommandSurfaceViewModel
     public void PressDigit(char digit)
     {
         if (digit is < '0' or > '9') return;
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
+        _selectionContextEcho = null; // a new composing key permanently supersedes the echo (§A)
 
         // A number added to a mirrored selection is a new selection gesture unless it is the
         // value following AT. This matters for the recorded selection-gesture history.
@@ -150,9 +184,10 @@ public sealed class CommandSurfaceViewModel
 
     public void PressDecimalPoint()
     {
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
+        _selectionContextEcho = null; // a new composing key permanently supersedes the echo (§A)
 
         // DMX Universe.Address (§8's dot ambiguity): while the composer is expecting a
         // DmxAddress next, "." is a literal Universe/Address separator - never Recall, never an
@@ -190,23 +225,24 @@ public sealed class CommandSurfaceViewModel
         if (kind == CommandTokenKind.Backspace) { PressBackspace(); return; }
         if (kind == CommandTokenKind.Clear) { PressClear(); return; }
 
-        // RELEASE ENTER (§7): bare ENTER pressed immediately after a bare RELEASE, with nothing
-        // else typed in between, escalates to Clear Entire Editor/Programmer for every patched
-        // fixture - a deliberate two-press gesture (see PressRelease), not composer grammar. Any
-        // other token (including a second Enter with nothing armed) disarms it below as normal.
-        if (kind == CommandTokenKind.Enter && _releaseArmedForFullClear && Current.Tokens.Count == 0 && _pendingDigits.Length == 0)
+        // RELEASE-armed ENTER (§C): ENTER confirms whatever family/families are armed on the
+        // RELEASE softkey panel (empty = "release ALL Programmer values for the current
+        // Selection") - the second of the two documented confirmation gestures (the other being a
+        // second bare RELEASE press - see PressRelease/ConfirmArmedRelease). This is checked before
+        // the generic disarm below because ENTER here is itself the confirmation, not a cancel.
+        if (kind == CommandTokenKind.Enter && ReleaseArmed)
         {
-            _releaseArmedForFullClear = false;
-            ShiftArmed = false;
-            DisarmLearn();
-            var result = _dispatcher.Dispatch(new ReleaseCommand(_context.Patch.Fixtures.ToList(), null));
-            DispatchError = result.Success ? null : (result.Error ?? "Release failed.");
-            Changed?.Invoke();
+            ConfirmArmedRelease(viaSecondRelease: false);
             return;
         }
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
+        // Any composing key permanently supersedes a pure-selection Task-line echo (§A) - not
+        // merely "hidden while Current.PreviewText is non-empty": otherwise Backspace-ing back
+        // down to an empty composition would let a stale echo from an earlier, already-superseded
+        // gesture leak back through DisplayPreview.
+        _selectionContextEcho = null;
 
         CommitPendingDigits();
 
@@ -262,7 +298,7 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressCaptureAll()
     {
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
         _pendingDigits = string.Empty;
@@ -287,6 +323,7 @@ public sealed class CommandSurfaceViewModel
             // without changing this rule.
             if (result.Success) _context.SelectionCycle.MarkExecutionCompleted();
             _composer.Reset();
+            _selectionContextEcho = null; // a programming execution returns the Task line to true idle (§A)
             Current = _composer.Current; // idle line - "reverts to idle after successful execution"
         }
         else
@@ -314,7 +351,7 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressParameter(ChannelType channelType)
     {
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
         _pendingDigits = string.Empty;
@@ -325,14 +362,15 @@ public sealed class CommandSurfaceViewModel
     }
 
     /// <summary>
-    /// RELEASE (docs/COMMAND_SURFACE_KEY_SPEC.md §7). Mid-composition (a family token already
-    /// pushed, e.g. "POSITION") this is ordinary grammar - the composer resolves
-    /// "&lt;Family&gt; RELEASE" itself via PressToken. On an EMPTY command line, RELEASE is a
-    /// two-press gesture rather than composer grammar: it fires immediately as "release the
-    /// current selection, all families" (self-terminating, like any other unambiguous Action
-    /// key), and arms _releaseArmedForFullClear so an immediately-following bare ENTER (see
-    /// PressToken) escalates to "Clear Entire Editor/Programmer" for every patched fixture -
-    /// never inferred from a timeout.
+    /// RELEASE (docs/COMMAND_SURFACE_KEY_SPEC.md §7, RELEASE-panel slice). Mid-composition (a
+    /// family token already pushed, e.g. "POSITION") this remains ordinary composer grammar -
+    /// "&lt;Family&gt; RELEASE" self-terminates immediately via PressToken, unchanged. On an EMPTY
+    /// command line, RELEASE is a two-step CONTEXTUAL gesture, never an immediate mutation: the
+    /// first press only arms the family-choice softkey context (<see cref="ReleaseArmed"/>,
+    /// exposed as ALL/INTENSITY/POSITION/COLOR/BEAM/IMAGE/SHAPE) - a second RELEASE press (or
+    /// ENTER, see PressToken) confirms it. The legacy "RELEASE fires immediately, ENTER escalates
+    /// to Clear Entire Editor" two-press gesture is retired - it conflicted with this spec and is
+    /// not preserved.
     /// </summary>
     public void PressRelease()
     {
@@ -340,8 +378,11 @@ public sealed class CommandSurfaceViewModel
 
         if (ShiftArmed)
         {
+            // SHIFT+RELEASE = Release All Playbacks (§7) - a runtime/non-undoable Action on
+            // Executors, never the Programmer. Entirely independent of the family-arm state
+            // machine below; disarms it as a side effect of consuming Shift, same as any other key.
             ShiftArmed = false;
-            _releaseArmedForFullClear = false;
+            DisarmReleaseContext();
             var shiftResult = _dispatcher.DispatchAction(new ReleaseAllPlaybacksAction());
             DispatchError = shiftResult.Success ? null : (shiftResult.Error ?? "Release All Playbacks failed.");
             Changed?.Invoke();
@@ -350,32 +391,114 @@ public sealed class CommandSurfaceViewModel
 
         if (Current.Tokens.Count > 0 || _pendingDigits.Length > 0)
         {
-            _releaseArmedForFullClear = false;
+            DisarmReleaseContext();
             ShiftArmed = false;
             PressToken(CommandTokenKind.Release);
             return;
         }
 
         DispatchError = null;
-        var targets = _context.Selection.Items.ToList();
-        if (targets.Count == 0)
+
+        if (!ReleaseArmed)
         {
-            DispatchError = "Select at least one fixture first.";
-            _releaseArmedForFullClear = false;
-            ShiftArmed = false;
+            // First RELEASE on an empty line: arm the contextual panel only. No Programmer
+            // mutation, no Selection mutation, no SelectionCycle change - purely a UI-context
+            // change, exactly like opening the Encoder Drawer's category rail.
+            ReleaseArmed = true;
+            _armedReleaseFamilies.Clear();
             Changed?.Invoke();
             return;
         }
 
-        var result = _dispatcher.Dispatch(new ReleaseCommand(targets, null));
+        // Second bare RELEASE press while already armed confirms it (the other confirmation is
+        // ENTER, handled in PressToken).
+        ConfirmArmedRelease(viaSecondRelease: true);
+    }
+
+    /// <summary>Toggles one family in/out of the RELEASE softkey panel's current selection - only
+    /// meaningful while <see cref="ReleaseArmed"/> is true; a no-op otherwise (the panel isn't
+    /// shown, so nothing should be reachable to call this). Multiple families may be armed at
+    /// once (§C: "User may choose one or multiple families").</summary>
+    public void ToggleReleaseFamily(AttributeClass family)
+    {
+        if (!ReleaseArmed) return;
+        if (!_armedReleaseFamilies.Remove(family)) _armedReleaseFamilies.Add(family);
+        Changed?.Invoke();
+    }
+
+    /// <summary>The RELEASE softkey panel's "ALL" option (§C/§D) - explicitly resets the armed
+    /// family set back to empty (still requires ENTER/a second RELEASE to confirm, same as any
+    /// other choice on this panel). "ALL" and specific families are mutually exclusive by
+    /// construction: choosing ALL clears whatever families were armed, and choosing any family
+    /// leaves the set non-empty, which is what makes it NOT "ALL" at confirm time.</summary>
+    public void SelectReleaseAll()
+    {
+        if (!ReleaseArmed) return;
+        _armedReleaseFamilies.Clear();
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Confirms whatever the RELEASE softkey panel currently has armed and disarms it. With one or
+    /// more families chosen, both confirmation gestures (ENTER and a second RELEASE) behave
+    /// IDENTICALLY: release those families for the CURRENT SELECTION only (§C "Family release").
+    /// With NO family chosen, the two gestures diverge - this is the one place the confirmation
+    /// method itself changes the outcome:
+    ///   - ENTER (viaSecondRelease: false) = release ALL Programmer values for the current
+    ///     Selection (scoped, like a bare RELEASE always used to be).
+    ///   - a second RELEASE (viaSecondRelease: true) = Clear Entire Programmer globally, for
+    ///     every patched fixture, independent of the current Selection.
+    /// A successful release is a programming action - closes the SelectionCycle, exactly like
+    /// family-qualified RELEASE grammar already does.
+    /// </summary>
+    private void ConfirmArmedRelease(bool viaSecondRelease)
+    {
+        ReleaseArmed = false;
+        var families = _armedReleaseFamilies.ToList();
+        _armedReleaseFamilies.Clear();
+        DispatchError = null;
+
+        CommandResult result;
+        if (families.Count == 0 && viaSecondRelease)
+        {
+            // RELEASE RELEASE, no family: Clear Entire Programmer globally - independent of
+            // Selection, so no "select at least one fixture" guard applies here.
+            result = _dispatcher.Dispatch(new ReleaseCommand(_context.Patch.Fixtures.ToList(), null));
+        }
+        else
+        {
+            var targets = _context.Selection.Items.ToList();
+            if (targets.Count == 0)
+            {
+                DispatchError = "Select at least one fixture first.";
+                Changed?.Invoke();
+                return;
+            }
+
+            if (families.Count == 0)
+            {
+                // RELEASE ENTER, no family: release ALL Programmer values for the current Selection.
+                result = _dispatcher.Dispatch(new ReleaseCommand(targets, null));
+            }
+            else
+            {
+                var commands = families.Select(f => (IConsoleCommand)new ReleaseCommand(targets, f)).ToList();
+                result = commands.Count == 1 ? _dispatcher.Dispatch(commands[0]) : _dispatcher.DispatchBatch(commands);
+            }
+        }
+
         DispatchError = result.Success ? null : (result.Error ?? "Release failed.");
-        _releaseArmedForFullClear = result.Success;
+        if (result.Success)
+        {
+            _context.SelectionCycle.MarkExecutionCompleted();
+            _selectionContextEcho = null; // a programming execution returns the Task line to true idle (§A)
+        }
         Changed?.Invoke();
     }
 
     public void PressBackspace()
     {
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
         _mirrorsExistingSelection = false;
@@ -391,33 +514,46 @@ public sealed class CommandSurfaceViewModel
     }
 
     /// <summary>
-    /// CLEAR (docs/COMMAND_SURFACE_KEY_SPEC.md §15, redefined for this slice). CLEAR immediately
-    /// clears the CURRENT Fixture Selection and nothing else. It is one stateless gesture: there is
-    /// no CLEAR CLEAR escalation and no "remove the last selection gesture" step - a single press
-    /// clears the whole current selection, and pressing it again simply clears an already-empty
-    /// selection again.
+    /// CLEAR (docs/COMMAND_SURFACE_KEY_SPEC.md §15, redefined again for the RELEASE-panel slice).
+    /// There is exactly ONE operator CLEAR semantic, converged onto from every UI entry point
+    /// (SelectionBar/ChannelsView/FixturesView Clear buttons all call this same method - see their
+    /// own Razor code). One press:
+    ///   1. clears the current Fixture/Group Selection;
+    ///   2. clears/resets the CommandComposer AND the pending-digit buffer - the Task line
+    ///      returns to idle (a correction from the earlier "CLEAR is selection-only, Backspace is
+    ///      the only command-line editor" design: CLEAR now resets BOTH);
+    ///   3. resets SelectionCycle to a clean idle state (ClearSelectionAction itself does this -
+    ///      see that type's own doc comment - so every other caller of that Action gets it too,
+    ///      not just this one);
+    ///   4. dismisses the RELEASE softkey context immediately if armed (see ReleaseArmed) - CLEAR
+    ///      is the one key documented to do this explicitly, unlike Shift/LEARN MACRO below;
+    ///   5. leaves Programmer completely untouched;
+    ///   6. is not Undo - applied as a non-undoable <see cref="ClearSelectionAction"/> via
+    ///      CommandDispatcher.DispatchAction, so it can never enter Undo history and can never
+    ///      clear the Redo stack (also excluded from Macro recording - see MacroRecorder);
+    ///   7. is not Backspace - Backspace remains the ONLY editor of partially-typed digits/tokens
+    ///      that have not yet resolved into a completed command; CLEAR always acts on the whole
+    ///      Selection/Task line at once, never one token/gesture at a time;
+    ///   8. never triggers RELEASE behavior - beyond dismissing an armed RELEASE context, CLEAR
+    ///      never dispatches a Release itself.
     ///
-    /// It deliberately does NOT modify the command line's partial composition (CommandComposer) and
-    /// does NOT modify the pending-digit buffer - Backspace is the single editor of command-line
-    /// input (see PressBackspace). It also does NOT modify Programmer/Editor values, does NOT modify
-    /// the shared EditorContextStack, and never dispatches Release (§15: for completed state
-    /// changes use Undo or Release, which are separate keys).
-    ///
-    /// It is SELECTION-ONLY: it must not touch unrelated interaction state either. Any Shift arm,
-    /// LEARN MACRO arm/recording, or RELEASE-ENTER arm that happens to be live is left exactly as it
-    /// was - those belong to their own keys, and CLEAR silently disarming them would make an
-    /// unrelated key's next press behave differently for no reason the operator could see.
-    ///
-    /// Applied as a non-undoable <see cref="ClearSelectionAction"/> through
-    /// CommandDispatcher.DispatchAction, so CLEAR can never enter Undo history and can never clear
-    /// the Redo stack. That same action is also excluded from Macro recording (see MacroRecorder) -
-    /// clearing the operating selection is a navigation gesture, never a replayable console step.
+    /// Otherwise selection-only in spirit: a live Shift arm or LEARN MACRO arm/recording is left
+    /// exactly as it was - those belong to their own keys, and CLEAR silently disarming them would
+    /// make an unrelated key's next press behave differently for no reason the operator could see.
+    /// There is no CLEAR CLEAR escalation of any kind - repeated presses just repeat the same
+    /// immediate reset.
     /// </summary>
     public void PressClear()
     {
+        DisarmReleaseContext();
+        _pendingDigits = string.Empty;
+        _composer.Reset();
+        _selectionContextEcho = null;
+
         var result = _dispatcher.DispatchAction(new ClearSelectionAction());
 
         DispatchError = result.Success ? null : (result.Error ?? "Clear failed.");
+        Current = _composer.Current;
         Changed?.Invoke();
     }
 
@@ -431,7 +567,7 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressLearnMacro()
     {
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
         // SHIFT + LEARN MACRO is reserved for a future Macro Manager/Edit screen (§1) - not
         // implemented in v1, so it silently behaves like a bare LEARN MACRO press, the same
         // "unassigned combo" rule ShiftArmed's own doc comment already establishes for every
@@ -483,7 +619,7 @@ public sealed class CommandSurfaceViewModel
     /// </summary>
     public void PressMacroSlot(int baseSlot)
     {
-        _releaseArmedForFullClear = false;
+        DisarmReleaseContext();
 
         int slot = ShiftArmed ? baseSlot + 4 : baseSlot;
         ShiftArmed = false;
@@ -604,11 +740,18 @@ public sealed class CommandSurfaceViewModel
                 {
                     _context.SelectionCycle.MarkExecutionCompleted();
                     _composer.ReplaceSelectionOnResolve = true;
+                    // A programming execution returns the Task line to true idle (§A) - clears
+                    // whatever selection-context echo a prior pure-selection gesture left showing.
+                    _selectionContextEcho = null;
                 }
                 else
                 {
                     _context.SelectionCycle.MarkSelectionStarted();
                     _composer.ReplaceSelectionOnResolve = false;
+                    // A pure selection expression completing must NOT make the Task line look
+                    // idle (§A) - echo what was just resolved so DisplayPreview keeps showing it
+                    // even though the composer's own working tokens are about to reset below.
+                    _selectionContextEcho = composition.PreviewText;
                 }
 
                 _mirrorsExistingSelection = false;

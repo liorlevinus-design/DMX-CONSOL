@@ -64,14 +64,6 @@ public partial class SelectionViewModel : ObservableObject
     [RelayCommand] private void SelectOdd() => _dispatcher.Dispatch(new SelectOddCommand());
     [RelayCommand] private void SelectEven() => _dispatcher.Dispatch(new SelectEvenCommand());
 
-    [RelayCommand]
-    private void ClearSelection()
-    {
-        _dispatcher.Dispatch(new ClearSelectionCommand());
-        _context.SelectionCycle.MarkSelectionStarted();
-        PendingThruStart = null;
-    }
-
     [RelayCommand] private void Next() => DispatchSelectionGesture(new NextFixtureCommand());
     [RelayCommand] private void Previous() => DispatchSelectionGesture(new PreviousFixtureCommand());
 

@@ -12,9 +12,9 @@ using Xunit;
 namespace DmxConsole.Web.Tests;
 
 /// <summary>docs/COMMAND_SURFACE_KEY_SPEC.md §7/§15/§18 - the UI-level gestures that live above
-/// CommandComposer's pure grammar: bare RELEASE's two-press escalation to "Clear Entire Editor",
-/// SHIFT+RELEASE (Release All Playbacks), and CLEAR's "pending digits are left alone" boundary
-/// (Backspace, not CLEAR, is the single command-line editor).</summary>
+/// CommandComposer's pure grammar: bare RELEASE's two-press contextual arm/confirm gesture (full
+/// coverage of the family-choice panel lives in CommandSurfaceViewModelReleaseTests), SHIFT+RELEASE
+/// (Release All Playbacks), and CLEAR resetting the command line too (§B item 2).</summary>
 public class CommandSurfaceViewModelTests
 {
     private static FixtureProfile Dimmer1() => new()
@@ -38,8 +38,10 @@ public class CommandSurfaceViewModelTests
         return (context, dispatcher, surface, fixture);
     }
 
+    /// <summary>First RELEASE on an empty line only arms the family-choice panel (§C) - it must
+    /// NEVER mutate the Programmer immediately. The old "fires immediately" behavior is retired.</summary>
     [Fact]
-    public void BareRelease_OnEmptyLine_ReleasesCurrentSelection_Immediately_NoEnterNeeded()
+    public void BareRelease_OnEmptyLine_ArmsTheReleaseContext_NeverMutatesImmediately()
     {
         var (context, _, surface, fixture) = BuildRig();
         context.Selection.Add(fixture);
@@ -47,12 +49,17 @@ public class CommandSurfaceViewModelTests
 
         surface.PressRelease();
 
-        Assert.False(context.Programmer.HasStoredValue(0, 0, out _));
+        Assert.True(surface.ReleaseArmed);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
+        Assert.Equal(200, value);
         Assert.Null(surface.DispatchError);
     }
 
+    /// <summary>RELEASE then ENTER with no family chosen releases the CURRENT SELECTION only - a
+    /// fixture that was never selected is untouched (§C: full coverage of every RELEASE
+    /// confirmation combination lives in CommandSurfaceViewModelReleaseTests).</summary>
     [Fact]
-    public void ReleaseThenEnter_Immediately_EscalatesToClearEntireEditor_AllPatchedFixtures()
+    public void ReleaseThenEnter_NoFamilyChosen_ReleasesOnlyTheCurrentSelection()
     {
         var (context, _, surface, fixture) = BuildRig();
         var other = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 10);
@@ -61,10 +68,27 @@ public class CommandSurfaceViewModelTests
         context.Programmer.SetChannel(0, 0, 200); // fixture 1's Dimmer
         context.Programmer.SetChannel(other.UniverseId, other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!), 150); // NOT selected
 
-        surface.PressRelease(); // first press: releases only the selection (fixture 1)
-        Assert.True(context.Programmer.HasStoredValue(other.UniverseId, other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!), out _));
+        surface.PressRelease(); // arm
+        surface.PressToken(CommandTokenKind.Enter); // confirm - no family, scoped to Selection
 
-        surface.PressToken(CommandTokenKind.Enter); // immediately-following Enter: escalates
+        Assert.False(context.Programmer.HasStoredValue(0, 0, out _));
+        Assert.True(context.Programmer.HasStoredValue(other.UniverseId, other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!), out _)); // untouched
+    }
+
+    /// <summary>RELEASE then a SECOND RELEASE with no family chosen clears the entire Programmer
+    /// globally - independent of the current Selection, unlike the ENTER confirmation above.</summary>
+    [Fact]
+    public void ReleaseThenRelease_NoFamilyChosen_ClearsEntireProgrammerGlobally()
+    {
+        var (context, _, surface, fixture) = BuildRig();
+        var other = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 10);
+        context.Patch.Add(other);
+        context.Selection.Add(fixture); // only fixture 1 selected
+        context.Programmer.SetChannel(0, 0, 200);
+        context.Programmer.SetChannel(other.UniverseId, other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!), 150); // NOT selected
+
+        surface.PressRelease(); // arm
+        surface.PressRelease(); // confirm via second RELEASE - global clear
 
         Assert.False(context.Programmer.HasStoredValue(0, 0, out _));
         Assert.False(context.Programmer.HasStoredValue(other.UniverseId, other.AbsoluteIndex(other.FindChannel(ChannelType.Dimmer)!), out _));
@@ -179,12 +203,11 @@ public class CommandSurfaceViewModelTests
         Assert.False(surface.ShiftArmed);
     }
 
-    /// <summary>CLEAR no longer edits the command line (§15 redefined for this slice): the pending
-    /// digits and the partial composition both survive it completely intact. Backspace - not CLEAR -
-    /// is the single digit-backspace key. (CLEAR's full behavior lives in
-    /// CommandSurfaceViewModelClearTests.)</summary>
+    /// <summary>CLEAR now resets the command line too, including any pending (not-yet-committed)
+    /// digits (§B item 2, redefined again for the RELEASE-panel slice). Full CLEAR behavior lives
+    /// in CommandSurfaceViewModelClearTests.</summary>
     [Fact]
-    public void Clear_WhileDigitPending_LeavesPendingDigitsAndCompositionUntouched()
+    public void Clear_WhileDigitPending_ResetsPendingDigitsAndComposition()
     {
         var (_, _, surface, _) = BuildRig();
         surface.PressToken(CommandTokenKind.Fixture);
@@ -196,9 +219,7 @@ public class CommandSurfaceViewModelTests
 
         surface.PressClear();
 
-        Assert.Equal("FIXTURE 1 AT 57", surface.DisplayPreview.ToUpperInvariant());
-
-        surface.PressBackspace(); // Backspace is the single digit editor
-        Assert.Equal("FIXTURE 1 AT 5", surface.DisplayPreview.ToUpperInvariant());
+        Assert.Equal(string.Empty, surface.DisplayPreview);
+        Assert.Empty(surface.Current.Tokens);
     }
 }

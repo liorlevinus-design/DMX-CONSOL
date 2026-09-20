@@ -135,12 +135,11 @@ public class CommandSurfaceViewModelBackspaceTests
         context.Selection.Add(context.Patch.FindByNumber(1)!);
         context.Selection.Add(context.Patch.FindByNumber(2)!);
 
-        surface.PressToken(CommandTokenKind.At); // a partial command line CLEAR must leave alone
+        surface.PressToken(CommandTokenKind.At); // a partial command line - CLEAR resets this too
 
         surface.PressToken(CommandTokenKind.Clear);
 
         Assert.Empty(context.Selection.Items); // the selection cleared
-        Assert.Single(surface.Current.Tokens); // the command line did not
-        Assert.Equal(CommandTokenKind.At, surface.Current.Tokens[0].Kind);
+        Assert.Empty(surface.Current.Tokens); // the command line reset too (§B item 2)
     }
 }

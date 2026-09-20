@@ -12,10 +12,10 @@ using Xunit;
 
 namespace DmxConsole.Web.Tests;
 
-/// <summary>docs/COMMAND_SURFACE_KEY_SPEC.md §15 as redefined for this slice - CLEAR immediately
-/// clears the CURRENT Fixture Selection and nothing else: no CLEAR CLEAR, no gesture step-back, no
-/// command-line editing (that is Backspace), no Programmer/Editor or EditorContextStack mutation,
-/// and never an Undo entry (it is dispatched as a non-undoable IConsoleAction).</summary>
+/// <summary>docs/COMMAND_SURFACE_KEY_SPEC.md §15, redefined again for the RELEASE-panel slice -
+/// the ONE operator CLEAR semantic: clears Selection, resets SelectionCycle to idle, resets the
+/// CommandComposer/pending-digit Task line, dismisses an armed RELEASE context, leaves Programmer
+/// untouched, is not Undo, is not Backspace, and never triggers RELEASE.</summary>
 public class CommandSurfaceViewModelClearTests
 {
     private static FixtureProfile Dimmer1() => new()
@@ -90,11 +90,12 @@ public class CommandSurfaceViewModelClearTests
         Assert.Empty(context.Selection.Items);
     }
 
-    /// <summary>CLEAR must not modify the CommandComposer and must not modify pending digits: the
-    /// partially-typed command line survives CLEAR completely intact (Backspace is the single
-    /// command-line editor).</summary>
+    /// <summary>CLEAR resets the CommandComposer AND the pending-digit buffer - the Task line
+    /// returns to idle (§B item 2, a correction from the earlier "CLEAR is selection-only,
+    /// Backspace is the only command-line editor" design). A partially-typed command line does
+    /// NOT survive CLEAR.</summary>
     [Fact]
-    public void Clear_LeavesCompositionAndPendingDigitsUntouched()
+    public void Clear_ResetsCommandComposerAndPendingDigits_TaskLineReturnsToIdle()
     {
         var (context, _, _, _, surface) = BuildRig(3);
         context.Selection.Add(context.Patch.Fixtures.First(f => f.Number == 2));
@@ -104,13 +105,12 @@ public class CommandSurfaceViewModelClearTests
         surface.PressToken(CommandTokenKind.At);
         surface.PressDigit('5');
         Assert.Equal("FIXTURE 1 AT 5", surface.DisplayPreview.ToUpperInvariant());
-        var tokenKindsBefore = surface.Current.Tokens.Select(t => t.Kind).ToArray();
 
         surface.PressClear();
 
-        Assert.Equal(tokenKindsBefore, surface.Current.Tokens.Select(t => t.Kind).ToArray());
-        Assert.Equal("FIXTURE 1 AT 5", surface.DisplayPreview.ToUpperInvariant());
-        Assert.Empty(context.Selection.Items); // the selection itself did clear
+        Assert.Empty(surface.Current.Tokens);
+        Assert.Equal(string.Empty, surface.DisplayPreview);
+        Assert.Empty(context.Selection.Items); // the selection itself did clear too
     }
 
     /// <summary>CLEAR touches Selection and nothing else: Programmer/Editor values and the shared
@@ -246,16 +246,65 @@ public class CommandSurfaceViewModelClearTests
         Assert.Null(context.Macros.FindBySlot(1));
     }
 
-    // DEFERRED (RELEASE-panel slice): "CLEAR does not explicitly alter RELEASE state" is
-    // deliberately NOT tested here. The only observable consequence of that guarantee today is the
-    // legacy two-press escalation RELEASE -> CLEAR -> ENTER clearing the ENTIRE Editor globally,
-    // and that behavior is NOT authoritative - the agreed future semantics are:
-    //   RELEASE -> ENTER (no family selected)    = release ALL Editor values for the CURRENT Selection
-    //   RELEASE -> RELEASE (no family selected)  = Clear Entire Editor globally
-    // Freezing the legacy result in a test here would have to be un-frozen (or would silently block)
-    // that refactor. _releaseArmedForFullClear is also private with no clean state-level accessor, so
-    // there is no way to assert "CLEAR left it alone" without asserting the legacy escalation itself.
-    // Re-add a proper regression guard in the RELEASE-panel slice, against the semantics above.
+    /// <summary>CLEAR resets SelectionCycle to a clean idle state (§B item 3) - a cycle the
+    /// operator had just closed (via a programming action) must not still read as "closed" after
+    /// CLEAR wipes the selection that closure applied to.</summary>
+    [Fact]
+    public void Clear_ResetsSelectionCycleToIdle()
+    {
+        var (context, _, _, _, surface) = BuildRig(2);
+
+        surface.PressToken(CommandTokenKind.Fixture);
+        surface.PressDigit('1');
+        surface.PressToken(CommandTokenKind.At);
+        surface.PressDigit('5');
+        surface.PressToken(CommandTokenKind.Enter);
+        Assert.True(context.SelectionCycle.StartFreshOnNextSelection); // AT closed the cycle
+
+        surface.PressClear();
+
+        Assert.False(context.SelectionCycle.StartFreshOnNextSelection);
+    }
+
+    /// <summary>CLEAR is the one key documented to dismiss an armed RELEASE context immediately
+    /// (§C/§D) - the panel closes, and neither ENTER nor a second RELEASE afterward can still
+    /// confirm the arm that CLEAR just cancelled.</summary>
+    [Fact]
+    public void Clear_WhileReleaseArmed_DismissesTheReleaseContext()
+    {
+        var (context, _, _, _, surface) = BuildRig(2);
+        context.Selection.Add(context.Patch.Fixtures.First(f => f.Number == 1));
+        context.Programmer.SetChannel(0, 0, 200);
+
+        surface.PressRelease(); // first press - arms only, no mutation
+        Assert.True(surface.ReleaseArmed);
+
+        surface.PressClear();
+
+        Assert.False(surface.ReleaseArmed);
+        Assert.Empty(surface.ArmedReleaseFamilies);
+
+        // A following ENTER must behave as ordinary (no-op, nothing composed) Enter, never as a
+        // confirm of the cancelled RELEASE arm - the Editor value from before must survive.
+        surface.PressToken(CommandTokenKind.Enter);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
+        Assert.Equal(200, value);
+    }
+
+    /// <summary>Duplicate UI CLEAR entry points converge onto CommandSurfaceViewModel.PressClear
+    /// (§B): SelectionViewModel - which SelectionBar.razor/ChannelsView.razor/FixturesView.razor
+    /// all used to call their own copy of "clear the selection" through - no longer exposes ANY
+    /// clear-selection member of its own. There is exactly one implementation left to converge on,
+    /// enforced at compile time by every one of those Razor files, and asserted here by reflection
+    /// so a future re-introduction of a second path fails this test immediately.</summary>
+    [Fact]
+    public void SelectionViewModel_NoLongerExposesItsOwnClearSelectionEntryPoint()
+    {
+        var members = typeof(SelectionViewModel).GetMembers(
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly);
+
+        Assert.DoesNotContain(members, m => m.Name.Contains("ClearSelection", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>CLEAR must not be macro-recorded at all: while a Macro is recording, CLEAR still
     /// clears the selection but contributes NO step, so replaying that Macro can never wipe the

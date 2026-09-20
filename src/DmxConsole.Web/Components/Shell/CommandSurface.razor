@@ -1,4 +1,5 @@
 @using DmxConsole.Application.CommandSurface
+@using DmxConsole.Core
 @using DmxConsole.Web.CommandSurface
 @using DmxConsole.Web.Services
 @inject MainViewModel Vm
@@ -18,8 +19,12 @@
     Layout follows docs/COMMAND_SURFACE_KEY_SPEC.md §20's spatial guidance (a concept sketch, not
     a pixel-exact template): a LEFT action bank (object keys, Shift, Release, Clear) and a RIGHT
     command bank (family keys + Preset, Home/Full, Next/Last, the numeric cluster with At/Thru/+/-
-    interleaved, Clear/Enter). Preserves the existing DMX-CONSOL touch-target sizing and CSS
-    token language (.key/.key-num/.key-op/etc.) rather than introducing a new visual system.
+    interleaved, Enter). There is exactly ONE fixed CLEAR key, in the left action bank alongside
+    Shift/Release - it used to also be duplicated next to Enter in the numeric cluster, which is
+    now removed (§B: "only ONE operator CLEAR semantic" applies to the physical key layout too,
+    not just to the UI entry points that call it). Preserves the existing DMX-CONSOL touch-target
+    sizing and CSS token language (.key/.key-num/.key-op/etc.) rather than introducing a new
+    visual system.
 
     Collapsible (work-plan follow-up to Milestone 1): fixed, always present, but foldable down
     to reclaim screen space - same open/closed pattern as EncoderDrawer, its row-mate in
@@ -38,6 +43,22 @@ else
     <div class="command-surface-column">
         <ParameterPicker />
         <div class="command-surface" tabindex="0" @onkeydown="OnKeyDown">
+        @if (Sfc.ReleaseArmed)
+        {
+            @* RELEASE-panel slice (§C/§D): first RELEASE press only arms this - no Programmer/
+               Selection mutation yet. Choosing a family never fixture attributes (RED/GREEN/PAN/
+               TILT live on the Encoder Drawer, not here) - only the six AttributeClass families
+               plus ALL. ENTER or a second RELEASE press confirms; CLEAR dismisses immediately. *@
+            <div class="keypad-row release-context-panel" role="group" aria-label="Release context">
+                <button class="key key-danger @(Sfc.ArmedReleaseFamilies.Count == 0 ? "active" : "")" @onclick="Sfc.SelectReleaseAll">All</button>
+                <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Intensity) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Intensity)">Intensity</button>
+                <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Position) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Position)">Position</button>
+                <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Color) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Color)">Color</button>
+                <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Beam) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Beam)">Beam</button>
+                <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Image) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Image)">Image</button>
+                <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Shape) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Shape)">Shape</button>
+            </div>
+        }
         <div class="command-bank command-bank-left">
             <div class="keypad-row">
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
@@ -70,7 +91,7 @@ else
                 <button class="key @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressShift" title="Shift - modifies the next key press (only Shift+Release is defined in v1)">Shift</button>
             </div>
             <div class="keypad-row">
-                <button class="key key-danger" @onclick="Sfc.PressRelease" title="Release current selection - Shift+Release releases all playbacks">Release</button>
+                <button class="key key-danger @(Sfc.ReleaseArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressRelease" title="Release - arms a family-choice panel; press again or Enter to confirm. Shift+Release releases all playbacks.">Release</button>
             </div>
             <div class="keypad-row">
                 <button class="key key-danger" @onclick="Sfc.PressClear">Clear</button>
@@ -120,7 +141,6 @@ else
             <div class="keypad-row">
                 <button class="key key-num key-wide" @onclick="() => PressDigit('0')">0</button>
                 <button class="key key-num" @onclick="PressDecimalPoint">.</button>
-                <button class="key key-danger" @onclick="Sfc.PressClear">Clear</button>
                 <button class="key key-enter" @onclick="() => PressToken(CommandTokenKind.Enter)">Enter</button>
             </div>
             <div class="keypad-row">

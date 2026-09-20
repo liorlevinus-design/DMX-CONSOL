@@ -784,6 +784,13 @@ html, body {
    the modifier is waiting to be consumed by the next key press. */
 .key-shift-armed { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+/* RELEASE-panel (§C/§D) - the contextual ALL/INTENSITY/POSITION/COLOR/BEAM/IMAGE/SHAPE softkey
+   row shown only while CommandSurfaceViewModel.ReleaseArmed is true. A chosen family/ALL gets the
+   same "active" treatment as EditorToolBar's own soft-key.active, so the two contextual-softkey
+   surfaces in this app read consistently. */
+.release-context-panel { margin-bottom: 4px; }
+.release-context-panel .key.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* MACROS - LEARN MACRO / MACRO 1-4 physical keys. Armed (waiting for a slot) and actively
    recording are visibly distinct states, matching key-shift-armed's own precedent. */
 .key-macro { font-size: 13px; }

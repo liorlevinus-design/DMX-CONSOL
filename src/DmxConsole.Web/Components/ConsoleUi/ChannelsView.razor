@@ -115,11 +115,10 @@
         Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Fixture, "FIXTURE", fixture, $"Fixture {fixture.Number}");
     }
 
-    private void ClearSelection()
-    {
-        Vm.SelectionVm.ClearSelectionCommand.Execute(null);
-        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
-    }
+    // The single, shared CLEAR operation (CommandSurfaceViewModel.PressClear) - never a
+    // second, independent selection-clearing path. See that method's own doc comment for
+    // everything one CLEAR press does (Selection, SelectionCycle, command line, RELEASE context).
+    private void ClearSelection() => Vm.CommandSurfaceVm.PressClear();
 
     private static int OrdinalWithin(ChannelFaderViewModel fader)
     {

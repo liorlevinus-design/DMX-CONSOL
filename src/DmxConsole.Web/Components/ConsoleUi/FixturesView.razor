@@ -119,11 +119,10 @@
             "FIXTURE", fixture, $"Fixture {fixture.Number}");
     }
 
-    private void ClearSelection()
-    {
-        Vm.SelectionVm.ClearSelectionCommand.Execute(null);
-        Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
-    }
+    // The single, shared CLEAR operation (CommandSurfaceViewModel.PressClear) - never a
+    // second, independent selection-clearing path. See that method's own doc comment for
+    // everything one CLEAR press does (Selection, SelectionCycle, command line, RELEASE context).
+    private void ClearSelection() => Vm.CommandSurfaceVm.PressClear();
 
     // ---------- Pure formatting over the already-computed FixtureFamilyState - no decisions
     // about pending/live/mixed happen here, only turning already-decided facts into text/CSS. ----------

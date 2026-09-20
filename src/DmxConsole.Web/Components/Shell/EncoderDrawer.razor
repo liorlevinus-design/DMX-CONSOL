@@ -232,6 +232,7 @@ else
         Drawer.RevalidateActiveCategory();
 
         Drawer.PropertyChanged += OnChanged;
+        Drawer.ValuesChanged += OnValuesChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged += OnSelectionChanged;
         Wvm.Changed += OnWorkspaceChanged;
         // Slot values come from the engine's live merged output (Context.EffectiveOutput), which
@@ -250,6 +251,11 @@ else
         Drawer.CopyStateInto(Wvm.Current.EncoderDrawer);
         InvokeAsync(StateHasChanged);
     }
+
+    /// <summary>Fires right after CommitGesture/Home/Min/Max/TrySetDisplayValue actually write a
+    /// value - forces this drawer to re-render with the fresh Programmer-sourced Slot.Value
+    /// immediately, instead of waiting on the up-to-200ms poll timer below.</summary>
+    private void OnValuesChanged() => InvokeAsync(StateHasChanged);
 
     private void OnSelectionChanged(object? sender, EventArgs e)
     {
@@ -305,6 +311,7 @@ else
     {
         Drawer.CancelActiveGestureIfAny();
         Drawer.PropertyChanged -= OnChanged;
+        Drawer.ValuesChanged -= OnValuesChanged;
         Vm.SelectionVm.Selection.Items.CollectionChanged -= OnSelectionChanged;
         Wvm.Changed -= OnWorkspaceChanged;
         _liveTimer?.Dispose();
