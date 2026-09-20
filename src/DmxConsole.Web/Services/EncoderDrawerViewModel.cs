@@ -320,8 +320,12 @@ public partial class EncoderDrawerViewModel : ObservableObject
             .ToList();
         if (commands.Count == 0) return;
 
-        if (commands.Count == 1) _dispatcher.Dispatch(commands[0]);
-        else _dispatcher.DispatchBatch(commands);
+        var result = commands.Count == 1 ? _dispatcher.Dispatch(commands[0]) : _dispatcher.DispatchBatch(commands);
+        // Encoder COMMIT is a programming action (Selection Cycle stabilization slice, item 8) -
+        // it must close the cycle so the next Fixture/Group selection starts fresh. Encoder
+        // PREVIEW (above) deliberately never calls this (item 9) - only a real, dispatched commit
+        // counts as "a programming action happened."
+        if (result.Success) Context.SelectionCycle.MarkExecutionCompleted();
         _programmerVm.RefreshAllFaders();
     }
 

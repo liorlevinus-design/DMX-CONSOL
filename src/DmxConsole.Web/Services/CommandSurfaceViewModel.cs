@@ -275,6 +275,17 @@ public sealed class CommandSurfaceViewModel
         {
             var result = _dispatcher.Dispatch(composition.ReadyOperation);
             DispatchError = result.Success ? null : (result.Error ?? "Capture All failed.");
+            // A successful Capture commit is a programming action (Selection Cycle stabilization
+            // slice, item 8) - it must close the cycle so the NEXT Fixture/Group selection starts
+            // fresh, even though (deliberately, per this method's own doc comment) it never
+            // touches Selection itself and therefore never records a selection gesture. Called
+            // directly rather than through Push()'s composition.EndsSelectionCycle path, since
+            // this bypasses Push(). This rule applies to "a successful Capture commit" generically,
+            // not specifically to whatever this method happens to be named today - PressCaptureAll
+            // is currently the only Capture entry point the Command Surface exposes; a future
+            // slice may add bare CAPTURE / CAPTURE FIXTURE.../SHIFT+CAPTURE=CAPTURE ALL grammar
+            // without changing this rule.
+            if (result.Success) _context.SelectionCycle.MarkExecutionCompleted();
             _composer.Reset();
             Current = _composer.Current; // idle line - "reverts to idle after successful execution"
         }
@@ -580,11 +591,6 @@ public sealed class CommandSurfaceViewModel
 
         if (composition.IsComplete && composition.ReadyOperation is not null)
         {
-            bool startsFresh = _composer.ReplaceSelectionOnResolve;
-            IReadOnlyList<PatchedFixture> baseline = startsFresh
-                ? Array.Empty<PatchedFixture>()
-                : _context.Selection.Items.ToList();
-
             var result = _dispatcher.Dispatch(composition.ReadyOperation);
             if (result.Success)
             {
@@ -592,7 +598,7 @@ public sealed class CommandSurfaceViewModel
                 if (composition.ResolvedGroupNumber is int groupNumber) _context.SelectionCycle.RememberGroup(groupNumber);
                 if (composition.AppliedAtPercent is double atPercent) _context.SelectionCycle.RememberAt(atPercent);
                 if (!_mirrorsExistingSelection)
-                    _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+                    _context.SelectionCycle.RecordGesture();
 
                 if (composition.EndsSelectionCycle)
                 {

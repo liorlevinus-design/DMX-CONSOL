@@ -68,7 +68,6 @@ public partial class SelectionViewModel : ObservableObject
     private void ClearSelection()
     {
         _dispatcher.Dispatch(new ClearSelectionCommand());
-        _context.SelectionCycle.ClearGestureHistory();
         _context.SelectionCycle.MarkSelectionStarted();
         PendingThruStart = null;
     }
@@ -83,9 +82,6 @@ public partial class SelectionViewModel : ObservableObject
     private void DispatchSelectionGesture(IConsoleCommand command)
     {
         bool startsFresh = _context.SelectionCycle.StartFreshOnNextSelection;
-        IReadOnlyList<PatchedFixture> baseline = startsFresh
-            ? Array.Empty<PatchedFixture>()
-            : Selection.Items.ToList();
 
         IConsoleCommand operation = command;
         if (startsFresh)
@@ -99,7 +95,7 @@ public partial class SelectionViewModel : ObservableObject
 
         var result = _dispatcher.Dispatch(operation);
         if (result.Success)
-            _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+            _context.SelectionCycle.RecordGesture();
     }
 
     [RelayCommand]

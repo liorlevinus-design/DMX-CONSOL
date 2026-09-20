@@ -358,4 +358,35 @@ public class EncoderGestureTests
         Assert.True(context.Programmer.HasStoredValue(0, 0, out var restored));
         Assert.Equal(15, restored);
     }
+
+    // Selection Cycle stabilization slice, item 8/9: Encoder COMMIT closes the cycle; Encoder
+    // PREVIEW must not.
+    [Fact]
+    public void CommitGesture_ClosesTheSelectionCycle()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        drawer.CommitGesture(gesture, new Dictionary<ChannelType, byte> { [ChannelType.Dimmer] = 200 });
+
+        Assert.True(context.SelectionCycle.StartFreshOnNextSelection);
+    }
+
+    [Fact]
+    public void PreviewGesture_DoesNotCloseTheSelectionCycle()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+
+        var gesture = drawer.BeginGesture(ChannelType.Dimmer);
+        for (byte v = 10; v < 250; v += 20)
+            drawer.PreviewGesture(gesture, ChannelType.Dimmer, v);
+
+        Assert.False(context.SelectionCycle.StartFreshOnNextSelection);
+    }
 }

@@ -11,8 +11,8 @@
     the Encoder Drawer already uses). Built entirely from
     DmxConsole.Application.Live.FixtureLiveState - no parameter/provenance/pending logic lives
     here, only formatting of an already-computed read model, so this view can never disagree with
-    Channels LIVE or the Editor Inspector about the same channel. This is a summary + selection
-    surface, NOT an editor - the Encoder Drawer remains the primary place to change a value.
+    Channels LIVE about the same channel. This is a summary + selection surface, NOT an editor -
+    the Encoder Drawer remains the primary place to change a value.
 *@
 
 <div class="channels-view">
@@ -20,7 +20,7 @@
         <span class="channels-view-title">Fixtures — LIVE</span>
         <select class="pane-add-view channels-filter" @bind="Filter" aria-label="Filter fixtures">
             <option value="All">All</option>
-            <option value="EditorOnly">Editor Only</option>
+            <option value="EditorOnly">Programmer Only</option>
             <option value="Patched">Patched</option>
             <option value="UsedInShow">Used in Show</option>
             <option value="LiveOnStage">Live on Stage</option>

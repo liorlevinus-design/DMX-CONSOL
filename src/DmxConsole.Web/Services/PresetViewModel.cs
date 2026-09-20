@@ -29,7 +29,6 @@ public partial class PresetViewModel : ObservableObject
 
     [ObservableProperty] private AttributeClass _selectedClass = AttributeClass.Color;
     [ObservableProperty] private string _newPresetName = string.Empty;
-    [ObservableProperty] private Preset? _selectedPreset;
     [ObservableProperty] private string _statusMessage = string.Empty;
 
     public IEnumerable<Preset> PresetsForSelectedClass => Library.ForClass(SelectedClass);
@@ -65,10 +64,8 @@ public partial class PresetViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void UpdateSelected()
+    private void Update(Preset preset)
     {
-        if (SelectedPreset is null) { StatusMessage = "Select a preset to update first."; return; }
-
         var targets = _context.Selection.Items.ToList();
         if (targets.Count == 0)
         {
@@ -77,7 +74,7 @@ public partial class PresetViewModel : ObservableObject
         }
 
         var result = _dispatcher.Dispatch(new StorePresetCommand(
-            Library, targets, SelectedPreset.Class, SelectedPreset.Name, SelectedPreset.Number, SelectedPreset));
+            Library, targets, preset.Class, preset.Name, preset.Number, preset));
         StatusMessage = result.Success
             ? $"Updated {result.Preset!.Class} preset {result.Preset.Number}."
             : result.Error ?? "Failed.";
@@ -98,8 +95,17 @@ public partial class PresetViewModel : ObservableObject
             ? $"Applied {preset.Class} preset {preset.Number} to {result.AffectedFixtures.Count} fixture(s)."
             : result.Error ?? "Failed.";
 
-        // Same fix as Step C1: a Programmer-writing command needs the fader display refreshed explicitly.
-        if (result.Success) _programmerVm.RefreshAllFaders();
+        if (result.Success)
+        {
+            // Same fix as Step C1: a Programmer-writing command needs the fader display refreshed explicitly.
+            _programmerVm.RefreshAllFaders();
+
+            // Selection Cycle stabilization rule (see CommandSurfaceViewModel.PressCaptureAll): a
+            // successful Preset apply is a programming action - it must close the cycle so the
+            // NEXT Fixture/Group gesture starts fresh, even though (like Capture All) it never
+            // touches Selection itself and therefore never records a selection gesture.
+            _context.SelectionCycle.MarkExecutionCompleted();
+        }
     }
 
     [RelayCommand]
@@ -107,6 +113,5 @@ public partial class PresetViewModel : ObservableObject
     {
         var result = _dispatcher.Dispatch(new RemovePresetCommand(preset));
         if (!result.Success) StatusMessage = result.Error ?? "Could not remove that preset.";
-        if (ReferenceEquals(SelectedPreset, preset)) SelectedPreset = null;
     }
 }

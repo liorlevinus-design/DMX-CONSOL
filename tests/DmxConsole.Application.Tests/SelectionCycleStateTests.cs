@@ -1,5 +1,11 @@
 namespace DmxConsole.Application.Tests;
 
+/// <summary>Selection Cycle stabilization slice. SelectionCycleState no longer holds a
+/// gesture-baseline stack (TryPopGesture/HasGestureHistory/ClearGestureHistory/the underlying
+/// list are gone - CLEAR is a single, stateless, Selection-only action with no gesture history to
+/// consult, per the CLEAR/Backspace stabilization slice). RecordGesture is now just the
+/// "a selection gesture began" signal (item 3: the next Fixture/Group selection after a closed
+/// cycle starts fresh).</summary>
 public class SelectionCycleStateTests
 {
     [Fact]
@@ -15,32 +21,42 @@ public class SelectionCycleStateTests
     }
 
     [Fact]
-    public void StartingFreshCycleDropsOlderGestureHistory()
+    public void RecordGesture_ClearsStartFreshOnNextSelection()
     {
-        var (context, _, _) = TestFixtures.BuildConsole(fixtureCount: 3);
-        var f1 = context.Patch.Fixtures.First(f => f.Number == 1);
-        var f2 = context.Patch.Fixtures.First(f => f.Number == 2);
-        var state = context.SelectionCycle;
+        var state = new SelectionCycleState();
+        state.MarkExecutionCompleted();
+        Assert.True(state.StartFreshOnNextSelection);
 
-        state.RecordGesture(Array.Empty<DmxConsole.Core.Fixtures.PatchedFixture>(), startsFreshCycle: false);
-        state.RecordGesture(new[] { f1 }, startsFreshCycle: true);
+        state.RecordGesture();
 
-        Assert.True(state.TryPopGesture(out var baseline));
-        Assert.Single(baseline);
-        Assert.Same(f1, baseline[0]);
-        Assert.False(state.TryPopGesture(out _));
+        Assert.False(state.StartFreshOnNextSelection);
     }
 
     [Fact]
-    public void GestureBaselineCanRepresentWholeGroupStep()
+    public void MarkSelectionSynchronized_AlsoClearsStartFreshOnNextSelection()
+    {
+        var state = new SelectionCycleState();
+        state.MarkExecutionCompleted();
+
+        state.MarkSelectionSynchronized();
+
+        Assert.False(state.StartFreshOnNextSelection);
+    }
+
+    [Fact]
+    public void RecallState_IsPreservedAcrossExecutionCycles()
     {
         var (context, _, _) = TestFixtures.BuildConsole(fixtureCount: 3);
-        var beforeGroup = new[] { context.Patch.Fixtures.First(f => f.Number == 1) };
+        var f1 = context.Patch.Fixtures.First(f => f.Number == 1);
         var state = context.SelectionCycle;
 
-        state.RecordGesture(beforeGroup, startsFreshCycle: false);
+        state.RememberSelection(new[] { f1 });
+        state.RememberGroup(7);
+        state.RememberAt(42.5);
+        state.MarkExecutionCompleted(); // a programming action happening must not disturb recall state
 
-        Assert.True(state.TryPopGesture(out var baseline));
-        Assert.Equal(new[] { 1 }, baseline.Select(f => f.Number).ToArray());
+        Assert.Same(f1, Assert.Single(state.LastSelection));
+        Assert.Equal(7, state.LastGroupNumber);
+        Assert.Equal(42.5, state.LastAtPercent);
     }
 }

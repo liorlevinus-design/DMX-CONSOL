@@ -51,7 +51,47 @@ public sealed class WorkspaceViewModel
         _initialized = true;
 
         var loaded = await _store.LoadAllAsync();
+        foreach (var workspace in loaded) RemapLegacyViews(workspace);
         _workspaces.AddRange(loaded);
+    }
+
+    /// <summary>Compatibility shim (Legacy UI cleanup slice): a Workspace saved before
+    /// ProgrammerPanel was removed as a UI surface can still contain ViewInstance entries with
+    /// Kind == ViewKind.Programmer. That enum member is deliberately still valid (see
+    /// ViewKind.cs - removing it would also shift every later member's underlying int and break
+    /// deserialization of old documents), but nothing is registered for it in Registry anymore,
+    /// which would otherwise render as PaneHost.razor's "Unknown view" dead end forever. Remaps
+    /// every such reference to ViewKind.Presets (Programmer's neighbor tab in the old default
+    /// layout) so an old saved workspace opens to a real, working view instead. Load-time fixup
+    /// only - never runs on Save, not a general migration framework.</summary>
+    private static void RemapLegacyViews(Workspace workspace)
+    {
+        foreach (var surface in workspace.Surfaces) RemapLegacyViews(surface.Root);
+    }
+
+    private static void RemapLegacyViews(PaneNode node)
+    {
+        switch (node)
+        {
+            case SplitNode split:
+                RemapLegacyViews(split.ChildA);
+                RemapLegacyViews(split.ChildB);
+                break;
+            case TabPaneNode tabs:
+                for (int i = 0; i < tabs.Tabs.Count; i++)
+                {
+                    var tab = tabs.Tabs[i];
+                    if (tab.Kind != ViewKind.Programmer) continue;
+                    tabs.Tabs[i] = new ViewInstance
+                    {
+                        Id = tab.Id,
+                        Kind = ViewKind.Presets,
+                        Title = tab.Title == "Programmer" ? "Presets" : tab.Title,
+                        Config = tab.Config,
+                    };
+                }
+                break;
+        }
     }
 
     /// <summary>Phase H1: every existing fixed-tab console component becomes hostable by the
@@ -69,7 +109,6 @@ public sealed class WorkspaceViewModel
         Registry.Register(new ViewDescriptor(ViewKind.Presets, "Presets", typeof(PresetPanel)));
         Registry.Register(new ViewDescriptor(ViewKind.Groups, "Groups", typeof(GroupsView)));
         Registry.Register(new ViewDescriptor(ViewKind.Effects, "Effects", typeof(EffectsPanel)));
-        Registry.Register(new ViewDescriptor(ViewKind.Programmer, "Programmer", typeof(ProgrammerPanel)));
     }
 
     /// <summary>The real factory layout for day-to-day programming (not just a compatibility
@@ -83,10 +122,9 @@ public sealed class WorkspaceViewModel
         var patchTab = new ViewInstance { Kind = ViewKind.Patch, Title = "Patch" };
         var topLeft = new TabPaneNode { Tabs = { channelsTab, fixturesTab, patchTab }, ActiveTabId = channelsTab.Id };
 
-        var programmerTab = new ViewInstance { Kind = ViewKind.Programmer, Title = "Programmer" };
         var presetsTab = new ViewInstance { Kind = ViewKind.Presets, Title = "Presets" };
         var groupsTab = new ViewInstance { Kind = ViewKind.Groups, Title = "Groups" };
-        var bottomLeft = new TabPaneNode { Tabs = { programmerTab, presetsTab, groupsTab }, ActiveTabId = programmerTab.Id };
+        var bottomLeft = new TabPaneNode { Tabs = { presetsTab, groupsTab }, ActiveTabId = presetsTab.Id };
 
         var cueListTab = new ViewInstance { Kind = ViewKind.CueList, Title = "Cues" };
         var topRight = new TabPaneNode { Tabs = { cueListTab }, ActiveTabId = cueListTab.Id };

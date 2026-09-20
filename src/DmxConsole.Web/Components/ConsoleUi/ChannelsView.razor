@@ -6,10 +6,9 @@
 
 @*
     OPERATOR_UX_ROADMAP.md §1-3: Channels is the primary LIVE grid - Effective Live Value,
-    Editor/Pending Value, and Provenance for every channel, at a glance, without opening a
-    separate Programmer view. Uses the shared DmxConsole.Application.Live model (LiveFilter/
-    LiveChannelState) - the exact same predicates ProgrammerPanel (Editor inspector) and
-    FixturesView use, so "what counts as pending/live/used" can never drift between them.
+    Programmer/Pending Value, and Provenance for every channel, at a glance. Uses the shared
+    DmxConsole.Application.Live model (LiveFilter/LiveChannelState) - the exact same predicates
+    FixturesView uses, so "what counts as pending/live/used" can never drift between them.
 *@
 
 <div class="channels-view">
@@ -17,13 +16,13 @@
         <span class="channels-view-title">Channels — LIVE</span>
         <select class="pane-add-view channels-filter" @bind="Filter" aria-label="Filter channels">
             <option value="All">All</option>
-            <option value="EditorOnly">Editor Only</option>
+            <option value="EditorOnly">Programmer Only</option>
             <option value="Patched">Patched</option>
             <option value="UsedInShow">Used in Show</option>
             <option value="LiveOnStage">Live on Stage</option>
             <option value="Selected">Selected</option>
         </select>
-        <span class="channels-legend"><i class="legend-dot selected"></i>Selected <i class="legend-dot active"></i>Live <i class="legend-dot programmer"></i>Editor</span>
+        <span class="channels-legend"><i class="legend-dot selected"></i>Selected <i class="legend-dot active"></i>Live <i class="legend-dot programmer"></i>Programmer</span>
         <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
         @if (Vm.SelectionVm.Selection.Items.Count > 0)
         {
@@ -50,7 +49,7 @@
                     <tr class="channels-row @(state.IsSelected ? "selected" : "") @(state.Owner is not null ? "active" : "") @(state.HasEditorValue ? "programmer" : "")" @onclick="() => Toggle(fader.Fixture)">
                         <td class="ch-cell">@($"{fader.Fixture.Number}.{OrdinalWithin(fader)}")</td>
                         <td class="fixture-name-column">@fader.FixtureName</td>
-                        <td><span class="attribute-name">@fader.ChannelTypeName</span>@if (state.HasEditorValue) { <span class="programmer-chip" title="Editor/Pending value">E @Percent(state.EditorValue!.Value)%</span> }</td>
+                        <td><span class="attribute-name">@fader.ChannelTypeName</span>@if (state.HasEditorValue) { <span class="programmer-chip" title="Programmer/Pending value">P @Percent(state.EditorValue!.Value)%</span> }</td>
                         <td class="level-cell">
                             <div class="level-bar"><div class="level-bar-fill" style="width:@(levelPercent)%"></div></div>
                             <span>@levelPercent%</span>

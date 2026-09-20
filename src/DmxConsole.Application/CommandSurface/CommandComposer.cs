@@ -171,7 +171,7 @@ public sealed class CommandComposer
             if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
             return new CommandComposition
             {
-                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true,
+                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
                 ReadyOperation = new ReleaseCommand(targets, releaseFamily),
             };
         }
@@ -196,7 +196,7 @@ public sealed class CommandComposer
             if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
             return new CommandComposition
             {
-                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true,
+                Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
                 ReadyOperation = new ReleaseParameterCommand(targets, channelType),
             };
         }
@@ -518,7 +518,7 @@ public sealed class CommandComposer
             return Incomplete(preview, family is { } f ? $"No {f} channels on the current selection." : "No channels to Home on the current selection.");
 
         IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
-        return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = operation };
+        return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true, ReadyOperation = operation };
     }
 
     /// <summary>"&lt;Family&gt; PRESET &lt;number&gt; [ENTER]" (§4) - resolved against the current

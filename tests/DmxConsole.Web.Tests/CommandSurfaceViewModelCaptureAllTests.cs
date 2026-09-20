@@ -12,8 +12,11 @@ using Xunit;
 namespace DmxConsole.Web.Tests;
 
 /// <summary>docs/COMMAND_SURFACE_KEY_SPEC.md §8 - CAPTURE ALL's Command Surface entry point:
-/// self-terminating, never touches Selection or SelectionCycleState (so a following CLEAR still
-/// behaves exactly as if CAPTURE ALL had never been pressed).</summary>
+/// self-terminating, never touches Selection itself (so a following CLEAR still behaves exactly
+/// as if CAPTURE ALL had never been pressed). Since the Selection Cycle stabilization slice,
+/// CAPTURE ALL DOES mark the cycle closed (SelectionCycleState.MarkExecutionCompleted -
+/// see CommandSurfaceViewModelSelectionCycleTests) - a programming action, per item 8 - even
+/// though it never records a selection gesture and never mutates Selection.</summary>
 public class CommandSurfaceViewModelCaptureAllTests
 {
     private static FixtureProfile Dimmer1() => new()
@@ -61,13 +64,12 @@ public class CommandSurfaceViewModelCaptureAllTests
         Assert.Equal(fixture, context.Selection.Items[0]);
     }
 
-    /// <summary>The specific design risk this test guards against: PressCaptureAll bypasses the
-    /// generic Push() completion path precisely so it never records a spurious SelectionCycleState
-    /// gesture. If it didn't, a CLEAR pressed afterward could remove/alter a "gesture" that was
-    /// never really a selection change, corrupting the CLEAR-hierarchy semantics already proven in
-    /// CommandSurfaceViewModelClearTests.</summary>
+    /// <summary>CLEAR (post-5de8472) is a single, stateless, Selection-only action - it always
+    /// clears the WHOLE current Selection unconditionally, regardless of what CAPTURE ALL (or
+    /// anything else) did before it. This test simply confirms CAPTURE ALL never puts Selection
+    /// into some state that would make a following CLEAR behave any differently than always.</summary>
     [Fact]
-    public void PressCaptureAll_DoesNotRecordASelectionGesture_ClearStillBehavesNormallyAfter()
+    public void PressCaptureAll_ThenClear_ClearsTheWholeSelectionAsNormal()
     {
         var (context, surface) = BuildRig();
         var fixture = context.Patch.Fixtures[0];
@@ -77,9 +79,8 @@ public class CommandSurfaceViewModelCaptureAllTests
         surface.PressToken(CommandTokenKind.Enter);
         Assert.Single(context.Selection.Items);
 
-        surface.PressCaptureAll(); // must not push a gesture baseline onto the stack
-
-        surface.PressClear(); // should remove the ORIGINAL "Fixture 1" gesture, not a phantom CaptureAll one
+        surface.PressCaptureAll();
+        surface.PressClear();
 
         Assert.Empty(context.Selection.Items);
     }

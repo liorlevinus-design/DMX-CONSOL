@@ -48,7 +48,7 @@ else
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Dmx)" title="Direct DMX addressing - Universe.Address, independent of any Fixture Profile">DMX</button>
             </div>
             <div class="keypad-row">
-                <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Editor - not Select All">Capture All</button>
+                <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Programmer - not Select All">Capture All</button>
             </div>
             <div class="keypad-row">
                 <button class="key @(Sfc.IsRecordingMacro ? "key-macro-recording" : Sfc.IsLearnArmed ? "key-macro-armed" : "")"

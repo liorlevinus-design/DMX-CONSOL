@@ -3,19 +3,25 @@ using DmxConsole.Core.Fixtures;
 namespace DmxConsole.Application;
 
 /// <summary>
-/// Shared operator selection-cycle state. Selection remains visibly active after an execution
-/// (for example AT 50), but the next new Fixture/Group selection starts a fresh cycle and
-/// therefore replaces the old one. The gesture baseline stack lets a single CLEAR step back one
-/// selection element/gesture (including an entire Group application), while CLEAR CLEAR can wipe
-/// the whole current cycle. This state belongs to the Application layer rather than Razor.
+/// Shared operator selection-cycle state (docs/COMMAND_SURFACE_KEY_SPEC.md - Selection Cycle
+/// stabilization slice). Selection remains visibly active after a programming action (for
+/// example AT 50, HOME, RELEASE, CAPTURE ALL, an Encoder commit), but the next new Fixture/Group
+/// selection starts a fresh cycle and therefore replaces the old one rather than accumulating
+/// onto it. This state belongs to the Application layer rather than Razor.
+///
+/// The gesture-baseline undo-step stack (RecordGesture/TryPopGesture/ClearGestureHistory/
+/// HasGestureHistory) that used to back a "CLEAR steps back one gesture, CLEAR CLEAR wipes
+/// everything" design has been removed - CLEAR is now a single, stateless, Selection-only action
+/// (ClearSelectionAction) with no escalation and no gesture history to consult. RecordGesture is
+/// kept only as the "the current selection gesture has begun" signal, matching item 3's "the next
+/// Fixture/Group selection after a closed cycle starts a fresh Selection" - not as a baseline
+/// stack to pop.
 /// </summary>
 public sealed class SelectionCycleState
 {
-    private readonly List<IReadOnlyList<PatchedFixture>> _gestureBaselines = new();
     private IReadOnlyList<PatchedFixture> _lastSelection = Array.Empty<PatchedFixture>();
 
     public bool StartFreshOnNextSelection { get; private set; }
-    public bool HasGestureHistory => _gestureBaselines.Count > 0;
     public IReadOnlyList<PatchedFixture> LastSelection => _lastSelection;
     public int? LastGroupNumber { get; private set; }
     public double? LastAtPercent { get; private set; }
@@ -24,7 +30,10 @@ public sealed class SelectionCycleState
     public void RememberGroup(int number) => LastGroupNumber = number;
     public void RememberAt(double percent) => LastAtPercent = percent;
 
-    /// <summary>Called after a non-selection execution consumed the current targets.</summary>
+    /// <summary>Called after a programming action (AT with value, FULL, HOME, family PRESET
+    /// recall, family/parameter RELEASE, CAPTURE ALL, an Encoder commit) consumed the current
+    /// Selection as its targets - the Selection stays visibly selected, but the NEXT Fixture/Group
+    /// selection should replace it rather than accumulate onto it.</summary>
     public void MarkExecutionCompleted() => StartFreshOnNextSelection = true;
 
     /// <summary>Called after the first successful selection mutation of a new/current cycle.</summary>
@@ -33,35 +42,8 @@ public sealed class SelectionCycleState
     /// <summary>Used when an external GUI selection has already established the current cycle.</summary>
     public void MarkSelectionSynchronized() => StartFreshOnNextSelection = false;
 
-    /// <summary>
-    /// Records the selection as it existed immediately before one operator selection gesture.
-    /// If this gesture is the first one after an execution, older-cycle history is discarded.
-    /// </summary>
-    public void RecordGesture(IEnumerable<PatchedFixture> baseline, bool startsFreshCycle)
-    {
-        if (startsFreshCycle) _gestureBaselines.Clear();
-        _gestureBaselines.Add(baseline.ToList());
-        StartFreshOnNextSelection = false;
-    }
-
-    /// <summary>
-    /// Pops the baseline for the most recent selection gesture. Restoring that snapshot is the
-    /// semantic meaning of a single CLEAR: a whole Group/range gesture disappears as one unit,
-    /// not merely its last fixture.
-    /// </summary>
-    public bool TryPopGesture(out IReadOnlyList<PatchedFixture> baseline)
-    {
-        if (_gestureBaselines.Count == 0)
-        {
-            baseline = Array.Empty<PatchedFixture>();
-            return false;
-        }
-
-        int last = _gestureBaselines.Count - 1;
-        baseline = _gestureBaselines[last];
-        _gestureBaselines.RemoveAt(last);
-        return true;
-    }
-
-    public void ClearGestureHistory() => _gestureBaselines.Clear();
+    /// <summary>Marks that a selection gesture has begun (the cycle is now open) - the counterpart
+    /// to <see cref="MarkExecutionCompleted"/>. Every caller that mutates Selection on a successful
+    /// dispatch calls this so the cycle stays open for the operator's next accumulating gesture.</summary>
+    public void RecordGesture() => StartFreshOnNextSelection = false;
 }

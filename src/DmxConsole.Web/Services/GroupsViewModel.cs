@@ -4,7 +4,6 @@ using DmxConsole.Application;
 using DmxConsole.Application.Commands;
 using DmxConsole.Application.Commands.Groups;
 using DmxConsole.Application.Commands.Selection;
-using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
 
 namespace DmxConsole.Web.Services;
@@ -37,9 +36,6 @@ public partial class GroupsViewModel : ObservableObject
     private void Apply(FixtureGroup group)
     {
         bool startsFresh = _context.SelectionCycle.StartFreshOnNextSelection;
-        IReadOnlyList<PatchedFixture> baseline = startsFresh
-            ? Array.Empty<PatchedFixture>()
-            : Selection.Items.ToList();
 
         IConsoleCommand operation = new AddGroupToSelectionCommand(group);
         if (startsFresh)
@@ -54,7 +50,7 @@ public partial class GroupsViewModel : ObservableObject
         var result = _dispatcher.Dispatch(operation);
         if (result.Success)
         {
-            _context.SelectionCycle.RecordGesture(baseline, startsFresh);
+            _context.SelectionCycle.RecordGesture();
             _context.SelectionCycle.RememberSelection(Selection.Items);
             _context.SelectionCycle.RememberGroup(group.Number);
         }

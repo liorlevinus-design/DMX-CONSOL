@@ -245,14 +245,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusMessage = $"Removed '{fixture.Name}'.";
     }
 
-    [RelayCommand]
-    private void ClearProgrammer()
-    {
-        Programmer.ClearAll();
-        foreach (var fader in Faders) fader.RefreshFromProgrammer(fader.Channel.DefaultValue);
-        StatusMessage = "Programmer cleared.";
-    }
-
     /// <summary>Set when Undo() was blocked pending explicit confirmation of a destructive
     /// inverse (e.g. Undo-ing a freshly Created Executor/Group/Preset would delete it) - the
     /// toolbar shows a confirm/cancel prompt while this is non-null.</summary>
