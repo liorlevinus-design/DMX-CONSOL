@@ -87,6 +87,7 @@ Allowed only as a convenience that writes per-channel overrides (KEY_SPEC §9A).
 - KEY_SPEC, ROADMAP and the stabilization prompt all target `chatgpt/ux-integration-fixes` (583 tests at d06e663).
 - Current work in Claude Desktop is on `claude/selection-cycle`: 733 tests, +20,597 uncommitted lines, including the Trigger/Wait implementation.
 - **Decide:** which branch is the base for stabilization, and how the other is merged in first.
+- **Status (overnight docs pass, `claude/overnight-docs`): still NOT decided.** This row's Decision cell in the table below is blank and no write-up exists under "Decisions" — an earlier instruction to apply P1 alongside N1/C2 was not carried out for this reason; applying it would have meant inventing a decision this file itself says only a human should make. Left untouched pending an actual decision.
 
 ### P2. Priority order
 ROADMAP "Current implementation priority" puts LIVE View first and Command Surface at #8. The stabilization pass reorders this. Legitimate, but the ROADMAP must be updated so agents don't flag it as a violation.
@@ -111,14 +112,14 @@ One prompt with 8 phases contradicts CLAUDE.md "One Slice At A Time". In the las
 | ID | Decision | Docs to update |
 |---|---|---|
 | C1 | | |
-| C2 | DECIDED — see "Decisions" | CLAUDE.md §6, KEY_SPEC §7 |
+| C2 | DECIDED — see "Decisions"; **applied to docs** on `claude/overnight-docs` (CLAUDE.md §6, KEY_SPEC §7 text updated; grammar/UI change tracked as KEY_SPEC §23.22, not yet implemented) | CLAUDE.md §6, KEY_SPEC §7 |
 | C3 | | |
 | C4 | | |
 | C5 | | |
 | C6 | | |
 | C7 | | |
 | C8 | | |
-| N1 | DECIDED — see "Decisions" below | CLAUDE.md §5, KEY_SPEC §13 |
+| N1 | DECIDED — see "Decisions" below; **applied to docs** on `claude/overnight-docs` (CLAUDE.md §5, KEY_SPEC §13 text added; implementation tracked as KEY_SPEC §23.23, not yet built) | CLAUDE.md §5, KEY_SPEC §13 |
 | N2 | | |
 | N3 | | |
 | N4 | | |

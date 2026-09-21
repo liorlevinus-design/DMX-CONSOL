@@ -150,19 +150,50 @@ CANCEL:
 
 Multi-family STORE must be atomic.
 
+STORE CUE — Programmer clear (decided; see `docs/SPEC_CONFLICTS_FOR_DECISION.md` N1):
+- after a successful STORE CUE, the entire Programmer is cleared automatically
+- this clear applies even to values excluded by a Store filter (e.g. selected-fixtures-only or family filter)
+- the Store and the Programmer clear are one atomic, undoable transaction
+- UNDO restores both the Cue and the Programmer to their exact pre-Store state
+- REDO re-applies both the Store and the clear together
+- if STORE fails or is cancelled, neither the Cue nor the Programmer changes — no partial mutation
+- Selection and Playback are not affected (Selection ≠ Programmer ≠ Playback, see §1)
+
 ---
 
 ## 6. RELEASE
 
-Family-scoped release is Selection-scoped.
+Canonical workflow (decided; see `docs/SPEC_CONFLICTS_FOR_DECISION.md` C2):
 
-Examples:
+```
+RELEASE
+→ contextual Release Panel
+→ choose family/families
+→ ENTER
+```
+
+Direct family/parameter-first syntax remains supported as a professional shortcut, and requires ENTER to commit:
+
+```
+COLOR RELEASE ENTER
+PAN RELEASE ENTER
+RED RELEASE ENTER
+```
+
+Family-scoped release is Selection-scoped. Examples:
 
 ```
 RELEASE → COLOR → ENTER   → release only COLOR values from Programmer for current Selection
 RELEASE → ENTER           → release ALL Programmer values for current Selection
-RELEASE → RELEASE         → clear entire Programmer globally
+RELEASE → RELEASE         → clear entire Programmer globally, selection-independent
+SHIFT + RELEASE            → release all active playbacks (does not alter Editor values or Selection)
 ```
+
+Parameter-level release (e.g. `PAN RELEASE ENTER`) must remain supported. It is a third, finer granularity below RELEASE and FAMILY RELEASE and must never be regressed or removed by Release Panel work.
+
+CLEAR dismisses an armed Release state without releasing anything.
+
+Selection-scoped release with no Current Selection performs no mutation and returns a clear message.
 
 Underlying playback/effective values must be revealed after release.
 
