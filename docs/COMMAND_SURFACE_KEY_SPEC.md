@@ -197,20 +197,26 @@ Do not rewrite cue/preset show data when defining Home.
 
 `RELEASE` is a fixed physical key.
 
-RELEASE is also family-aware.
+Canonical workflow (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION.md` C2):
 
 ```
 RELEASE
-= release Editor/Programmer values for the current selection.
+→ contextual Release Panel
+→ choose family/families
+→ ENTER
+```
 
-COLOR RELEASE
-= release only Color values from the Editor.
+Direct family/parameter-first syntax remains supported as a professional shortcut and requires `ENTER` to commit (decided target — see the implementation-gap note in §23.22; today's grammar is still self-terminating without `ENTER`):
 
-POSITION RELEASE
-BEAM RELEASE
-IMAGE RELEASE
-SHAPE RELEASE
-INTENSITY RELEASE
+```
+COLOR RELEASE ENTER
+= release only Color values from the Editor, for the current selection.
+
+POSITION RELEASE ENTER
+BEAM RELEASE ENTER
+IMAGE RELEASE ENTER
+SHAPE RELEASE ENTER
+INTENSITY RELEASE ENTER
 follow the same rule.
 ```
 
@@ -223,23 +229,25 @@ It does NOT mean:
 - Undo
 - Stop playback
 
-Example: if Editor owns Color=Blue but Cue playback underneath owns Amber, `COLOR RELEASE` removes the Editor Color values and LIVE should show Amber again with Cue/Executor provenance.
+Example: if Editor owns Color=Blue but Cue playback underneath owns Amber, `COLOR RELEASE ENTER` removes the Editor Color values and LIVE should show Amber again with Cue/Executor provenance.
+
+Selection-scoped release with no Current Selection performs no mutation and returns a clear message.
 
 ### PARAMETER RELEASE (third granularity, below RELEASE and FAMILY RELEASE)
 
 A third, finer level: releasing one explicitly addressed semantic parameter, leaving every other parameter — including siblings in the same family — untouched.
 
 ```
-PAN RELEASE
+PAN RELEASE ENTER
 = release Pan only, leaving Tilt and other Position parameters untouched.
 
-ZOOM RELEASE
+ZOOM RELEASE ENTER
 = release Zoom only, leaving Focus/Iris/etc. untouched.
 ```
 
 PARAMETER means the complete semantic fixture parameter, not necessarily one raw DMX byte — a coarse/fine parameter (e.g. 16-bit Pan = Pan + PanFine) releases as one atomic unit; addressing either half releases the whole parameter.
 
-`RELEASE`, `FAMILY RELEASE`, and `PARAMETER RELEASE` are three structurally distinct granularities — never collapsed into one another. Only bare `RELEASE` (§ below) arms the `RELEASE ENTER` escalation; `FAMILY RELEASE` and `PARAMETER RELEASE` are self-terminating like any other unambiguous action and never arm it.
+`RELEASE`, `FAMILY RELEASE`, and `PARAMETER RELEASE` are three structurally distinct granularities — never collapsed into one another. All three now require `ENTER` to commit (decided — see C2 addendum); none of them self-terminate. Parameter-level release MUST remain supported — the Release Panel workflow above must never regress or remove this path.
 
 Implemented via `ReleaseParameterCommand` (`DmxConsole.Application.Commands.Programmer`), reusing `ProgrammerChannelCommandBase`'s existing snapshot/undo machinery through a new `SelectChannels` override point rather than duplicating it. The parameter's full component set comes from `ChannelTypeExtensions.SemanticComponents` (`DmxConsole.Core`). Keypad entry point: `CommandSurfaceViewModel.PressParameter(ChannelType)` → `CommandToken.Parameter(ChannelType)` → `CommandComposer`'s `"<Parameter> RELEASE"` grammar. No visual keypad button exists yet for picking an individual parameter (the six fixed family keys are the only parameter-family selectors in the current layout) — the Application/grammar layer is complete and tested; a parameter-picker UI (e.g. listing the ChannelTypes actually present on the current selection) is a follow-up UI slice, not built here.
 
@@ -247,11 +255,16 @@ Implemented via `ReleaseParameterCommand` (`DmxConsole.Application.Commands.Prog
 
 ```
 RELEASE ENTER
-= Clear Entire Editor / Programmer (all fixtures, all families)
+= release ALL Programmer values for the current Selection.
+
+RELEASE RELEASE
+= clear the entire Programmer globally, selection-independent.
 
 SHIFT + RELEASE
 = Release All Playbacks
 ```
+
+`CLEAR` dismisses an armed Release state (the pending Release Panel / awaiting-`ENTER` escalation) without releasing anything.
 
 Release All Playbacks:
 
@@ -463,6 +476,17 @@ SHIFT + STORE
 ```
 
 Do not invent final Store Options beyond currently supported/roadmapped behavior.
+
+### STORE CUE — Programmer clear (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION.md` N1; not yet implemented, see §23.23)
+
+After a successful `STORE CUE`, the entire Programmer is cleared automatically — including values excluded by a Store filter (e.g. selected-fixtures-only or family filter).
+
+The Store and the Programmer clear are one atomic, undoable transaction:
+- `UNDO` restores both the Cue and the Programmer to their exact pre-Store state.
+- `REDO` re-applies both the Store and the clear together.
+- If STORE fails or is cancelled, neither the Cue nor the Programmer changes — no partial mutation.
+
+Selection and Playback are unaffected (Selection ≠ Programmer ≠ Playback — CLAUDE.md §1).
 
 ---
 
@@ -880,6 +904,16 @@ The DMX DIRECT ADDRESSING follow-up made the **Command Surface's own** `DMX <Uni
 
 **Not built (explicitly out of scope for this slice):** `PARAMETER HOME`, Parameter Time, Parameter Fan, Effect parameter grammar, custom parameter editing, any Fixture Profile editor. New `ChannelType` members some operators might expect (Iris, Prism Rotation, Animation, Frame Rotation, Keystone) do not exist in this codebase's `ChannelType` enum and were **not added** - inventing them would violate this slice's own "no fake parameters" rule; they will appear automatically once (and only once) real fixture-profile data defines them.
 
+### 23.22 RELEASE ENTER semantics reconciled with CLAUDE.md — decided (C2), spec text updated, grammar not yet changed
+
+**Status: docs reconciled; implementation gap remains.** This spec previously described `RELEASE ENTER` as clearing the *entire* Editor/Programmer (all fixtures, all families), and family-qualified RELEASE (`COLOR RELEASE`) and parameter RELEASE (`PAN RELEASE`) as self-terminating (no `ENTER` needed) — both contradicted `CLAUDE.md` §6, which already documented (and the shipped implementation on `claude/selection-cycle` already enforces, see `CommandSurfaceViewModelReleaseTests.cs`) the release-first canonical model: `RELEASE ENTER` releases only the *current Selection*, `RELEASE RELEASE` is the global clear.
+
+`docs/SPEC_CONFLICTS_FOR_DECISION.md` C2 resolves this in favor of the `CLAUDE.md` model, adds a Release Panel as the canonical entry point, and adds one new requirement not yet built: **direct family/parameter syntax (`COLOR RELEASE`, `PAN RELEASE`) now requires `ENTER` to commit instead of self-terminating.** §7 above has been updated to describe this decided target. The Release Panel UI and the `ENTER`-required grammar change are **not implemented yet** — `CommandComposer.cs` (`Build`, family/parameter RELEASE branches) still returns `IsComplete = true` with no `ENTER` token needed, exactly as before this decision. A future implementation slice must: (a) build the Release Panel, (b) change the family/parameter RELEASE grammar to require `ENTER`, and (c) replace the tests that currently encode the self-terminating behavior (per C2's own addendum).
+
+### 23.23 STORE CUE Programmer clear — decided (N1), not yet implemented
+
+**Status: new decided rule, no code yet.** `docs/SPEC_CONFLICTS_FOR_DECISION.md` N1 decides that a successful `STORE CUE` must atomically clear the entire Programmer (including anything excluded by a Store filter), with `UNDO`/`REDO` covering the Store and the clear together as one transaction, and no partial mutation on failure/cancel. `StoreCueCommand` (`DmxConsole.Application/Commands/Cues/StoreCueCommand.cs`) does not do this today — `Execute` only calls `_cueList.RecordCue(...)` and never touches `context.Programmer`. §5 and §13 above document the decided rule; implementing it is a future slice (likely `DispatchBatch`/`CompositeCommand` wrapping `StoreCueCommand` with a new Programmer-clear command, per CLAUDE.md §14, with the composite made `IReplayableCommand` for Macro safety per §23.7's existing pattern).
+
 ---
 
-**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.12–§23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10, §23.15 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first. §23.20 (Universe numbering consistency) is a known, deliberately deferred inconsistency — the DMX Command Surface is 1-based operator-facing, while Patch/Toolbar/LIVE displays and persisted data remain 0-based — tracked for a future slice, not scheduled now.
+**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.12–§23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10, §23.15 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first. §23.20 (Universe numbering consistency) is a known, deliberately deferred inconsistency — the DMX Command Surface is 1-based operator-facing, while Patch/Toolbar/LIVE displays and persisted data remain 0-based — tracked for a future slice, not scheduled now. §23.22 and §23.23 record two decisions from `docs/SPEC_CONFLICTS_FOR_DECISION.md` (C2, N1) whose doc text is now reconciled but whose implementation has not started — both are real, scoped future slices, not ambiguity.
