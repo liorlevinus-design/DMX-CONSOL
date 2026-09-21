@@ -262,6 +262,33 @@ A Custom Fixture/Profile editor is required because some real fixtures will not 
 
 This profile system is a dependency for richer discrete Encoder behavior, Fixture Type/Compatible presets, fixture calibration, reliable patch footprint handling and future visualization.
 
+### 11a. PATCH as a major workstream, and 2D Plot / Spatial Database
+
+PATCH is a major roadmap workstream in its own right, not merely the "Quick Patch" structural
+operation defined in `CLAUDE.md` §8. The future PATCH page described above is expected to grow into
+a substantial operator workspace, and a future 2D Plot is not simply a visual view of PATCH — it
+owns its own dedicated Spatial Database, seeded from PATCH fixture identity but never blindly
+duplicating it.
+
+Full architectural detail — the PATCH/Plot separation of responsibility, what the spatial model may
+own (position, orientation, focus/target, venue mapping), and the long-term venue-adaptation intent
+(not implemented) — lives in `docs/SPATIAL_PLOT_ARCHITECTURE.md`. That document is authoritative for
+this area; this section only summarizes it so the dependency ordering is visible from the roadmap.
+
+Dependency chain (full detail in `docs/SPATIAL_PLOT_ARCHITECTURE.md` §6):
+
+```
+Internal Fixture Profile Model
+  -> PATCH Data Model
+    -> Serious PATCH Page
+      -> 2D Plot Foundation
+        -> Spatial Database
+          -> Venue Adaptation
+```
+
+GDTF/OFL importers feed the Fixture Profile layer only (stage 1) and must never become the runtime
+spatial model — see `docs/SPATIAL_PLOT_ARCHITECTURE.md` §7.
+
 ## 12. Encoder Drawer follow-up
 
 The Encoder Drawer milestone is considered a stable focused milestone, not completion of the larger UX roadmap.
