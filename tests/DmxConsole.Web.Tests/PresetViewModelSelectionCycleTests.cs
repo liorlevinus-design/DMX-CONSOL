@@ -40,7 +40,7 @@ public class PresetViewModelSelectionCycleTests
         var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(),
             engine, new PresetLibrary(), new ExecutorBank());
         var dispatcher = new CommandDispatcher(context, new UndoRedoService(context));
-        var surface = new CommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
         var programmerVm = new ProgrammerViewModel(context, dispatcher, new ObservableCollection<ChannelFaderViewModel>());
         var presets = new PresetViewModel(context, dispatcher, programmerVm);
         return (context, surface, presets, a, b);

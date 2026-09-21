@@ -59,6 +59,46 @@ else
                 <button class="key key-family @(Sfc.ArmedReleaseFamilies.Contains(AttributeClass.Shape) ? "active" : "")" @onclick="() => Sfc.ToggleReleaseFamily(AttributeClass.Shape)">Shape</button>
             </div>
         }
+        @if (Sfc.StoreFamilyChoiceArmed)
+        {
+            @* Store-grammar slice (§C): a bare "STORE PRESET ENTER", or "STORE PRESET n ENTER"
+               with more than one touched PROGRAMMER family, arms this - never a silent guess.
+               "All" pre-checks every touched family; ENTER confirms (or the button below, if a
+               number still needs to be typed for the bare-PRESET form). *@
+            <div class="keypad-row store-context-panel" role="group" aria-label="Store Preset family choice">
+                <button class="key key-danger" @onclick="Sfc.SelectAllStoreFamilies">All</button>
+                @foreach (var family in Sfc.StoreFamilyCandidates)
+                {
+                    <button class="key key-family @(Sfc.SelectedStoreFamilies.Contains(family) ? "active" : "")" @onclick="() => Sfc.ToggleStoreFamily(family)">@family</button>
+                }
+            </div>
+            @if (Sfc.StoreFamilyChoiceNeedsNumber)
+            {
+                <div class="keypad-row store-context-panel">
+                    <label>
+                        Preset #
+                        <input type="number" value="@Sfc.PendingStorePresetNumberInput"
+                               @onchange="@((ChangeEventArgs e) => Sfc.PendingStorePresetNumberInput = int.TryParse(e.Value?.ToString(), out var n) ? n : null)" />
+                    </label>
+                </div>
+            }
+            <div class="keypad-row store-context-panel">
+                <button class="key" @onclick="Sfc.ConfirmStoreFamilyChoice">Enter</button>
+                <button class="key key-danger" @onclick="Sfc.CancelStoreFamilyChoice">Cancel</button>
+            </div>
+        }
+        @if (Sfc.StoreConflictChoiceArmed)
+        {
+            @* Store-grammar slice (§C): one or more of the resolved families already have a
+               Preset at this number - the operator must choose, never silently merge/overwrite.
+               One shared choice applies to every conflicting family in this transaction. *@
+            <div class="keypad-row store-context-panel" role="group" aria-label="Store Preset conflict">
+                <span>Preset already exists: @string.Join(", ", Sfc.StoreConflictFamilies)</span>
+                <button class="key key-danger" @onclick="Sfc.ResolveStoreConflictOverwrite">Overwrite</button>
+                <button class="key" @onclick="Sfc.ResolveStoreConflictUpdate">Update</button>
+                <button class="key key-danger" @onclick="Sfc.ResolveStoreConflictCancel">Cancel</button>
+            </div>
+        }
         <div class="command-bank command-bank-left">
             <div class="keypad-row">
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Fixture)">Fixture</button>
@@ -66,10 +106,16 @@ else
             </div>
             <div class="keypad-row">
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Cue)">Cue</button>
+                <button class="key key-object" disabled title="Cue List - selecting/switching between multiple Cue Lists is not implemented yet (this console currently drives a single Cue List)">Cue List</button>
                 <button class="key key-object" @onclick="() => PressToken(CommandTokenKind.Dmx)" title="Direct DMX addressing - Universe.Address, independent of any Fixture Profile">DMX</button>
             </div>
             <div class="keypad-row">
-                <button class="key" @onclick="Sfc.PressCaptureAll" title="Capture the current effective LIVE output into the Programmer - not Select All">Capture All</button>
+                <button class="key @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressCapture" title="Capture - not implemented without Shift yet. Shift+Capture captures the current effective LIVE output into the Programmer (Capture All).">Capture</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" disabled title="Effect - not implemented on the Command Surface yet (use the Effects panel)">Effect</button>
+                <button class="key" disabled title="Time - per-attribute/Cue timing entry is not implemented on the Command Surface yet (use the Cues panel's Time/Delay/Wait fields)">Time</button>
+                <button class="key" disabled title="Fan - spreading a value across a fixture range is not implemented yet">Fan</button>
             </div>
             <div class="keypad-row">
                 <button class="key @(Sfc.IsRecordingMacro ? "key-macro-recording" : Sfc.IsLearnArmed ? "key-macro-armed" : "")"
@@ -117,34 +163,101 @@ else
             <div class="keypad-row">
                 <button class="key" @onclick="() => PressToken(CommandTokenKind.Next)">Next</button>
                 <button class="key" @onclick="() => PressToken(CommandTokenKind.Previous)">Last</button>
-                <button class="key" @onclick="Sfc.PressBackspace">⌫</button>
             </div>
+            <div class="keypad-row">
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.At)">At</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Thru)">Thru</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Odd)" title="Odd - filters the current Selection down to its odd 1-based positions (Selection order, not fixture numbers)">Odd</button>
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Even)" title="Even - filters the current Selection down to its even 1-based positions (Selection order, not fixture numbers)">Even</button>
+            </div>
+            @* Numeric keypad layout fix: 0-9/./Backspace form one uniform 3-column grid (all
+               .key-num, no key-wide override) - +/- move to their own row below it so they never
+               distort the digit grid's column widths, and Enter stands alone in its own row. *@
             <div class="keypad-row">
                 <button class="key key-num" @onclick="() => PressDigit('7')">7</button>
                 <button class="key key-num" @onclick="() => PressDigit('8')">8</button>
                 <button class="key key-num" @onclick="() => PressDigit('9')">9</button>
-                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.At)">At</button>
             </div>
             <div class="keypad-row">
                 <button class="key key-num" @onclick="() => PressDigit('4')">4</button>
                 <button class="key key-num" @onclick="() => PressDigit('5')">5</button>
                 <button class="key key-num" @onclick="() => PressDigit('6')">6</button>
-                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Thru)">Thru</button>
             </div>
             <div class="keypad-row">
                 <button class="key key-num" @onclick="() => PressDigit('1')">1</button>
                 <button class="key key-num" @onclick="() => PressDigit('2')">2</button>
                 <button class="key key-num" @onclick="() => PressDigit('3')">3</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-num" @onclick="() => PressDigit('0')">0</button>
+                <button class="key key-num" @onclick="PressDecimalPoint">.</button>
+                <button class="key key-num" @onclick="Sfc.PressBackspace">⌫</button>
+            </div>
+            <div class="keypad-row keypad-row-spacer"></div>
+            <div class="keypad-row">
                 <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Plus)">+</button>
                 <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Minus)">-</button>
             </div>
+            <div class="keypad-row keypad-row-spacer"></div>
             <div class="keypad-row">
-                <button class="key key-num key-wide" @onclick="() => PressDigit('0')">0</button>
-                <button class="key key-num" @onclick="PressDecimalPoint">.</button>
                 <button class="key key-enter" @onclick="() => PressToken(CommandTokenKind.Enter)">Enter</button>
             </div>
             <div class="keypad-row">
                 <button class="editor-nav-btn command-surface-close" title="Close keypad" @onclick="Sfc.Close">▼ CLOSE</button>
+            </div>
+        </div>
+
+        @* Command Surface key-map completion + Store-grammar slice: Editing/Store, History/Setup
+           and Playback - a third fixed bank. STORE is real CommandComposer grammar
+           ("&lt;selection&gt; STORE &lt;Group|Cue|Preset|family&gt; &lt;number&gt; ENTER") -
+           pressing it only enters the Task line and waits (see the family/conflict panels above),
+           never an immediate ViewModel shortcut. UPDATE/DELETE/GOTO are unchanged: routed by
+           CommandSurfaceViewModel.PressUpdate/PressDelete/PressGoTo (the shared EditorContext
+           decides Group vs Cue) - this markup is a thin proxy with zero routing logic of its own.
+           UNDO/REDO/GO/BACK reuse the exact existing MainViewModel/CueListViewModel commands the
+           Toolbar/Cues panel already dispatch - a second entry point for the same operation, never
+           a second implementation (architecture rule). EDIT/LOAD/COPY/MOVE/EXAM/SETUP have no
+           underlying implementation anywhere in this console yet and are disabled, honestly,
+           rather than faked. *@
+        <div class="command-bank command-bank-store">
+            <div class="keypad-row">
+                <button class="key" @onclick="Sfc.PressStore" title="Store - enters STORE into the Task line; follow with GROUP/CUE/PRESET (or a family) and a number, then Enter">Store</button>
+                <button class="key" @onclick="Sfc.PressUpdate" title="Update - updates the current Group/Cue in context">Update</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key key-danger" @onclick="Sfc.PressDelete" title="Delete - deletes the current Group/Cue in context">Delete</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" disabled title="Edit - not implemented on the Command Surface yet">Edit</button>
+                <button class="key" disabled title="Load - not implemented on the Command Surface yet">Load</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" disabled title="Copy - not implemented yet">Copy</button>
+                <button class="key" disabled title="Move - not implemented yet">Move</button>
+            </div>
+            <div class="keypad-row keypad-row-spacer"></div>
+            <div class="keypad-row">
+                <button class="key" @onclick="() => Vm.UndoCommand.Execute(null)" title="Undo - same Undo history as the Toolbar's own Undo">Undo</button>
+                <button class="key" @onclick="() => Vm.RedoCommand.Execute(null)" title="Redo - same Redo history as the Toolbar's own Redo">Redo</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" disabled title="Exam - inspecting what a fixture/channel is currently doing and why is not implemented on the Command Surface yet">Exam</button>
+                <button class="key" disabled title="Setup - console/system setup is not implemented yet">Setup</button>
+            </div>
+            <div class="keypad-row keypad-row-spacer"></div>
+            @* SHIFT+GO/SHIFT+BACK slice: Go/Back now route through Sfc (which reads and consumes
+               the existing Shift modifier) instead of calling CueListVm's GO/Back RelayCommands
+               directly - Shift+Go/Shift+Back dispatch a zero-time jump via the same shared
+               CueList path, never a second cue-application mechanism. The key-shift-armed class
+               (already used by Shift/Release) makes an armed Shift visible on these two keys too. *@
+            <div class="keypad-row">
+                <button class="key key-op @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressGo" title="Go - advances the Cue List. Shift+Go = instant, zero-time jump (no fade), and never arms AutoFollow.">Go</button>
+                <button class="key @(Sfc.ShiftArmed ? "key-shift-armed" : "")" @onclick="Sfc.PressBack" title="Back/Pause - steps the Cue List back. Shift+Back = instant, zero-time jump (no fade), and never arms AutoFollow.">Back/Pause</button>
+            </div>
+            <div class="keypad-row">
+                <button class="key" @onclick="Sfc.PressGoTo" title="Go To - jumps the Cue List directly to the Cue currently in context (click a Cue row first)">Go To</button>
             </div>
         </div>
         </div>
@@ -182,7 +295,7 @@ else
             if (kind == CommandTokenKind.Backspace) Sfc.PressBackspace();
             else if (kind == CommandTokenKind.Clear) Sfc.PressClear();
             else if (kind == CommandTokenKind.Release) Sfc.PressRelease();
-            else if (kind == CommandTokenKind.CaptureAll) Sfc.PressCaptureAll();
+            else if (kind == CommandTokenKind.CaptureAll) Sfc.PressCapture();
             else Sfc.PressToken(kind);
         }
     }

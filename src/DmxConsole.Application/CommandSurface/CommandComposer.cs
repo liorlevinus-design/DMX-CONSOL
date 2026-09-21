@@ -1,8 +1,12 @@
 using DmxConsole.Application.Commands;
+using DmxConsole.Application.Commands.Cues;
+using DmxConsole.Application.Commands.Groups;
+using DmxConsole.Application.Commands.Patch;
 using DmxConsole.Application.Commands.Presets;
 using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Application.Commands.Selection;
 using DmxConsole.Core;
+using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
 
@@ -65,6 +69,14 @@ public sealed class CommandComposer
                 return Build(finalize: true);
 
             default:
+                // Implicit Fixture context (RELEASE-panel/Quick-Patch stabilization slice, §4): a
+                // bare Number as the very first token defaults to FIXTURE - injected here as a
+                // REAL token, not merely inferred later in Build(), so "1 THRU 8" and
+                // "FIXTURE 1 THRU 8" produce byte-identical CommandCompositions from this point
+                // on (same Tokens, same PreviewText, same Resolve() path, same SelectionCycle
+                // behavior) - never a second, parallel "numbers without object" engine.
+                if (_tokens.Count == 0 && token.Kind == CommandTokenKind.Number)
+                    _tokens.Add(CommandToken.Simple(CommandTokenKind.Fixture));
                 _tokens.Add(token);
                 return Build(finalize: false);
         }
@@ -77,7 +89,7 @@ public sealed class CommandComposer
     // ---- Parsing --------------------------------------------------------------------------
 
     private enum ObjectType { Fixture, Group }
-    private enum ClauseOp { Anchor, Plus, Minus, Thru }
+    private enum ClauseOp { Anchor, Plus, Minus, Thru, Odd, Even }
     private readonly record struct Clause(ClauseOp Op, double Number);
 
     private CommandComposition Build(bool finalize)
@@ -138,6 +150,28 @@ public sealed class CommandComposer
                 ? new NextFixtureCommand()
                 : new PreviousFixtureCommand();
             return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = cursorCommand };
+        }
+
+        // Selection History rule slice: bare ODD/EVEN/REVERSE - no FIXTURE/GROUP prefix - filter/
+        // transform the CURRENT Selection directly, exactly like bare Next/Last above (self-
+        // terminating, Enter never required, never a numeric clause). This is distinct from
+        // Odd/Even appearing INSIDE a Fixture/Group clause sequence (e.g. "FIXTURE 1 THRU 10
+        // ODD") - that path is handled later, in the object-clause while loop, and is unaffected;
+        // this one only ever fires when Odd/Even/Reverse is the ENTIRE composition. A pure
+        // Selection transform, never a programming execution - EndsSelectionCycle stays at its
+        // default false, same as Next/Last.
+        if (_tokens.Count == 1 && _tokens[0].Kind is CommandTokenKind.Odd or CommandTokenKind.Even or CommandTokenKind.Reverse)
+        {
+            if (_context.Selection.Items.Count == 0)
+                return Incomplete(preview, "Select at least one fixture first.");
+
+            IConsoleCommand filterCommand = _tokens[0].Kind switch
+            {
+                CommandTokenKind.Odd => new SelectOddCommand(),
+                CommandTokenKind.Even => new SelectEvenCommand(),
+                _ => new ReverseSelectionCommand(),
+            };
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = filterCommand };
         }
 
         // A lone family token (COLOR, POSITION, ...) is waiting for HOME/RELEASE/PRESET - not an
@@ -229,14 +263,24 @@ public sealed class CommandComposer
             };
         }
 
+        // Bare STORE (Store-grammar slice) - the operator pressed STORE with no selection clause
+        // typed on THIS line at all (a Selection may already exist from an earlier, separate
+        // command, or from a GUI click - exactly the scenario this slice replaces the old
+        // "STORE immediately shortcuts to whatever EditorContext happens to be Group" bug with):
+        // no selection-building commands are needed, targets = whatever is currently selected.
+        if (_tokens[0].Kind == CommandTokenKind.Store)
+            return ResolveStore(preview, finalize, storeIndex: 0, precedingCommands: new List<IConsoleCommand>(), targets: _context.Selection.Items.ToList());
+
         var head = _tokens[0];
         ObjectType objectType;
         int i;
 
         if (head.Kind == CommandTokenKind.Number)
         {
-            // Fixture is the console's default object family. A bare number/range therefore
-            // means Fixture without injecting a fake token into the visible command line.
+            // Unreachable in normal operation since Push() now injects an explicit Fixture token
+            // ahead of a leading bare Number (§4) - kept as a defensive fallback for a caller that
+            // builds _tokens some other way, so a stray bare-Number head still resolves to Fixture
+            // rather than falling into the generic "Expected..." error below.
             objectType = ObjectType.Fixture;
             i = 0;
         }
@@ -252,9 +296,10 @@ public sealed class CommandComposer
         }
 
         var clauses = new List<Clause>();
-        double? atValue = null;
+        List<double>? atControlPoints = null;
         double? lastNumber = null;
         bool fullSelfTerminates = false;
+        int? storeIndex = null;
 
         // Tiny explicit state machine over the remaining tokens - see the class doc comment for the grammar.
         while (i < _tokens.Count)
@@ -267,6 +312,27 @@ public sealed class CommandComposer
                 lastNumber = token.NumericValue;
                 i++;
                 continue;
+            }
+
+            // ODD/EVEN (Store-grammar slice, §D) - operate on Selection ORDER, not fixture
+            // numbers/IDs: filters whatever has been resolved so far (in order) down to the
+            // odd/even 1-based positions, exactly like FixtureSelection.FilterOdd/FilterEven
+            // itself does at dispatch time. No operand, so it advances i by 1 like Full/Store.
+            if (token.Kind is CommandTokenKind.Odd or CommandTokenKind.Even)
+            {
+                clauses.Add(new Clause(token.Kind == CommandTokenKind.Odd ? ClauseOp.Odd : ClauseOp.Even, 0));
+                i++;
+                continue;
+            }
+
+            // STORE (Store-grammar slice, §A/§B) - pivots out of Fixture/Group selection grammar
+            // entirely into the Store sub-grammar (Group/Cue/Preset target). Never valid together
+            // with AT/FULL on the same line (those already `break` this loop themselves) - STORE
+            // simply stops clause parsing here, same shape as At/Full below.
+            if (token.Kind == CommandTokenKind.Store)
+            {
+                storeIndex = i;
+                break;
             }
 
             if (token.Kind is CommandTokenKind.Plus or CommandTokenKind.Minus or CommandTokenKind.Thru)
@@ -293,15 +359,52 @@ public sealed class CommandComposer
 
             if (token.Kind == CommandTokenKind.At)
             {
+                // Quick Patch form A (Quick Patch stabilization slice): "FIXTURE <clauses> AT DMX
+                // <address> [ENTER]" - AT followed by DMX (not a plain Number) means "patch these
+                // fixture numbers starting at this DMX address", never an intensity percentage.
+                // Never valid for Group - Quick Patch only ever creates Fixtures.
+                if (i + 1 < _tokens.Count && _tokens[i + 1].Kind == CommandTokenKind.Dmx)
+                {
+                    if (objectType != ObjectType.Fixture)
+                        return Incomplete(preview, "Quick Patch applies to Fixture numbers only, not Group.");
+
+                    int addressIndex = i + 2;
+                    if (addressIndex >= _tokens.Count || _tokens[addressIndex].Kind != CommandTokenKind.Number)
+                        return Incomplete(preview, "Expected a DMX address after AT DMX.", CommandTokenKind.Number);
+                    if (addressIndex + 1 < _tokens.Count)
+                        return Incomplete(preview, "Nothing may follow the DMX address.", CommandTokenKind.Enter);
+
+                    if (!finalize)
+                        return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+
+                    return BuildQuickPatchComposition(preview, ClausesToNumbers(clauses), (int)_tokens[addressIndex].NumericValue!.Value);
+                }
+
                 if (i + 1 >= _tokens.Count || _tokens[i + 1].Kind != CommandTokenKind.Number)
                     return Incomplete(preview, "Expected a number after At.", CommandTokenKind.Number);
 
-                atValue = _tokens[i + 1].NumericValue!.Value;
+                var controlPoints = new List<double> { _tokens[i + 1].NumericValue!.Value };
                 i += 2;
+
+                // Value-distribution slice: THRU AFTER AT is a DIFFERENT grammatical meaning than
+                // THRU before AT (object-range, handled earlier in this same loop) - here it adds
+                // another control point to a value path ("AT 20 THRU 60" = distribute 20->60
+                // across the ordered targets; "AT 20 THRU 60 THRU 20" = 20->60->20). Resolved
+                // purely by POSITION relative to At, never a second token kind - the loop only
+                // ever reaches this while-loop once it has already broken into the At branch.
+                while (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Thru)
+                {
+                    if (i + 1 >= _tokens.Count || _tokens[i + 1].Kind != CommandTokenKind.Number)
+                        return Incomplete(preview, "Expected a number after Thru.", CommandTokenKind.Number);
+
+                    controlPoints.Add(_tokens[i + 1].NumericValue!.Value);
+                    i += 2;
+                }
 
                 if (i < _tokens.Count)
                     return Incomplete(preview, "Nothing may follow the At value.", CommandTokenKind.Enter);
 
+                atControlPoints = controlPoints;
                 break;
             }
 
@@ -313,7 +416,7 @@ public sealed class CommandComposer
                 if (i + 1 < _tokens.Count)
                     return Incomplete(preview, "Nothing may follow Full.", CommandTokenKind.Enter);
 
-                atValue = 100;
+                atControlPoints = new List<double> { 100 };
                 fullSelfTerminates = true;
                 i++;
                 break;
@@ -322,16 +425,23 @@ public sealed class CommandComposer
             return Incomplete(preview, $"Unexpected token '{token.DisplayText}'.");
         }
 
+        if (storeIndex is int idx)
+        {
+            var (selectionCommands, storeTargets, buildError) = BuildSelectionCommands(objectType, clauses);
+            if (buildError is not null) return Incomplete(preview, buildError);
+            return ResolveStore(preview, finalize, idx, selectionCommands, storeTargets);
+        }
+
         if (clauses.Count == 0)
             return Incomplete(preview, null, CommandTokenKind.Number);
 
         if (!finalize && !fullSelfTerminates)
         {
-            var expected = new List<CommandTokenKind> { CommandTokenKind.Plus, CommandTokenKind.Minus, CommandTokenKind.Thru, CommandTokenKind.At, CommandTokenKind.Full, CommandTokenKind.Enter };
+            var expected = new List<CommandTokenKind> { CommandTokenKind.Plus, CommandTokenKind.Minus, CommandTokenKind.Thru, CommandTokenKind.Odd, CommandTokenKind.Even, CommandTokenKind.At, CommandTokenKind.Full, CommandTokenKind.Store, CommandTokenKind.Enter };
             return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = expected };
         }
 
-        return Resolve(objectType, clauses, atValue, preview);
+        return Resolve(objectType, clauses, atControlPoints, preview);
     }
 
     private CommandComposition ResolveRecall(CommandTokenKind kind, string preview)
@@ -367,7 +477,15 @@ public sealed class CommandComposer
         ExpectedNext = expected,
     };
 
-    private CommandComposition Resolve(ObjectType objectType, List<Clause> clauses, double? atValue, string preview)
+    /// <summary>Builds the selection-mutating commands (Clear/Add/Remove/Range/Group/Odd/Even) for
+    /// a clause list, plus the resulting ordered fixture list those commands would leave selected
+    /// - the same shadow bookkeeping <see cref="Resolve"/> already needs for AT, now also reused by
+    /// the Store-grammar pivot (Store-grammar slice, §D) so "FIXTURE 1 THRU 10 ODD STORE GROUP 1"
+    /// knows exactly which (odd-position) fixtures to store, in order, before any command runs.
+    /// Returns a non-null Error instead of throwing/Incomplete-ing directly, so both callers can
+    /// decide how to wrap it (Resolve already has its own preview string in scope; ResolveStore's
+    /// callers pass a possibly-different one).</summary>
+    private (List<IConsoleCommand> Commands, List<PatchedFixture> Targets, string? Error) BuildSelectionCommands(ObjectType objectType, List<Clause> clauses)
     {
         var commands = new List<IConsoleCommand>();
         if (ReplaceSelectionOnResolve) commands.Add(new ClearSelectionCommand());
@@ -382,7 +500,7 @@ public sealed class CommandComposer
                 case ClauseOp.Plus:
                 {
                     if (!TryResolveSingle(objectType, clause.Number, out var fixtures, out var error))
-                        return Incomplete(preview, error);
+                        return (commands, targets, error);
 
                     foreach (var fixture in fixtures)
                     {
@@ -397,7 +515,7 @@ public sealed class CommandComposer
                 case ClauseOp.Minus:
                 {
                     if (!TryResolveSingle(objectType, clause.Number, out var fixtures, out var error))
-                        return Incomplete(preview, error);
+                        return (commands, targets, error);
 
                     foreach (var fixture in fixtures)
                     {
@@ -434,29 +552,104 @@ public sealed class CommandComposer
                     }
                     break;
                 }
+
+                case ClauseOp.Odd:
+                {
+                    commands.Add(new SelectOddCommand());
+                    var kept = targets.Where((_, idx) => idx % 2 == 0).ToList();
+                    targets.Clear();
+                    targets.AddRange(kept);
+                    break;
+                }
+
+                case ClauseOp.Even:
+                {
+                    commands.Add(new SelectEvenCommand());
+                    var kept = targets.Where((_, idx) => idx % 2 == 1).ToList();
+                    targets.Clear();
+                    targets.AddRange(kept);
+                    break;
+                }
             }
         }
 
-        if (atValue is not null)
+        return (commands, targets, null);
+    }
+
+    private CommandComposition Resolve(ObjectType objectType, List<Clause> clauses, List<double>? atControlPoints, string preview)
+    {
+        var (commands, targets, buildError) = BuildSelectionCommands(objectType, clauses);
+        if (buildError is not null) return Incomplete(preview, buildError);
+
+        if (atControlPoints is not null)
         {
             if (targets.Count == 0)
                 return Incomplete(preview, "No fixtures resolved to apply At to.");
 
-            commands.Add(new AdjustIntensityCommand(targets, AdjustOperation.Absolute, atValue.Value));
+            if (atControlPoints.Count == 1)
+            {
+                // Single-value AT - unchanged from before the value-distribution slice: one
+                // AdjustIntensityCommand for every target, same value.
+                commands.Add(new AdjustIntensityCommand(targets, AdjustOperation.Absolute, atControlPoints[0]));
+            }
+            else
+            {
+                // Value distribution (§1/§2/§4/§7): interpolate along the control-point path,
+                // walking TARGETS IN THEIR EXISTING SELECTION ORDER (never re-sorted by fixture
+                // number/ID - `targets` here is exactly the ordered list BuildSelectionCommands
+                // already produced, the SAME shadow list Odd/Even/Store already rely on being
+                // selection-order-correct). One AdjustIntensityCommand PER fixture with its own
+                // interpolated value - the exact same command/Programmer-write path single-value
+                // AT already uses, never a second write mechanism - all batched into the SAME
+                // CompositeCommand as any selection-building commands, so a failure anywhere
+                // rolls back the whole transaction (CompositeCommand's existing atomicity),
+                // never a partially-applied distribution.
+                for (int index = 0; index < targets.Count; index++)
+                {
+                    double t = targets.Count == 1 ? 0.0 : (double)index / (targets.Count - 1);
+                    double value = InterpolateAlongPath(atControlPoints, t);
+                    commands.Add(new AdjustIntensityCommand(new List<PatchedFixture> { targets[index] }, AdjustOperation.Absolute, value));
+                }
+            }
         }
 
         IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
+
+        // ResolvedGroupNumber (SelectionCycle's "last Group recalled") should reflect the last
+        // NUMBERED clause (Anchor/Plus/Thru), never an Odd/Even modifier (which carries Number=0
+        // and would otherwise misreport recall as "Group 0").
+        var lastNumberedClause = clauses.LastOrDefault(c => c.Op is ClauseOp.Anchor or ClauseOp.Plus or ClauseOp.Thru);
 
         return new CommandComposition
         {
             Tokens = _tokens.ToList(),
             PreviewText = preview,
             IsComplete = true,
-            EndsSelectionCycle = atValue is not null,
-            ResolvedGroupNumber = objectType == ObjectType.Group ? (int?)clauses.Last().Number : null,
-            AppliedAtPercent = atValue,
+            EndsSelectionCycle = atControlPoints is not null,
+            ResolvedGroupNumber = objectType == ObjectType.Group && clauses.Any(c => c.Op is ClauseOp.Anchor or ClauseOp.Plus or ClauseOp.Thru)
+                ? (int?)lastNumberedClause.Number : null,
+            // Only a single scalar AT value is recallable (AT RECALL replays one percentage) - a
+            // multi-point distribution has no single "the value" to remember, so it's left null
+            // rather than misrepresenting the path as one number.
+            AppliedAtPercent = atControlPoints is { Count: 1 } single ? single[0] : null,
             ReadyOperation = operation,
         };
+    }
+
+    /// <summary>Value-distribution slice (§7): linear interpolation across one or more control
+    /// points, treating them as evenly-spaced waypoints along a single continuous 0..1 path -
+    /// never split into crude integer-sized blocks. t=0 always yields the first control point
+    /// exactly (so a single-fixture target, which always computes t=0, gets exactly the FIRST
+    /// value, never an average - §6) and t=1 always yields the last one exactly.</summary>
+    private static double InterpolateAlongPath(IReadOnlyList<double> controlPoints, double t)
+    {
+        if (controlPoints.Count == 1) return controlPoints[0];
+
+        int segments = controlPoints.Count - 1;
+        double segmentPosition = Math.Clamp(t, 0.0, 1.0) * segments;
+        int segmentIndex = Math.Min((int)Math.Floor(segmentPosition), segments - 1);
+        double localT = segmentPosition - segmentIndex;
+        return controlPoints[segmentIndex] + (controlPoints[segmentIndex + 1] - controlPoints[segmentIndex]) * localT;
     }
 
     private bool TryResolveSingle(ObjectType objectType, double number, out IReadOnlyList<PatchedFixture> fixtures, out string? error)
@@ -521,6 +714,232 @@ public sealed class CommandComposer
         return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true, ReadyOperation = operation };
     }
 
+    /// <summary>
+    /// STORE (Store-grammar slice, §A/§B) - "&lt;selection/context&gt; STORE &lt;target&gt;
+    /// &lt;number&gt; ENTER". STORE alone is never enough information and never silently defaults
+    /// to any target - the grammar only completes once an explicit target object AND (for
+    /// Group/Cue, always; for Preset, unless the operator opens the family/number panel) an
+    /// explicit number are present. `targets`/`precedingCommands` were already built by
+    /// BuildSelectionCommands (or are the current Selection verbatim, for a bare "STORE ...") -
+    /// this method only ever appends to them, never re-derives them.
+    /// </summary>
+    private CommandComposition ResolveStore(string preview, bool finalize, int storeIndex, List<IConsoleCommand> precedingCommands, List<PatchedFixture> targets)
+    {
+        int i = storeIndex + 1;
+
+        if (i >= _tokens.Count)
+        {
+            if (!finalize)
+            {
+                return new CommandComposition
+                {
+                    Tokens = _tokens.ToList(), PreviewText = preview,
+                    ExpectedNext = new[]
+                    {
+                        CommandTokenKind.Group, CommandTokenKind.Cue, CommandTokenKind.Preset,
+                        CommandTokenKind.Intensity, CommandTokenKind.Position, CommandTokenKind.Color,
+                        CommandTokenKind.Beam, CommandTokenKind.Image, CommandTokenKind.Shape,
+                    },
+                };
+            }
+            return Incomplete(preview, "STORE TARGET IS MISSING");
+        }
+
+        var targetToken = _tokens[i];
+
+        if (targetToken.Kind == CommandTokenKind.Group)
+            return ResolveStoreGroup(preview, finalize, i + 1, precedingCommands, targets);
+
+        if (targetToken.Kind == CommandTokenKind.Cue)
+            return ResolveStoreCue(preview, finalize, i + 1, precedingCommands, targets);
+
+        if (targetToken.Kind == CommandTokenKind.Preset)
+            return ResolveStorePreset(preview, finalize, i + 1, precedingCommands, targets, bareForm: true, explicitFamily: null);
+
+        if (FamilyFor(targetToken.Kind) is { } family)
+            return ResolveStorePreset(preview, finalize, i + 1, precedingCommands, targets, bareForm: false, explicitFamily: family);
+
+        return Incomplete(preview, $"Unexpected token '{targetToken.DisplayText}' after Store.",
+            CommandTokenKind.Group, CommandTokenKind.Cue, CommandTokenKind.Preset);
+    }
+
+    /// <summary>"STORE GROUP &lt;n&gt; ENTER" - create-only, mirrors GroupsViewModel.Store's own
+    /// "an explicit, operator-chosen number that's already taken is a hard conflict" behavior
+    /// (StoreGroupCommand.Execute itself fails if the number is in use) - never invented here,
+    /// never a silent update.</summary>
+    private CommandComposition ResolveStoreGroup(string preview, bool finalize, int i, List<IConsoleCommand> precedingCommands, List<PatchedFixture> targets)
+    {
+        if (i >= _tokens.Count)
+        {
+            if (!finalize) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+            return Incomplete(preview, "GROUP NUMBER IS MISSING");
+        }
+        if (_tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a Group number.", CommandTokenKind.Number);
+
+        int number = (int)_tokens[i].NumericValue!.Value;
+        if (i + 1 < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the Group number.", CommandTokenKind.Enter);
+        if (!finalize)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+
+        if (targets.Count == 0)
+            return Incomplete(preview, "No fixtures resolved to store as a Group.");
+
+        var commands = new List<IConsoleCommand>(precedingCommands) { new StoreGroupCommand($"Group {number}", number) };
+        IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+            ResolvedGroupNumber = number,
+            ReadyOperation = operation,
+        };
+    }
+
+    /// <summary>"STORE CUE &lt;n&gt; ENTER" - create-only (mirrors CueListViewModel.StoreWithFilter's
+    /// own "already exists - Update it instead" behavior, via StoreCueCommand). Timing/Trigger/
+    /// StoreFilter are not yet part of this grammar (Store-grammar slice, §2's explicit scope) -
+    /// CueStoreOptions.Default (the same shared default the Core layer itself defines) is used;
+    /// inventing per-attribute timing/trigger/filter grammar here was explicitly out of scope.</summary>
+    private CommandComposition ResolveStoreCue(string preview, bool finalize, int i, List<IConsoleCommand> precedingCommands, List<PatchedFixture> targets)
+    {
+        if (i >= _tokens.Count)
+        {
+            if (!finalize) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+            return Incomplete(preview, "CUE NUMBER IS MISSING");
+        }
+        if (_tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a Cue number.", CommandTokenKind.Number);
+
+        double number = _tokens[i].NumericValue!.Value;
+        if (i + 1 < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the Cue number.", CommandTokenKind.Enter);
+        if (!finalize)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+
+        if (_context.PrimaryCueList is not { } cueList)
+            return Incomplete(preview, "No Cue List available to store into.");
+
+        var storeCommand = new StoreCueCommand(cueList, $"Cue {FormatNumber(number)}", number, CueStoreOptions.Default);
+        var commands = new List<IConsoleCommand>(precedingCommands) { storeCommand };
+        IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+            ReadyOperation = operation,
+        };
+    }
+
+    /// <summary>
+    /// "STORE PRESET [&lt;Family&gt;] [&lt;n&gt;] ENTER" / "STORE &lt;Family&gt; [&lt;n&gt;] ENTER"
+    /// (Store-grammar slice, §A/§C). Three distinct outcomes on a missing piece, never guessed:
+    ///   - neither family nor number given ("STORE PRESET ENTER") - opens the family+number panel
+    ///     (PendingStoreChoice with Number=null), regardless of how many families are touched.
+    ///   - family given (explicit or the family token itself), number missing - a hard grammar
+    ///     error ("PRESET NUMBER IS MISSING"), never a dialog - an explicit family already removes
+    ///     the one thing a dialog would otherwise need to ask.
+    ///   - number given, family not given - resolved from touched PROGRAMMER families: 0 touched is
+    ///     an error, exactly 1 proceeds directly (no dialog - as unambiguous as an explicit family),
+    ///     more than 1 opens the family panel with Number already known.
+    /// Whatever family list is ultimately resolved (explicit, single-touched, or operator-chosen)
+    /// funnels through the SAME BuildPresetStoreResolution conflict-check, so "explicit family
+    /// already existing" and "chosen-via-panel family already existing" both get the identical
+    /// OVERWRITE/UPDATE/CANCEL treatment - never two divergent conflict paths.
+    /// </summary>
+    private CommandComposition ResolveStorePreset(string preview, bool finalize, int i, List<IConsoleCommand> precedingCommands,
+        List<PatchedFixture> targets, bool bareForm, AttributeClass? explicitFamily)
+    {
+        AttributeClass? family = explicitFamily;
+        if (bareForm && i < _tokens.Count && FamilyFor(_tokens[i].Kind) is { } inlineFamily)
+        {
+            family = inlineFamily;
+            i++;
+        }
+
+        int? number = null;
+        if (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Number)
+        {
+            number = (int)_tokens[i].NumericValue!.Value;
+            i++;
+        }
+
+        if (i < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the Preset number.", CommandTokenKind.Enter);
+
+        if (!finalize)
+        {
+            var expected = new List<CommandTokenKind>();
+            if (family is null)
+                expected.AddRange(new[] { CommandTokenKind.Intensity, CommandTokenKind.Position, CommandTokenKind.Color, CommandTokenKind.Beam, CommandTokenKind.Image, CommandTokenKind.Shape });
+            if (number is null) expected.Add(CommandTokenKind.Number);
+            expected.Add(CommandTokenKind.Enter);
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = expected };
+        }
+
+        if (targets.Count == 0)
+            return Incomplete(preview, "No fixtures resolved to store as a Preset.");
+
+        if (family is null && number is null)
+        {
+            var touchedForDialog = StorePresetFamilyDetector.TouchedFamilies(targets, _context.Programmer);
+            if (touchedForDialog.Count == 0) return Incomplete(preview, "No touched PROGRAMMER families to store.");
+            return new CommandComposition
+            {
+                Tokens = _tokens.ToList(), PreviewText = preview,
+                PendingStoreChoice = new PendingStoreChoice(null, touchedForDialog, targets, precedingCommands),
+            };
+        }
+
+        if (number is null)
+            return Incomplete(preview, "PRESET NUMBER IS MISSING");
+
+        IReadOnlyList<AttributeClass> families;
+        if (family is { } explicitOne)
+        {
+            families = new[] { explicitOne };
+        }
+        else
+        {
+            var touched = StorePresetFamilyDetector.TouchedFamilies(targets, _context.Programmer);
+            if (touched.Count == 0) return Incomplete(preview, "No touched PROGRAMMER families to store.");
+            if (touched.Count > 1)
+            {
+                return new CommandComposition
+                {
+                    Tokens = _tokens.ToList(), PreviewText = preview,
+                    PendingStoreChoice = new PendingStoreChoice(number, touched, targets, precedingCommands),
+                };
+            }
+            families = touched;
+        }
+
+        return BuildPresetStoreResolution(preview, number.Value, families, targets, precedingCommands);
+    }
+
+    /// <summary>The one place a resolved (family list, number) pair becomes either a ready
+    /// operation (no conflicts) or a PendingStoreConflict (one or more families already have a
+    /// Preset at this number) - shared with CommandSurfaceViewModel's post-family-choice
+    /// confirmation via StorePresetTransactionBuilder, so grammar-resolved and panel-resolved
+    /// Preset stores never diverge in how conflicts are found or transactions are built.</summary>
+    private CommandComposition BuildPresetStoreResolution(string preview, int number, IReadOnlyList<AttributeClass> families,
+        IReadOnlyList<PatchedFixture> targets, IReadOnlyList<IConsoleCommand> precedingCommands)
+    {
+        var conflicts = StorePresetTransactionBuilder.FindConflicts(_context.Presets, families, number);
+        if (conflicts.Count > 0)
+        {
+            return new CommandComposition
+            {
+                Tokens = _tokens.ToList(), PreviewText = preview,
+                PendingStoreConflict = new PendingStoreConflict(number, families, conflicts, targets, precedingCommands),
+            };
+        }
+
+        var operation = StorePresetTransactionBuilder.BuildTransaction(_context.Presets, families, number, targets, precedingCommands, overwrite: false);
+        return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true, ReadyOperation = operation };
+    }
+
     /// <summary>"&lt;Family&gt; PRESET &lt;number&gt; [ENTER]" (§4) - resolved against the current
     /// Selection. Ends in a numeric token, so per §14 it needs ENTER to commit, same as any other
     /// numeric-terminated command (mirrors the AT grammar's own finalize gating).</summary>
@@ -562,7 +981,15 @@ public sealed class CommandComposer
     private CommandComposition ResolveDmx(bool finalize, string preview)
     {
         if (_tokens.Count == 1)
-            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.DmxAddress } };
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.DmxAddress, CommandTokenKind.Number } };
+
+        // Quick Patch form B (Quick Patch stabilization slice): "DMX <addr> [THRU <addr2>] FIXTURE
+        // <n> [ENTER]" - a plain Number after DMX (not the dotted Universe.Address DmxAddress
+        // token DMX DIRECT ADDRESSING always uses) signals the reverse-form Quick Patch syntax,
+        // resolving through the exact same PatchFixturesCommand as form A - never a second patch
+        // engine, never duplicated numbering/address logic.
+        if (_tokens[1].Kind == CommandTokenKind.Number)
+            return ResolveQuickPatchFromDmx(finalize, preview);
 
         if (_tokens[1].Kind != CommandTokenKind.DmxAddress)
             return Incomplete(preview, "Expected a Universe.Address after DMX.", CommandTokenKind.DmxAddress);
@@ -647,6 +1074,126 @@ public sealed class CommandComposer
             return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
 
         return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = operation };
+    }
+
+    /// <summary>
+    /// Quick Patch form B: "DMX &lt;addr&gt; [THRU &lt;addr2&gt;] FIXTURE &lt;n&gt; [ENTER]" -
+    /// _tokens[0]=Dmx, _tokens[1]=Number(startAddress) when this is called (see ResolveDmx's own
+    /// branch). The address range's span, divided by the active patch mode's footprint, determines
+    /// how many fixtures to create - numbered consecutively starting at the given Fixture number,
+    /// mirroring form A's "advance by fixture footprint" rule in reverse.
+    /// </summary>
+    private CommandComposition ResolveQuickPatchFromDmx(bool finalize, string preview)
+    {
+        double startAddress = _tokens[1].NumericValue!.Value;
+        double endAddress = startAddress;
+        int i = 2;
+
+        if (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Thru)
+        {
+            i++;
+            if (i >= _tokens.Count || _tokens[i].Kind != CommandTokenKind.Number)
+                return Incomplete(preview, "Expected a number after Thru.", CommandTokenKind.Number);
+            endAddress = _tokens[i].NumericValue!.Value;
+            i++;
+        }
+
+        if (i >= _tokens.Count)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Fixture } };
+
+        if (_tokens[i].Kind != CommandTokenKind.Fixture)
+            return Incomplete(preview, "Expected FIXTURE after the DMX address range.", CommandTokenKind.Fixture);
+        i++;
+
+        if (i >= _tokens.Count)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+        if (_tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a starting Fixture number.", CommandTokenKind.Number);
+
+        int startNumber = (int)_tokens[i].NumericValue!.Value;
+        i++;
+
+        if (i < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the starting Fixture number.", CommandTokenKind.Enter);
+
+        if (!finalize)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+
+        if (_context.DefaultPatchProfile is null || _context.DefaultPatchMode is null)
+            return Incomplete(preview, "Select a fixture profile/mode on the Patch screen first.");
+
+        int footprint = Math.Max(1, _context.DefaultPatchMode.FootprintSize);
+        int span = (int)Math.Abs(endAddress - startAddress) + 1;
+        int count = Math.Max(1, span / footprint);
+        var numbers = Enumerable.Range(startNumber, count).ToList();
+
+        return BuildQuickPatchComposition(preview, numbers, (int)Math.Min(startAddress, endAddress));
+    }
+
+    /// <summary>Turns a parsed Fixture clause list (Anchor/Plus/Minus/Thru - the SAME clause shape
+    /// Resolve() already uses for SELECTING existing fixtures) into an ordered, deduplicated list
+    /// of fixture Numbers, for Quick Patch form A - deliberately independent of Patch.Fixtures
+    /// lookups (TryResolveSingle), since these fixtures don't exist yet; "already patched" is a
+    /// PatchFixturesCommand validation failure, not something to silently skip over here.</summary>
+    private static List<int> ClausesToNumbers(List<Clause> clauses)
+    {
+        var numbers = new List<int>();
+        foreach (var clause in clauses)
+        {
+            switch (clause.Op)
+            {
+                case ClauseOp.Anchor:
+                case ClauseOp.Plus:
+                    int n = (int)clause.Number;
+                    if (!numbers.Contains(n)) numbers.Add(n);
+                    break;
+
+                case ClauseOp.Minus:
+                    numbers.Remove((int)clause.Number);
+                    break;
+
+                case ClauseOp.Thru:
+                    int index = clauses.IndexOf(clause);
+                    double from = clauses[index - 1].Number;
+                    double to = clause.Number;
+                    int lo = (int)Math.Min(from, to), hi = (int)Math.Max(from, to);
+                    for (int i = lo; i <= hi; i++)
+                        if (!numbers.Contains(i)) numbers.Add(i);
+                    break;
+            }
+        }
+        return numbers;
+    }
+
+    /// <summary>The ONE place both Quick Patch forms build the shared PatchFixturesCommand -
+    /// reads DefaultPatchProfile/DefaultPatchMode/DefaultPatchUniverseId off ConsoleContext (kept
+    /// in sync with the PATCH screen's own selection by MainViewModel), so the Command Surface
+    /// never has its own, second notion of "which profile is active". Addresses advance by the
+    /// mode's own footprint per fixture, same rule AddFixture/PatchFixturesCommand already use.</summary>
+    private CommandComposition BuildQuickPatchComposition(string preview, IReadOnlyList<int> fixtureNumbers, int startAddress)
+    {
+        if (_context.DefaultPatchProfile is not { } profile || _context.DefaultPatchMode is not { } mode)
+            return Incomplete(preview, "Select a fixture profile/mode on the Patch screen first.");
+
+        if (fixtureNumbers.Count == 0)
+            return Incomplete(preview, "No fixture numbers resolved to patch.");
+
+        int footprint = Math.Max(1, mode.FootprintSize);
+        int universeId = _context.DefaultPatchUniverseId;
+
+        var requests = new List<PatchFixturesCommand.Request>(fixtureNumbers.Count);
+        for (int j = 0; j < fixtureNumbers.Count; j++)
+        {
+            int address = startAddress + j * footprint;
+            string name = fixtureNumbers.Count == 1 ? profile.DisplayName : $"{profile.DisplayName} {j + 1}";
+            requests.Add(new PatchFixturesCommand.Request(fixtureNumbers[j], universeId, address, name));
+        }
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true,
+            ReadyAction = new PatchFixturesCommand(profile, mode, requests),
+        };
     }
 
     /// <summary>§4/DMX DIRECT ADDRESSING follow-up §1: validate Universe existence/range and DMX

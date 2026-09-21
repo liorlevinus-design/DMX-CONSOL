@@ -18,7 +18,10 @@ public class CommandComposerObjectContextTests
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
 
         Assert.True(final.IsComplete);
-        Assert.Equal("2", final.PreviewText); // no synthetic "FIXTURE" token injected into the visible line - the composer's own class doc comment is explicit about this
+        // Quick-Patch/implicit-Fixture convergence slice (§4): a bare Number as the first token
+        // now injects a REAL Fixture token, so the Task line shows "Fixture 2" - identical to
+        // what explicit "FIXTURE 2" would show - rather than hiding the inferred object type.
+        Assert.Equal("Fixture 2", final.PreviewText);
         dispatcher.Dispatch(final.ReadyOperation!);
         Assert.Single(context.Selection.Items);
         Assert.Equal(2, context.Selection.Items[0].Number);
@@ -51,7 +54,7 @@ public class CommandComposerObjectContextTests
         var second = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
 
         Assert.True(second.IsComplete);
-        Assert.Equal("2", second.PreviewText);
+        Assert.Equal("Fixture 2", second.PreviewText); // §4: implicit Fixture is now a real, visible token
         dispatcher.Dispatch(second.ReadyOperation!);
         Assert.Single(context.Selection.Items);
         Assert.Equal(2, context.Selection.Items[0].Number);

@@ -1,4 +1,5 @@
 using DmxConsole.Application.Commands;
+using DmxConsole.Application.Commands.Selection;
 
 namespace DmxConsole.Application;
 
@@ -36,9 +37,31 @@ public sealed class CommandDispatcher
         {
             _undoRedo.Push(command);
             CommandExecuted?.Invoke(command);
+
+            // Selection History rule: the ONE place SelectionCycle.LastSelection is updated,
+            // driven entirely by SelectionCommandBase.ProducesSelectionSnapshot (checked
+            // recursively through CompositeCommand, since a selection-clause command line is
+            // usually dispatched as one composite) - never by individual callers remembering to
+            // call RememberSelection themselves. This is what makes the invariant universal: it
+            // does not matter whether the command came from Command Surface grammar, a GUI
+            // fixture click, a Group recall, Odd/Even/Reverse, or any future selection transform -
+            // if it is (or contains) a SelectionCommandBase whose ProducesSelectionSnapshot is
+            // true, its result becomes the new Last Selection. CLEAR is excluded structurally,
+            // twice over: ClearSelectionCommand overrides ProducesSelectionSnapshot to false, and
+            // the CLEAR key itself dispatches ClearSelectionAction (an IConsoleAction) through
+            // DispatchAction below, which never reaches this method at all.
+            if (ProducesSelectionSnapshot(command))
+                _context.SelectionCycle.RememberSelection(_context.Selection.Items);
         }
         return result;
     }
+
+    private static bool ProducesSelectionSnapshot(IConsoleCommand command) => command switch
+    {
+        SelectionCommandBase selectionCommand => selectionCommand.ProducesSelectionSnapshot,
+        CompositeCommand composite => composite.Commands.Any(ProducesSelectionSnapshot),
+        _ => false,
+    };
 
     /// <summary>Executes several commands as one transaction - a single Undo() reverts all of them.</summary>
     public CommandResult DispatchBatch(IReadOnlyList<IConsoleCommand> commands) =>

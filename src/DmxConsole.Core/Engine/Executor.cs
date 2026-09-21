@@ -80,8 +80,8 @@ public sealed class Executor : IOutputLayer, IMergeAwareLayer, ITickable
     // IMergeAwareLayer too), not a blanket claim by the handle. This is exactly what keeps a Go
     // that only changes Color from stealing ownership of an unrelated, unchanged/tracked
     // Intensity channel.
-    public void Go() { if (Source is ISequencedPlayback s) s.Go(); }
-    public void Back() { if (Source is ISequencedPlayback s) s.Back(); }
+    public void Go(bool instant = false) { if (Source is ISequencedPlayback s) s.Go(instant); }
+    public void Back(bool instant = false) { if (Source is ISequencedPlayback s) s.Back(instant); }
     public void Stop() { if (Source is ISequencedPlayback s) s.Stop(); }
     public void Pause() { if (Source is IPausablePlayback p) p.Pause(); }
     public void Resume() { if (Source is IPausablePlayback p) p.Resume(); }

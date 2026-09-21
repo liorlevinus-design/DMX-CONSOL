@@ -42,6 +42,17 @@ public sealed class FixtureSelection
     /// <summary>Keeps only the fixtures at even 1-based positions in the current selection order (2nd, 4th, 6th...).</summary>
     public void FilterEven() => FilterByIndex(i => i % 2 == 1);
 
+    /// <summary>Reverses the current selection order in place (last-picked becomes first). Order-
+    /// preserving in the same sense Odd/Even already are - it operates purely on the existing
+    /// ordered Items, never re-derives order from fixture Number/ID.</summary>
+    public void Reverse()
+    {
+        var reversed = Items.ToList();
+        reversed.Reverse();
+        Items.Clear();
+        foreach (var fixture in reversed) Items.Add(fixture);
+    }
+
     private void FilterByIndex(Func<int, bool> keepZeroBasedIndex)
     {
         var kept = Items.Where((_, i) => keepZeroBasedIndex(i)).ToList();

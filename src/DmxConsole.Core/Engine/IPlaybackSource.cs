@@ -12,11 +12,13 @@ public interface IPlaybackSource : IOutputLayer
 }
 
 /// <summary>Optional capability - a source with an internal sequence position (Go/Back/Stop).
-/// Both the real Playback Actions (Application layer) and CueList's own UI go through this.</summary>
+/// Both the real Playback Actions (Application layer) and CueList's own UI go through this.
+/// `instant` (SHIFT+GO/SHIFT+BACK slice) requests a zero-time jump straight to the target state,
+/// with no fade - defaults to false so existing callers/implementers are unaffected.</summary>
 public interface ISequencedPlayback
 {
-    void Go();
-    void Back();
+    void Go(bool instant = false);
+    void Back(bool instant = false);
     void Stop();
 }
 

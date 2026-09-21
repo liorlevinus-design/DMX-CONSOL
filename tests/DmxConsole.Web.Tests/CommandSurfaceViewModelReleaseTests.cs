@@ -40,6 +40,32 @@ public class CommandSurfaceViewModelReleaseTests
         },
     };
 
+    /// <summary>RELEASE-family verification slice: adds Color (Red/Green/Blue) and Beam (Focus)
+    /// channels on top of MovingHead's existing Dimmer/Pan/Tilt, so a COLOR-family release can be
+    /// checked against every OTHER representable family at once (Intensity/Position/Beam), not
+    /// just one spot-checked neighbor.</summary>
+    private static FixtureProfile ColorMovingHead() => new()
+    {
+        Id = "test-color-mh", Manufacturer = "Test", Model = "ColorMovingHead",
+        Modes = new[]
+        {
+            new FixtureMode
+            {
+                Name = "7ch",
+                Channels = new[]
+                {
+                    new FixtureChannel { Name = "Dimmer", Type = ChannelType.Dimmer, Offset = 0, DefaultValue = 0 },
+                    new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 1, DefaultValue = 128 },
+                    new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 2, DefaultValue = 128 },
+                    new FixtureChannel { Name = "Red", Type = ChannelType.ColorRed, Offset = 3, DefaultValue = 0 },
+                    new FixtureChannel { Name = "Green", Type = ChannelType.ColorGreen, Offset = 4, DefaultValue = 0 },
+                    new FixtureChannel { Name = "Blue", Type = ChannelType.ColorBlue, Offset = 5, DefaultValue = 0 },
+                    new FixtureChannel { Name = "Focus", Type = ChannelType.Focus, Offset = 6, DefaultValue = 0 },
+                },
+            },
+        },
+    };
+
     private static (ConsoleContext Context, CommandDispatcher Dispatcher, CommandSurfaceViewModel Surface, PatchedFixture A, PatchedFixture B, DmxOutputEngine Engine) BuildRig()
     {
         var patch = new Patch();
@@ -52,7 +78,7 @@ public class CommandSurfaceViewModelReleaseTests
         var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(),
             engine, new PresetLibrary(), new ExecutorBank());
         var dispatcher = new CommandDispatcher(context, new UndoRedoService(context));
-        var surface = new CommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
         return (context, dispatcher, surface, a, b, engine);
     }
 
@@ -252,5 +278,76 @@ public class CommandSurfaceViewModelReleaseTests
         Assert.False(context.Programmer.HasStoredValue(a.UniverseId, dimmerIdx, out _));
         Assert.Equal((byte)128, engine.GetEffectiveValue(a.UniverseId, dimmerIdx)); // Cue's own value reappears
         Assert.Equal(OwnerKind.Executor, engine.GetOwner(a.UniverseId, dimmerIdx)!.Kind); // provenance reverts to the Executor
+    }
+
+    /// <summary>RELEASE-family verification slice: "RELEASE -&gt; COLOR -&gt; ENTER" (the panel
+    /// path - see CommandComposerFamilyActionTests.ColorRelease_... for the equivalent "COLOR
+    /// RELEASE" composer-grammar path) with multiple families touched, a non-selected fixture
+    /// also touched, and a CueList contributing an underlying Color value beneath the Programmer -
+    /// verifies every required behavior in one place: only COLOR is released, only the current
+    /// Selection is affected, Intensity/Position/Beam survive, the non-selected fixture is fully
+    /// untouched, the Selection itself stays active, the SelectionCycle closes normally (a
+    /// programming action happened), and the CueList's own Color value reappears underneath.</summary>
+    [Fact]
+    public void ReleaseFamilyPanel_Color_ReleasesOnlyColor_ForSelectionOnly_RevealsPlaybackValue_KeepsSelectionActive()
+    {
+        var patch = new Patch();
+        var profile = ColorMovingHead();
+        var selected = new PatchedFixture(profile, profile.Modes[0], 0, 1) { Number = 1 };
+        var other = new PatchedFixture(profile, profile.Modes[0], 0, 10) { Number = 2 };
+        patch.Add(selected);
+        patch.Add(other);
+        var engine = new DmxOutputEngine(patch);
+        var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(),
+            engine, new PresetLibrary(), new ExecutorBank());
+        var dispatcher = new CommandDispatcher(context, new UndoRedoService(context));
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
+
+        int dimmer = selected.AbsoluteIndex(selected.FindChannel(ChannelType.Dimmer)!);
+        int pan = selected.AbsoluteIndex(selected.FindChannel(ChannelType.Pan)!);
+        int red = selected.AbsoluteIndex(selected.FindChannel(ChannelType.ColorRed)!);
+        int focus = selected.AbsoluteIndex(selected.FindChannel(ChannelType.Focus)!);
+        int otherRed = other.AbsoluteIndex(other.FindChannel(ChannelType.ColorRed)!);
+
+        context.Selection.Add(selected); // only `selected` is in the current Selection
+        context.Programmer.SetChannel(0, dimmer, 200); // Intensity
+        context.Programmer.SetChannel(0, pan, 60);     // Position
+        context.Programmer.SetChannel(0, red, 128);    // Color - this is the value a Cue will also record
+        context.Programmer.SetChannel(0, focus, 90);   // Beam
+        context.Programmer.SetChannel(0, otherRed, 210); // Color on the NON-selected fixture
+
+        // A CueList contributes its own Color value underneath the Programmer's, so releasing
+        // Color must reveal IT again, not just clear to a default/zero value.
+        var cueList = new CueList();
+        cueList.RecordCue(context.Patch, context.Programmer, context.Selection, engine, "Cue 1", 1,
+            new CueStoreOptions(new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+                CueTriggerMode.Manual, TimeSpan.Zero, CueStoreFilter.AllStage));
+        var executor = context.Executors.Add(1);
+        executor.Assign(cueList);
+        engine.AddLayer(context.Programmer);
+        engine.AddLayer(executor);
+        cueList.Go();
+        engine.Tick();
+        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(0, red)!.Kind); // Programmer wins first
+
+        surface.PressRelease();
+        surface.ToggleReleaseFamily(AttributeClass.Color);
+        surface.PressToken(CommandTokenKind.Enter);
+        engine.Tick();
+
+        // Only Color released, only on the selected fixture.
+        Assert.False(context.Programmer.HasStoredValue(0, red, out _));
+        Assert.True(context.Programmer.HasStoredValue(0, dimmer, out var dimmerAfter)); Assert.Equal(200, dimmerAfter);
+        Assert.True(context.Programmer.HasStoredValue(0, pan, out var panAfter)); Assert.Equal(60, panAfter);
+        Assert.True(context.Programmer.HasStoredValue(0, focus, out var focusAfter)); Assert.Equal(90, focusAfter);
+        Assert.True(context.Programmer.HasStoredValue(other.UniverseId, otherRed, out var otherAfter)); Assert.Equal(210, otherAfter);
+
+        // The underlying Cue value reappears - provenance reverts to the Executor.
+        Assert.Equal((byte)128, engine.GetEffectiveValue(0, red));
+        Assert.Equal(OwnerKind.Executor, engine.GetOwner(0, red)!.Kind);
+
+        // Selection stays active; the SelectionCycle closes normally (a programming action ran).
+        Assert.Contains(selected, context.Selection.Items);
+        Assert.True(context.SelectionCycle.StartFreshOnNextSelection);
     }
 }

@@ -9,8 +9,10 @@ namespace DmxConsole.Core.Engine;
 /// currently sits into the target cue's recorded levels, using that cue's fade-in
 /// time (plus delay) for channels going up and fade-out time (plus delay) for channels
 /// going down. Sits as an <see cref="IOutputLayer"/> below the Programmer, so live fader
-/// grabs still win. Implements <see cref="ITickable"/> to auto-advance a Follow-mode cue
-/// once its WaitTime elapses (Vector's FOLLOW ON).
+/// grabs still win. Implements <see cref="ITickable"/> to auto-advance once the CURRENT cue's
+/// own transition fully completes, per the NEXT cue's own Trigger (AutoFollow correction slice -
+/// see Tick()'s own doc comment for the full state machine; Trigger is never a property a cue
+/// applies to itself).
 /// </summary>
 public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback, IPausablePlayback, IMergeAwareLayer, ITickable
 {
@@ -18,9 +20,23 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
     private readonly Dictionary<(int Universe, int Channel), byte> _fadeFrom = new();
     private readonly Dictionary<(int Universe, int Channel), byte> _currentOutput = new();
 
-    /// <summary>Guards Tick()'s Follow auto-advance so it fires exactly once per cue arrival -
-    /// re-armed in StartTransitionTo, cleared the moment it fires.</summary>
-    private bool _followArmed;
+    /// <summary>AutoFollow correction slice: true only when the CURRENT transition arrived via
+    /// genuine forward playback progression (CueTransitionReason.Go, non-instant) - set in
+    /// StartTransitionTo, cleared the moment an auto-advance actually fires. Gates whether THIS
+    /// transition's eventual completion is even allowed to trigger consulting the NEXT cue's own
+    /// Trigger (see Tick()'s own doc comment for the full state machine) - never whether this cue
+    /// auto-advances itself, which was the wrong model. BACK/GO TO/SHIFT-navigation all leave this
+    /// false, so landing on a cue that way can never seed an automatic chain, regardless of that
+    /// cue's own Trigger or the next cue's.</summary>
+    private bool _chainEligible;
+
+    /// <summary>Set ONCE, the first tick where the current transition's own fade is detected as
+    /// fully complete - the value of the SAME pause-aware EffectiveElapsed() clock the fade itself
+    /// uses, at that instant. The WAIT trigger's timer is measured from THIS anchor, never from
+    /// _fadeStartUtc directly - which is exactly what keeps it from running concurrently with the
+    /// previous cue's own fade (a confirmed bug in the old model). Null again after the next
+    /// StartTransitionTo.</summary>
+    private double? _transitionCompletedAtElapsedSeconds;
 
     /// <summary>Per-channel semantic revision - see IMergeAwareLayer. Updated in StartTransitionTo:
     /// every channel present in the newly-active cue's Levels gets the SAME new revision (they all
@@ -39,6 +55,13 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
     private DateTime? _pausedAtUtc;
     private TimeSpan _accumulatedPause;
     private readonly IPresetResolver? _presetResolver;
+
+    /// <summary>SHIFT+GO/SHIFT+BACK slice: true for the CURRENT transition only when it was an
+    /// explicit zero-time jump - set in StartTransitionTo, orthogonal to CueTransitionReason (a
+    /// transition has both a WHY and a HOW). When true, TryGetChannelValue/GetStatus/
+    /// GetTransitionStatus all skip fade interpolation entirely and report the target cue as
+    /// already fully applied - never a second "instant cue application" code path.</summary>
+    private bool _instantTransition;
 
     public string Name { get; }
     public int Priority { get; }
@@ -267,38 +290,48 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         Changed?.Invoke();
     }
 
-    /// <summary>Advances to the next cue in the list, fading from the current output.</summary>
-    public void Go()
+    /// <summary>Advances to the next cue in the list. Forward playback progression - eligible to
+    /// arm AutoFollow on the target cue, UNLESS <paramref name="instant"/> is true (SHIFT+GO): a
+    /// zero-time jump straight to the target cue's values, no fade, and - per the explicit
+    /// authoritative rule - never arms AutoFollow even though it's still forward progression in
+    /// every other sense (index-wise, this is identical to a normal GO).</summary>
+    public void Go(bool instant = false)
     {
         lock (_lock)
         {
             int idx = _currentCue is null ? -1 : Cues.IndexOf(_currentCue);
             int next = idx + 1;
             if (next < 0 || next >= Cues.Count) return;
-            StartTransitionTo(Cues[next]);
+            StartTransitionTo(Cues[next], CueTransitionReason.Go, instant);
         }
         Changed?.Invoke();
     }
 
-    /// <summary>Returns to the previous cue in the list, fading from the current output.</summary>
-    public void Back()
+    /// <summary>Returns to the previous cue in the list. Never forward progression - never arms
+    /// AutoFollow on the target cue, regardless of its own TriggerMode. <paramref name="instant"/>
+    /// true (SHIFT+BACK) makes it a zero-time jump, no fade - existing Back/Pause semantics
+    /// otherwise unchanged.</summary>
+    public void Back(bool instant = false)
     {
         lock (_lock)
         {
             int idx = _currentCue is null ? -1 : Cues.IndexOf(_currentCue);
             int prev = idx - 1;
             if (prev < 0) return;
-            StartTransitionTo(Cues[prev]);
+            StartTransitionTo(Cues[prev], CueTransitionReason.Back, instant);
         }
         Changed?.Invoke();
     }
 
+    /// <summary>Jumps directly to an arbitrary cue (GO TO CUE X) - direct navigation, not forward
+    /// progression. Holds on the target even if it's AutoFollow; a subsequent GO resumes normal
+    /// forward playback from there.</summary>
     public void GoToCue(Cue cue)
     {
         lock (_lock)
         {
             if (!Cues.Contains(cue)) return;
-            StartTransitionTo(cue);
+            StartTransitionTo(cue, CueTransitionReason.Jump);
         }
         Changed?.Invoke();
     }
@@ -310,24 +343,86 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         Changed?.Invoke();
     }
 
-    /// <summary>ITickable: Vector's FOLLOW ON - once a Follow-mode cue's WaitTime has elapsed
-    /// since arrival, advance to the next cue automatically, without waiting for GO. Fires exactly
-    /// once per cue arrival (_followArmed), never repeatedly for the same cue, and does nothing at
-    /// all for a Manual-mode cue, while paused, or while released.</summary>
+    /// <summary>
+    /// AutoFollow correction slice: Trigger belongs to the NEXT/TARGET cue, describing how IT is
+    /// entered once the CURRENT cue's own transition has fully completed - never a property the
+    /// current cue applies to itself. State machine, evaluated every tick while a chain-eligible
+    /// transition is active:
+    ///
+    ///   1. Not chain-eligible (arrived via BACK/GO TO/SHIFT-instant), released, or paused ->
+    ///      do nothing at all, regardless of anyone's Trigger.
+    ///   2. Chain-eligible, but the current cue's OWN fade hasn't finished yet -> do nothing yet
+    ///      (never race the fade - this is the bug the old model had).
+    ///   3. Current cue's fade just finished (detected once) -> record the completion instant on
+    ///      the SAME pause-aware clock the fade uses (_transitionCompletedAtElapsedSeconds) - the
+    ///      anchor every WAIT timer measures from, so it can never overlap the fade.
+    ///   4. Look at the NEXT cue (Cues[index+1]) - not the current one - and its OWN TriggerMode:
+    ///        Manual     -> hold; do nothing further this transition.
+    ///        AutoFollow -> fire Go() on the very next tick after completion (WaitTime irrelevant).
+    ///        Wait       -> fire Go() once (now - completion instant) >= next cue's own WaitTime.
+    ///
+    /// Firing Go() re-enters StartTransitionTo with reason=Go, which naturally makes the NEW
+    /// current cue chain-eligible again too - a MANUAL -> AF -> WAIT 5 -> AF chain therefore keeps
+    /// advancing correctly from a single initial GO, without Tick() needing any notion of "am I
+    /// still inside a chain" beyond this one flag re-arming itself each hop.
+    /// </summary>
     public void Tick(TimeSpan elapsed)
     {
         bool shouldAdvance;
         lock (_lock)
         {
-            shouldAdvance = _followArmed && !_isReleased && _currentCue is not null && _pausedAtUtc is null
-                && _currentCue.TriggerMode == CueTriggerMode.Follow
-                && EffectiveElapsed() >= _currentCue.WaitTime;
-            if (shouldAdvance) _followArmed = false;
+            shouldAdvance = false;
+            if (_chainEligible && !_isReleased && _currentCue is not null && _pausedAtUtc is null
+                && CurrentTransitionHasCompletedUnlocked())
+            {
+                _transitionCompletedAtElapsedSeconds ??= EffectiveElapsed().TotalSeconds;
+
+                int idx = Cues.IndexOf(_currentCue);
+                var next = idx >= 0 && idx + 1 < Cues.Count ? Cues[idx + 1] : null;
+                if (next is not null)
+                {
+                    shouldAdvance = next.TriggerMode switch
+                    {
+                        CueTriggerMode.AutoFollow => true,
+                        CueTriggerMode.Wait => EffectiveElapsed().TotalSeconds - _transitionCompletedAtElapsedSeconds.Value >= next.WaitTime.TotalSeconds,
+                        _ => false, // Manual - hold, wait for an explicit GO
+                    };
+                }
+            }
+            if (shouldAdvance) _chainEligible = false;
         }
         if (shouldAdvance) Go();
     }
 
-    private void StartTransitionTo(Cue target)
+    /// <summary>True once the CURRENT cue's own fade has reached 100% progress (or was instant) -
+    /// the same "is this transition finished" question GetTransitionStatus()'s Progress==1.0
+    /// already answers, factored out so Tick() can ask it without re-entering the public,
+    /// re-locking API. Must be called with _lock already held.</summary>
+    private bool CurrentTransitionHasCompletedUnlocked()
+    {
+        if (_currentCue is null) return false;
+        if (_instantTransition) return true;
+
+        var timing = _currentCue.Timing;
+        var inTotal = timing.DelayIn + timing.TimeIn;
+        var outTotal = timing.DelayOut + timing.TimeOut;
+        var maxDuration = inTotal > outTotal ? inTotal : outTotal;
+        return EffectiveElapsed().TotalSeconds >= maxDuration.TotalSeconds;
+    }
+
+    /// <summary>AutoFollow correction slice: chain-eligibility must only be granted when this
+    /// transition arrived via FORWARD PLAYBACK PROGRESSION (a live GO, or an AutoFollow/Wait-fired
+    /// chained advance - Tick() calls Go() for that, so it naturally reuses CueTransitionReason.Go,
+    /// never a separate value) - never merely because a cue became current. BACK and GO TO/Jump
+    /// both hold on arrival and can never seed a chain, regardless of the target cue's own
+    /// TriggerMode or the NEXT cue's.
+    ///
+    /// SHIFT+GO/SHIFT+BACK slice: <paramref name="instant"/> is a SECOND, orthogonal dimension -
+    /// WHY (reason) is normally what governs chain-eligibility, HOW (instant) governs fade timing.
+    /// A reason of Go is still forward progression in every structural sense (same next-cue index
+    /// as a normal GO), but the authoritative rule is explicit that an instant jump must never
+    /// seed a chain even then - so both must be true for _chainEligible to be set.</summary>
+    private void StartTransitionTo(Cue target, CueTransitionReason reason, bool instant = false)
     {
         _fadeFrom.Clear();
         foreach (var key in target.Levels.Keys)
@@ -338,7 +433,9 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         _fadeStartUtc = DateTime.UtcNow;
         _pausedAtUtc = null;
         _accumulatedPause = TimeSpan.Zero;
-        _followArmed = true;
+        _instantTransition = instant;
+        _chainEligible = reason == CueTransitionReason.Go && !instant;
+        _transitionCompletedAtElapsedSeconds = null;
 
         // Every channel in this cue received its instruction from this SAME Go/Back/GoToCue event -
         // they share one revision value (see the field's doc comment for why this is correct today
@@ -393,6 +490,10 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         lock (_lock)
         {
             if (_currentCue is null) return (1.0, TimeSpan.Zero);
+            // SHIFT+GO/SHIFT+BACK: an instant jump has no transition to report progress on - it
+            // is already fully complete the instant it happens, never a misleading "0%, N seconds
+            // remaining" for a fade that will never actually run.
+            if (_instantTransition) return (1.0, TimeSpan.Zero);
             // Worst case of the two directions (each including its own delay) - a per-channel-accurate
             // progress bar would need every channel's own direction; this is a reasonable overall estimate.
             var timing = _currentCue.Timing;
@@ -424,8 +525,19 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
 
             var elapsed = EffectiveElapsed();
             var timing = _currentCue.Timing;
-            var fadeIn = ProgressFor(timing.DelayIn, timing.TimeIn, elapsed);
-            var fadeOut = ProgressFor(timing.DelayOut, timing.TimeOut, elapsed);
+            TimingProgress fadeIn, fadeOut;
+            if (_instantTransition)
+            {
+                // Already fully complete - Elapsed == Total, Remaining == Zero, for both
+                // directions, regardless of the cue's own recorded Timing (never actually used).
+                fadeIn = new TimingProgress(timing.DelayIn + timing.TimeIn, TimeSpan.Zero, timing.DelayIn + timing.TimeIn);
+                fadeOut = new TimingProgress(timing.DelayOut + timing.TimeOut, TimeSpan.Zero, timing.DelayOut + timing.TimeOut);
+            }
+            else
+            {
+                fadeIn = ProgressFor(timing.DelayIn, timing.TimeIn, elapsed);
+                fadeOut = ProgressFor(timing.DelayOut, timing.TimeOut, elapsed);
+            }
             var overall = fadeIn.Total > fadeOut.Total ? fadeIn : fadeOut;
 
             bool isRunning = !_isReleased && _pausedAtUtc is null;
@@ -479,20 +591,31 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
                 return false;
             }
 
-            byte from = _fadeFrom.TryGetValue(key, out var f) ? f : (byte)0;
-            double elapsedSeconds = EffectiveElapsed().TotalSeconds;
-            var timing = _currentCue.Timing;
-            bool goingUp = target >= from;
-            var delay = goingUp ? timing.DelayIn : timing.DelayOut;
-            var duration = goingUp ? timing.TimeIn : timing.TimeOut;
-            double afterDelaySeconds = elapsedSeconds - delay.TotalSeconds;
-            double t = afterDelaySeconds <= 0
-                ? 0.0
-                : duration.TotalSeconds <= 0
-                    ? 1.0
-                    : Math.Clamp(afterDelaySeconds / duration.TotalSeconds, 0.0, 1.0);
+            byte result;
+            if (_instantTransition)
+            {
+                // SHIFT+GO/SHIFT+BACK: no fade - the target value IS the output, from the very
+                // first read after the transition, unconditionally (never delay/duration-gated).
+                result = target;
+            }
+            else
+            {
+                byte from = _fadeFrom.TryGetValue(key, out var f) ? f : (byte)0;
+                double elapsedSeconds = EffectiveElapsed().TotalSeconds;
+                var timing = _currentCue.Timing;
+                bool goingUp = target >= from;
+                var delay = goingUp ? timing.DelayIn : timing.DelayOut;
+                var duration = goingUp ? timing.TimeIn : timing.TimeOut;
+                double afterDelaySeconds = elapsedSeconds - delay.TotalSeconds;
+                double t = afterDelaySeconds <= 0
+                    ? 0.0
+                    : duration.TotalSeconds <= 0
+                        ? 1.0
+                        : Math.Clamp(afterDelaySeconds / duration.TotalSeconds, 0.0, 1.0);
 
-            byte result = (byte)Math.Round(from + (target - from) * t);
+                result = (byte)Math.Round(from + (target - from) * t);
+            }
+
             _currentOutput[key] = result;
             value = result;
             return true;

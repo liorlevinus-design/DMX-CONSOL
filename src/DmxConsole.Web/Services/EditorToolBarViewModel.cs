@@ -107,9 +107,11 @@ public sealed class EditorToolBarViewModel
             ("allparamsifactive", EditorObjectType.Cue) => Invoke(_cueListVm.StoreCueWithFilterCommand, CueStoreFilter.AllParamsIfActive),
 
             // H1.6 Slice 2 - Vector's Time mode FOLLOW ON / MANUAL toggle a specific, already
-            // stored Cue's trigger mode directly (not part of the Store/Update form).
+            // stored Cue's trigger mode directly (not part of the Store/Update form). "followon"
+            // sets AutoFollow specifically (never Wait - setting a Wait duration needs the Cues
+            // panel's own Wait-seconds field, see CueListPanel.razor's Trigger dropdown).
             ("followon", EditorObjectType.Cue) when frame.SelectedObject is Cue followCue
-                => Invoke(_cueListVm.SetTriggerModeCommand, (followCue, CueTriggerMode.Follow)),
+                => Invoke(_cueListVm.SetTriggerModeCommand, (followCue, CueTriggerMode.AutoFollow)),
             ("manual", EditorObjectType.Cue) when frame.SelectedObject is Cue manualCue
                 => Invoke(_cueListVm.SetTriggerModeCommand, (manualCue, CueTriggerMode.Manual)),
 

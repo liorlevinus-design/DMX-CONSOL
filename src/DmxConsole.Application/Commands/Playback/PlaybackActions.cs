@@ -7,32 +7,39 @@ namespace DmxConsole.Application.Commands.Playback;
 /// Each is a thin proxy to the matching Executor method, returning CommandResult.Failed
 /// gracefully (never throwing) if the assigned Source doesn't support the capability.
 /// </summary>
+/// <summary>instant (SHIFT+GO slice) - a zero-time jump, no fade. Baked into the instance at
+/// construction, so a Macro-recorded SHIFT+GO replays with the exact same instant semantics -
+/// MacroPlaybackService dispatches the SAME stored Action instance, not a fresh one (Actions hold
+/// no per-execution mutable state), so there is nothing extra to preserve for replay.</summary>
 public sealed class GoAction : IConsoleAction
 {
     private readonly Executor _executor;
-    public GoAction(Executor executor) => _executor = executor;
+    private readonly bool _instant;
+    public GoAction(Executor executor, bool instant = false) { _executor = executor; _instant = instant; }
 
     public CommandResult Execute(ConsoleContext context)
     {
         if (_executor.Source is not ISequencedPlayback)
             return CommandResult.Failed(ConsoleActionType.Go, "This Executor's Source doesn't support Go.");
 
-        _executor.Go();
+        _executor.Go(_instant);
         return new CommandResult { ActionType = ConsoleActionType.Go, Executor = _executor };
     }
 }
 
+/// <summary>instant (SHIFT+BACK slice) - see GoAction's own doc comment; same Macro-replay guarantee.</summary>
 public sealed class BackAction : IConsoleAction
 {
     private readonly Executor _executor;
-    public BackAction(Executor executor) => _executor = executor;
+    private readonly bool _instant;
+    public BackAction(Executor executor, bool instant = false) { _executor = executor; _instant = instant; }
 
     public CommandResult Execute(ConsoleContext context)
     {
         if (_executor.Source is not ISequencedPlayback)
             return CommandResult.Failed(ConsoleActionType.Back, "This Executor's Source doesn't support Back.");
 
-        _executor.Back();
+        _executor.Back(_instant);
         return new CommandResult { ActionType = ConsoleActionType.Back, Executor = _executor };
     }
 }

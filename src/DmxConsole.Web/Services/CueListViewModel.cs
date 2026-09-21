@@ -154,7 +154,7 @@ public partial class CueListViewModel : ObservableObject, IDisposable
             StatusMessage = $"Cue {arg.Cue.Number:0.##} is no longer in this list.";
             return;
         }
-        StatusMessage = $"Cue {arg.Cue.Number:0.##}: {(arg.Mode == CueTriggerMode.Follow ? "FOLLOW ON" : "MANUAL")}.";
+        StatusMessage = $"Cue {arg.Cue.Number:0.##}: {arg.Mode switch { CueTriggerMode.AutoFollow => "AUTOFOLLOW", CueTriggerMode.Wait => "WAIT", _ => "MANUAL" }}.";
     }
 
     /// <summary>Loads an existing Cue's number/name/timing into the Store/Update form fields, so
@@ -179,6 +179,17 @@ public partial class CueListViewModel : ObservableObject, IDisposable
 
     [RelayCommand]
     private void Back() => _dispatcher.DispatchAction(new BackAction(_executor));
+
+    /// <summary>SHIFT+GO slice: a zero-time jump to the next cue - same shared GoAction/CueList
+    /// path as a normal Go, just with instant:true. A separate parameterless RelayCommand (rather
+    /// than adding a bool parameter to Go() above) so existing callers of GoCommand.Execute(null)
+    /// (the Cues panel's own GO button) are never at risk of a null-to-bool cast.</summary>
+    [RelayCommand]
+    private void GoInstant() => _dispatcher.DispatchAction(new GoAction(_executor, instant: true));
+
+    /// <summary>SHIFT+BACK slice - see GoInstant's own doc comment.</summary>
+    [RelayCommand]
+    private void BackInstant() => _dispatcher.DispatchAction(new BackAction(_executor, instant: true));
 
     [RelayCommand]
     private void Stop() => _dispatcher.DispatchAction(new StopAction(_executor));

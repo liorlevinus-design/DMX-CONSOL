@@ -173,13 +173,13 @@ public class CueValueTests
         var programmer = new Programmer();
 
         var timing = new CueTiming(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
-        var options = new CueStoreOptions(timing, CueTriggerMode.Follow, TimeSpan.FromSeconds(3), CueStoreFilter.AllStage);
+        var options = new CueStoreOptions(timing, CueTriggerMode.Wait, TimeSpan.FromSeconds(3), CueStoreFilter.AllStage);
 
         var cueList = new CueList();
         var cue = cueList.RecordCue(patch, programmer, EmptySelection, Stub, "Cue 1", 1, options);
 
         Assert.Equal(timing, cue.Timing);
-        Assert.Equal(CueTriggerMode.Follow, cue.TriggerMode);
+        Assert.Equal(CueTriggerMode.Wait, cue.TriggerMode);
         Assert.Equal(TimeSpan.FromSeconds(3), cue.WaitTime);
     }
 }

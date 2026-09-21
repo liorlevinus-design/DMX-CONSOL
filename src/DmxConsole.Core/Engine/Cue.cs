@@ -22,12 +22,16 @@ public sealed class Cue
     /// or per-channel override anymore (H1.6 Slice 2 - a deliberate replacement, not an addition).</summary>
     public CueTiming Timing { get; set; } = CueTiming.Default;
 
-    /// <summary>Vector's FOLLOW ON / MANUAL: whether this Cue auto-advances to the next one after
-    /// WaitTime elapses, or waits for an explicit GO.</summary>
+    /// <summary>AutoFollow correction slice: describes how THIS cue is entered once the PREVIOUS
+    /// cue in the list has fully completed its own transition - Manual (hold for GO), AutoFollow
+    /// (enter immediately), or Wait (enter after WaitTime, measured from the previous cue's
+    /// completion). Never consulted about this cue's own current playback - see CueList.Tick's own
+    /// doc comment for exactly when/how a cue's Trigger is read.</summary>
     public CueTriggerMode TriggerMode { get; set; } = CueTriggerMode.Manual;
 
-    /// <summary>Only consulted when TriggerMode is Follow - how long after arriving at this Cue
-    /// before auto-advancing to the next one.</summary>
+    /// <summary>Only consulted when THIS cue's own TriggerMode is Wait (ignored for AutoFollow,
+    /// meaningless for Manual) - how long after the PREVIOUS cue's transition fully completes
+    /// before this cue starts automatically. Never overlaps the previous cue's own fade.</summary>
     public TimeSpan WaitTime { get; set; } = TimeSpan.Zero;
 
     /// <summary>The channels this Cue stores: every patched (universe, channel) -> either an absolute

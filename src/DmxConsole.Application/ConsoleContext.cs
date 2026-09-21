@@ -58,6 +58,24 @@ public sealed class ConsoleContext
     /// show data, same as Presets/Groups/Executors, not only Web ViewModel state.</summary>
     public MacroBank Macros { get; }
 
+    /// <summary>The fixture profile/mode the PATCH screen's operator currently has selected -
+    /// mirrored here (Quick Patch stabilization slice) so the Command Surface's Quick Patch
+    /// grammar ("FIXTURE 1 THRU 8 AT DMX 11 ENTER") can read the SAME "currently active profile"
+    /// the Patch screen uses, rather than duplicating a second notion of "which profile". Kept in
+    /// sync by MainViewModel.OnSelectedProfileChanged/OnSelectedModeChanged - this is a thin,
+    /// mutable mirror of a UI-level operator choice, not itself a source of business logic.</summary>
+    public FixtureProfile? DefaultPatchProfile { get; set; }
+    public FixtureMode? DefaultPatchMode { get; set; }
+    public int DefaultPatchUniverseId { get; set; }
+
+    /// <summary>The one CueList "STORE CUE n"/"CUE n" grammar targets - mirrored here (same
+    /// pattern as DefaultPatchProfile/Mode) so the Command Surface's grammar can read it without
+    /// a Web-layer dependency. Today there is exactly one CueList (Executor 1) in practice; which
+    /// CueList a bare "CUE n" should address once multiple CueLists/Executors exist is a known,
+    /// separate future question (see CommandComposer's own Cue-token doc comment) - not solved
+    /// here, only unblocked for the single-CueList case this product actually has today.</summary>
+    public CueList? PrimaryCueList { get; set; }
+
     public ConsoleContext(Patch patch, Programmer programmer, FixtureSelection selection, GroupManager groups,
         IEffectiveOutputReader effectiveOutput, PresetLibrary presets, ExecutorBank executors,
         EffectBank? effects = null, MacroBank? macros = null)

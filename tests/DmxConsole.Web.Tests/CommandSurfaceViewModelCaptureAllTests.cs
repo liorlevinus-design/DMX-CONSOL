@@ -35,7 +35,7 @@ public class CommandSurfaceViewModelCaptureAllTests
         var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(),
             engine, new PresetLibrary(), new ExecutorBank());
         var dispatcher = new CommandDispatcher(context, new UndoRedoService(context));
-        var surface = new CommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
         return (context, surface);
     }
 
@@ -101,5 +101,45 @@ public class CommandSurfaceViewModelCaptureAllTests
 
         Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
         Assert.Equal(90, value);
+    }
+
+    // ---------- Command Surface key-map completion slice: CAPTURE (bare) vs SHIFT+CAPTURE ----------
+
+    /// <summary>Bare CAPTURE (no Shift) must never silently behave like Capture All - the
+    /// authoritative key map distinguishes CAPTURE from SHIFT+CAPTURE explicitly, and an
+    /// unimplemented gesture must say so rather than fake the nearest available behavior.</summary>
+    [Fact]
+    public void PressCapture_WithoutShift_DoesNotCaptureAll_ReportsNotImplemented()
+    {
+        var (context, surface) = BuildRig();
+        var fixture = context.Patch.Fixtures[0];
+        ((DmxOutputEngine)context.EffectiveOutput).AddLayer(context.Programmer);
+
+        surface.PressCapture();
+
+        Assert.NotNull(surface.DispatchError);
+        Assert.False(context.Programmer.HasStoredValue(0, 0, out _)); // nothing captured
+    }
+
+    /// <summary>SHIFT+CAPTURE performs exactly what PressCaptureAll already does (same command,
+    /// same effect), and consumes the Shift arm like every other Shift combination.</summary>
+    [Fact]
+    public void PressCapture_WithShift_PerformsCaptureAll_AndConsumesShift()
+    {
+        var (context, surface) = BuildRig();
+        var fixture = context.Patch.Fixtures[0];
+        ((DmxOutputEngine)context.EffectiveOutput).AddLayer(context.Programmer);
+        context.Programmer.SetChannel(0, 0, 90);
+        ((DmxOutputEngine)context.EffectiveOutput).Tick();
+
+        surface.PressShift();
+        Assert.True(surface.ShiftArmed);
+
+        surface.PressCapture();
+
+        Assert.False(surface.ShiftArmed); // consumed
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var value));
+        Assert.Equal(90, value);
+        Assert.Null(surface.DispatchError);
     }
 }

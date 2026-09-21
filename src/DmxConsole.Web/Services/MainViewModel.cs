@@ -3,6 +3,7 @@ using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
+using DmxConsole.Application.Commands.Patch;
 using DmxConsole.Application.Live;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Effects;
@@ -47,6 +48,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public EditorToolBarViewModel EditorToolBarVm { get; }
 
     private readonly UndoRedoService _undoRedo;
+    private readonly CommandDispatcher _dispatcher;
+    private readonly ConsoleContext _consoleContext;
 
     public ObservableCollection<ChannelFaderViewModel> Faders { get; } = new();
     public IReadOnlyList<FixtureProfile> AvailableProfiles { get; } = GenericFixtureLibrary.All;
@@ -125,8 +128,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Engine.UniverseOutputReady += OnUniverseOutputReady;
 
         var consoleContext = new ConsoleContext(Patch, Programmer, new FixtureSelection(), new GroupManager(), Engine, presets, executors, effects);
+        consoleContext.PrimaryCueList = cueList; // Store-grammar slice: "STORE CUE n"/"CUE n" grammar's target
+        _consoleContext = consoleContext;
         _undoRedo = new UndoRedoService(consoleContext);
-        var dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
+        _dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
+        var dispatcher = _dispatcher;
 
         CueListVm = new CueListViewModel(Patch, Programmer, consoleContext.Selection, Engine, cueList, dispatcher, mainExecutor);
         EffectsVm = new EffectsViewModel(Patch, effects, dispatcher);
@@ -135,7 +141,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);
         ExecutorVm = new ExecutorViewModel(consoleContext, dispatcher, cueList);
         GroupsVm = new GroupsViewModel(consoleContext, dispatcher);
-        CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext);
+        CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext, GroupsVm, CueListVm, SyncFadersWithPatch);
         EditorToolBarVm = new EditorToolBarViewModel(EditorContext, SoftKeyRegistryBuilder.Build(), this, CueListVm, GroupsVm, SelectionVm);
         EncoderDrawerVm = new EncoderDrawerViewModel(dispatcher, ProgrammerVm);
         ParameterPickerVm = new ParameterPickerViewModel(consoleContext, CommandSurfaceVm);
@@ -149,6 +155,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedProfileChanged(FixtureProfile? value)
     {
+        _consoleContext.DefaultPatchProfile = value; // mirrored for the Command Surface's Quick Patch grammar
         AvailableModes.Clear();
         if (value is null) return;
         foreach (var mode in value.Modes) AvailableModes.Add(mode);
@@ -156,8 +163,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         NewFixtureNumber = Patch.SuggestNextNumber();
     }
 
+    partial void OnNewUniverseIdChanged(int value) => _consoleContext.DefaultPatchUniverseId = value;
+
     partial void OnSelectedModeChanged(FixtureMode? value)
     {
+        _consoleContext.DefaultPatchMode = value; // mirrored for the Command Surface's Quick Patch grammar
         // A visible, overridable default - "pack them back-to-back" - not a silent assumption:
         // the field is right there in the UI for the operator to change to any spacing.
         if (value is not null) NewAddressOffset = value.FootprintSize;
@@ -173,6 +183,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// fixture #105 must get #105 or an explicit conflict, never a silent substitute. The whole
     /// batch is all-or-nothing: an address-overlap failure partway through rolls back everything
     /// already patched in this call, so "patch 8" never leaves 3 half-applied on failure.
+    /// Dispatches <see cref="PatchFixturesCommand"/> - the ONE shared Patch operation (Quick
+    /// Patch stabilization slice) also used by the Command Surface's Quick Patch grammar, so
+    /// this screen and typed "FIXTURE 1 THRU 8 AT DMX 11 ENTER" resolve through the exact same
+    /// Application-level code, never two patch engines.
     /// </summary>
     [RelayCommand]
     private void AddFixture()
@@ -185,53 +199,48 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         int count = Math.Max(1, NewFixtureCount);
         int addressOffset = NewAddressOffset > 0 ? NewAddressOffset : SelectedMode.FootprintSize;
+        string baseName = string.IsNullOrWhiteSpace(NewFixtureName) ? SelectedProfile.DisplayName : NewFixtureName;
 
-        var requestedNumbers = new List<int>(count);
+        var requests = new List<PatchFixturesCommand.Request>(count);
         for (int i = 0; i < count; i++)
         {
             int number = NewFixtureNumber + i;
-            if (Patch.FindByNumber(number) is not null)
-            {
-                StatusMessage = $"Fixture #{number} is already patched - choose a different starting number or count.";
-                return;
-            }
-            requestedNumbers.Add(number);
+            int address = NewStartAddress + i * addressOffset;
+            string name = count == 1 ? baseName : $"{baseName} {i + 1}";
+            requests.Add(new PatchFixturesCommand.Request(number, NewUniverseId, address, name));
         }
 
-        var patchedFixtures = new List<PatchedFixture>(count);
-        try
+        var result = _dispatcher.DispatchAction(new PatchFixturesCommand(SelectedProfile, SelectedMode, requests));
+        if (!result.Success)
         {
-            string baseName = string.IsNullOrWhiteSpace(NewFixtureName) ? SelectedProfile.DisplayName : NewFixtureName;
-
-            for (int i = 0; i < count; i++)
-            {
-                int address = NewStartAddress + i * addressOffset;
-                string name = count == 1 ? baseName : $"{baseName} {i + 1}";
-
-                var fixture = new PatchedFixture(SelectedProfile, SelectedMode, NewUniverseId, address, name) { Number = requestedNumbers[i] };
-                Patch.Add(fixture);
-                patchedFixtures.Add(fixture);
-
-                foreach (var channel in fixture.Mode.Channels)
-                    Faders.Add(new ChannelFaderViewModel(fixture, channel, Programmer));
-            }
-
-            StatusMessage = count == 1
-                ? $"Patched '{patchedFixtures[0].Name}' (#{patchedFixtures[0].Number}) at Universe {NewUniverseId} / Address {NewStartAddress}."
-                : $"Patched {count} fixtures: #{requestedNumbers[0]}-#{requestedNumbers[^1]}, Universe {NewUniverseId}, addresses {NewStartAddress}-{NewStartAddress + (count - 1) * addressOffset} (offset {addressOffset}).";
-
-            // Bump suggestions for the next batch - fast batch patching stays fast.
-            NewFixtureNumber += count;
-            NewStartAddress += count * addressOffset;
+            StatusMessage = result.Error ?? "Could not patch.";
+            return;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentOutOfRangeException)
+
+        SyncFadersWithPatch();
+
+        StatusMessage = count == 1
+            ? $"Patched '{requests[0].Name}' (#{requests[0].Number}) at Universe {NewUniverseId} / Address {NewStartAddress}."
+            : $"Patched {count} fixtures: #{requests[0].Number}-#{requests[^1].Number}, Universe {NewUniverseId}, addresses {NewStartAddress}-{NewStartAddress + (count - 1) * addressOffset} (offset {addressOffset}).";
+
+        // Bump suggestions for the next batch - fast batch patching stays fast.
+        NewFixtureNumber += count;
+        NewStartAddress += count * addressOffset;
+    }
+
+    /// <summary>Rebuilds Faders from Patch.Fixtures for whichever fixtures don't have fader
+    /// entries yet - the single place that keeps the Fader Bank in sync with Patch, called after
+    /// ANY successful patch dispatch (this screen's AddFixture, or the Command Surface's Quick
+    /// Patch) so new fixtures "immediately appear everywhere that reads Patch" regardless of
+    /// which entry point created them.</summary>
+    public void SyncFadersWithPatch()
+    {
+        var known = Faders.Select(f => f.Fixture).ToHashSet();
+        foreach (var fixture in Patch.Fixtures)
         {
-            foreach (var fixture in patchedFixtures)
-            {
-                Patch.Remove(fixture);
-                foreach (var f in Faders.Where(fv => fv.Fixture == fixture).ToList()) Faders.Remove(f);
-            }
-            StatusMessage = ex.Message;
+            if (!known.Add(fixture)) continue;
+            foreach (var channel in fixture.Mode.Channels)
+                Faders.Add(new ChannelFaderViewModel(fixture, channel, Programmer));
         }
     }
 

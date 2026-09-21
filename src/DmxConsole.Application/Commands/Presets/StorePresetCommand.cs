@@ -21,13 +21,20 @@ public sealed class StorePresetCommand : IConsoleCommand, IHasUndoRisk
     private readonly string _name;
     private readonly int _number;
     private readonly Preset? _existingPreset;
+    private readonly bool _overwrite;
 
     private Preset? _target;
     private bool _wasNewlyCreated;
     private Dictionary<ChannelType, byte>? _previousValues;
 
+    /// <summary>overwrite (Store-grammar slice, PRESET conflict resolution) only matters when
+    /// existingPreset is non-null: false (the default, and CreateNew's own effective behavior)
+    /// MERGES candidateValues into the existing Preset - values already stored for a ChannelType
+    /// NOT touched by this Store are preserved. true REPLACES the Preset's entire value set with
+    /// exactly what this Store produces - anything previously stored that isn't part of this
+    /// Store is dropped. Either way Undo restores the exact pre-Execute snapshot.</summary>
     public StorePresetCommand(PresetLibrary library, IReadOnlyList<PatchedFixture> targets, AttributeClass attributeClass,
-        string name, int number, Preset? existingPreset = null)
+        string name, int number, Preset? existingPreset = null, bool overwrite = false)
     {
         _library = library;
         _targets = targets;
@@ -35,6 +42,7 @@ public sealed class StorePresetCommand : IConsoleCommand, IHasUndoRisk
         _name = name;
         _number = number;
         _existingPreset = existingPreset;
+        _overwrite = overwrite;
     }
 
     public CommandResult Execute(ConsoleContext context)
@@ -65,8 +73,9 @@ public sealed class StorePresetCommand : IConsoleCommand, IHasUndoRisk
 
         _wasNewlyCreated = _existingPreset is null;
         var preset = _existingPreset ?? new Preset { Class = _class, Name = _name, Number = _number };
-        _previousValues = new Dictionary<ChannelType, byte>(preset.Values); // snapshot before merge, for Undo
+        _previousValues = new Dictionary<ChannelType, byte>(preset.Values); // snapshot before merge/overwrite, for Undo
 
+        if (_overwrite && !_wasNewlyCreated) preset.Values.Clear();
         foreach (var (channelType, value) in candidateValues) preset.Values[channelType] = value;
         if (_wasNewlyCreated) _library.Add(preset);
         _target = preset;

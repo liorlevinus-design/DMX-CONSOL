@@ -52,7 +52,7 @@ public class CommandSurfaceViewModelSelectionCycleTests
         var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(),
             engine, new PresetLibrary(), new ExecutorBank());
         var dispatcher = new CommandDispatcher(context, new UndoRedoService(context));
-        var surface = new CommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new EditorContextStack());
         return (context, surface, a, b);
     }
 

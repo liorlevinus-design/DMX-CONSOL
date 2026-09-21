@@ -11,11 +11,16 @@ namespace DmxConsole.Application;
 /// <summary>What kind of console action produced a <see cref="CommandResult"/>.</summary>
 public enum ConsoleActionType
 {
+    /// <summary>Quick Patch stabilization slice - the ONE shared Patch operation, dispatched by
+    /// both the PATCH screen and the Command Surface's Quick Patch grammar.</summary>
+    PatchFixtures,
+
     ToggleFixture,
     RemoveFixtureFromSelection,
     SelectRange,
     SelectOdd,
     SelectEven,
+    ReverseSelection,
     Next,
     Previous,
     ClearSelection,
@@ -24,6 +29,10 @@ public enum ConsoleActionType
     StoreGroup,
     RenameGroup,
     RemoveGroup,
+
+    /// <summary>STORE CUE n grammar (Store-grammar slice) - the shared Application operation
+    /// both the Cues panel and the Command Surface's STORE grammar dispatch through.</summary>
+    StoreCue,
 
     /// <summary>Several commands dispatched and undone together as one transaction.</summary>
     Batch,
@@ -124,6 +133,9 @@ public record CommandResult
 
     /// <summary>Populated only by Store/RemovePreset.</summary>
     public Preset? Preset { get; init; }
+
+    /// <summary>Populated only by StoreCueCommand.</summary>
+    public Cue? Cue { get; init; }
 
     /// <summary>Populated by Executor Commands and Actions (Step F).</summary>
     public Executor? Executor { get; init; }

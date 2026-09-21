@@ -39,6 +39,10 @@ public enum CommandTokenKind
     Minus,
     Odd,
     Even,
+
+    /// <summary>Selection History rule slice - reverses the current Selection's order in place,
+    /// same shape as Odd/Even (bare, or as a clause inside a Fixture/Group sequence).</summary>
+    Reverse,
     Next,
     Previous,
 

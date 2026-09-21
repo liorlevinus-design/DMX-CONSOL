@@ -51,7 +51,9 @@ public partial class GroupsViewModel : ObservableObject
         if (result.Success)
         {
             _context.SelectionCycle.RecordGesture();
-            _context.SelectionCycle.RememberSelection(Selection.Items);
+            // Selection History rule: LastSelection is now updated centrally by
+            // CommandDispatcher.Dispatch itself (driven by SelectionCommandBase.
+            // ProducesSelectionSnapshot) - no manual RememberSelection call needed here.
             _context.SelectionCycle.RememberGroup(group.Number);
         }
     }

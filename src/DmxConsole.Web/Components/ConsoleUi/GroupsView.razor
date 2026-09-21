@@ -5,8 +5,16 @@
 @*
     UX correction #2: Groups as a first-class View, not something hidden inside SelectionBar's
     save-as-group corner. Shows Number/Name/membership for every saved Group; Apply adds its
-    members to the current selection; Store/Update/Rename/Remove all go through GroupsViewModel
-    (CommandDispatcher), never mutate GroupManager directly.
+    members to the current selection.
+
+    Command Surface key-map completion slice: STORE and UPDATE are central console actions
+    (pressed on the fixed Command Surface, routed by the shared EditorContext - see
+    CommandSurface.razor's PressStore/PressUpdate) - this screen no longer has its own Store/
+    Update buttons. The Number/Name fields below remain: they are the parameter INPUTS the
+    central STORE key reads (GroupsViewModel.NewGroupNumber/NewGroupName), not a second
+    execution path - pressing the fixed STORE key still calls the exact same
+    GroupsViewModel.StoreCommand this screen always used. Rename stays local/contextual per
+    that slice's instruction; Delete (Remove) also stays local since it was not asked to move.
 *@
 
 <div class="groups-view">
@@ -15,16 +23,12 @@
         <span class="channels-view-count">@Vm.SelectionVm.Selection.Items.Count selected</span>
     </div>
 
-    <div class="groups-store-row" aria-label="Store group controls">
+    <div class="groups-store-row" aria-label="Group name/number fields - press the central STORE/UPDATE keys to act">
         <label>#</label>
         <input type="number" min="1" @bind="Vm.GroupsVm.NewGroupNumber" style="width:60px" placeholder="auto" />
         <label>Name</label>
         <input type="text" @bind="Vm.GroupsVm.NewGroupName" style="flex:1; min-width:80px" placeholder="New group name" />
-        <button class="btn btn-go" disabled="@(Vm.SelectionVm.Selection.Items.Count == 0)" @onclick="StoreGroup">Store</button>
-        @if (_focusedGroup is not null)
-        {
-            <button class="btn" disabled="@(Vm.SelectionVm.Selection.Items.Count == 0)" @onclick="UpdateFocusedGroup">Update #@_focusedGroup.Number</button>
-        }
+        <span class="groups-status" title="Select fixtures, set Name/#, then press STORE on the Command Surface">Use STORE/UPDATE on the Command Surface</span>
         @if (!string.IsNullOrEmpty(Vm.GroupsVm.StatusMessage))
         {
             <span class="groups-status">@Vm.GroupsVm.StatusMessage</span>
@@ -55,7 +59,6 @@
                     <span class="group-tile-state">@(fullySelected ? "Selected" : partlySelected ? $"{selectedCount}/{group.Fixtures.Count} selected" : $"{group.Fixtures.Count} fixtures")</span>
                 </button>
                 <div class="groups-actions" @onclick:stopPropagation="true">
-                    <button class="btn" @onclick="() => UpdateGroup(group)" disabled="@(Vm.SelectionVm.Selection.Items.Count == 0)">Update</button>
                     <button class="btn" @onclick="() => StartRename(group)">Rename</button>
                     <button class="btn key-danger" @onclick="() => RemoveGroup(group)">Delete</button>
                 </div>
@@ -95,20 +98,6 @@
         Vm.CommandSurfaceVm.SynchronizeFixtureSelection(Vm.SelectionVm.Selection.Items);
         Vm.EditorContext.EnterObject(DmxConsole.Web.EditorToolBar.EditorObjectType.Group,
             "GROUP", group, $"Group {group.Number} \"{group.Name}\"");
-    }
-
-    private void StoreGroup() => Vm.GroupsVm.StoreCommand.Execute(null);
-
-    private void UpdateFocusedGroup()
-    {
-        if (_focusedGroup is not null) UpdateGroup(_focusedGroup);
-    }
-
-    private void UpdateGroup(FixtureGroup group)
-    {
-        _focusedGroup = group;
-        Vm.GroupsVm.UpdateCommand.Execute(group);
-        FocusGroup(group);
     }
 
     private void RemoveGroup(FixtureGroup group)

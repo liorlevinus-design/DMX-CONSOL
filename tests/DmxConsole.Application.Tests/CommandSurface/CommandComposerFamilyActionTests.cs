@@ -29,6 +29,8 @@ public class CommandComposerFamilyActionTests
                     new FixtureChannel { Name = "Red", Type = ChannelType.ColorRed, Offset = 3, DefaultValue = 0 },
                     new FixtureChannel { Name = "Green", Type = ChannelType.ColorGreen, Offset = 4, DefaultValue = 0 },
                     new FixtureChannel { Name = "Blue", Type = ChannelType.ColorBlue, Offset = 5, DefaultValue = 0 },
+                    new FixtureChannel { Name = "Focus", Type = ChannelType.Focus, Offset = 6, DefaultValue = 0 }, // Beam
+                    new FixtureChannel { Name = "Gobo", Type = ChannelType.Gobo, Offset = 7, DefaultValue = 0 },   // Image
                 },
             },
         },
@@ -142,6 +144,56 @@ public class CommandComposerFamilyActionTests
         Assert.False(context.Programmer.HasStoredValue(0, 1, out _)); // Pan released
         Assert.True(context.Programmer.HasStoredValue(0, 3, out var red)); // Color untouched
         Assert.Equal(200, red);
+    }
+
+    /// <summary>RELEASE-family verification slice: "COLOR RELEASE" (composer grammar, not the
+    /// CommandSurfaceViewModel panel - see CommandSurfaceViewModelReleaseTests for that path)
+    /// with multiple families touched on the current Selection and a SECOND, non-selected
+    /// fixture also touched. Proves the family filter is exhaustive (every OTHER family with a
+    /// real ChannelType representation - Intensity/Position/Beam/Image - survives, not just one
+    /// spot-checked family) and Selection-scoped (the non-selected fixture is fully untouched).
+    /// AttributeClass.Shape has no ChannelType that maps to it today (ChannelTypeExtensions.
+    /// ToAttributeClass's own doc comment) - there is nothing to touch/assert there, so it is
+    /// necessarily excluded from this fixture's channel list rather than silently glossed over.</summary>
+    [Fact]
+    public void ColorRelease_RemovesOnlyColor_LeavesEveryOtherRepresentableFamilyAndTheNonSelectedFixtureUntouched()
+    {
+        var (context, dispatcher, _, selected) = BuildRig();
+        var other = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 20);
+        context.Patch.Add(other);
+        context.Selection.Add(selected); // only `selected` is in the current Selection
+
+        // Touch every representable family on the SELECTED fixture...
+        context.Programmer.SetChannel(0, 0, 200); // Dimmer -> Intensity
+        context.Programmer.SetChannel(0, 1, 60);  // Pan -> Position
+        context.Programmer.SetChannel(0, 3, 210); // Red -> Color
+        context.Programmer.SetChannel(0, 6, 90);  // Focus -> Beam
+        context.Programmer.SetChannel(0, 7, 40);  // Gobo -> Image
+        // ...and the SAME channels on the fixture that is NOT selected.
+        int otherRed = other.AbsoluteIndex(other.FindChannel(ChannelType.ColorRed)!);
+        context.Programmer.SetChannel(other.UniverseId, otherRed, 210);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Color));
+        var final = composer.Push(CommandToken.Simple(CommandTokenKind.Release));
+
+        Assert.True(final.IsComplete);
+        var result = dispatcher.Dispatch(final.ReadyOperation!);
+        Assert.True(result.Success);
+
+        Assert.False(context.Programmer.HasStoredValue(0, 3, out _)); // Color released on the selected fixture
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var dimmer)); Assert.Equal(200, dimmer); // Intensity untouched
+        Assert.True(context.Programmer.HasStoredValue(0, 1, out var pan)); Assert.Equal(60, pan);        // Position untouched
+        Assert.True(context.Programmer.HasStoredValue(0, 6, out var focus)); Assert.Equal(90, focus);    // Beam untouched
+        Assert.True(context.Programmer.HasStoredValue(0, 7, out var gobo)); Assert.Equal(40, gobo);      // Image untouched
+
+        Assert.True(context.Programmer.HasStoredValue(other.UniverseId, otherRed, out var otherColor)); // non-selected fixture untouched
+        Assert.Equal(210, otherColor);
+
+        // The Selection itself is untouched by a family RELEASE - it's a Programmer-value
+        // operation, never a selection mutation.
+        Assert.Contains(selected, context.Selection.Items);
+        Assert.Single(context.Selection.Items);
     }
 
     [Fact]

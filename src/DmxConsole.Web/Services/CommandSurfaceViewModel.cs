@@ -1,11 +1,15 @@
 using DmxConsole.Application;
 using DmxConsole.Application.CommandSurface;
 using DmxConsole.Application.Commands.Playback;
+using DmxConsole.Application.Commands.Presets;
 using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Application.Commands.Selection;
 using DmxConsole.Application.Macros;
 using DmxConsole.Core;
+using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
+using DmxConsole.Core.Presets;
+using DmxConsole.Core.Selection;
 using DmxConsole.Web.EditorToolBar;
 
 namespace DmxConsole.Web.Services;
@@ -22,6 +26,9 @@ public sealed class CommandSurfaceViewModel
     private readonly EditorContextStack _editorContext;
     private readonly MacroRecorder _macroRecorder;
     private readonly MacroPlaybackService _macroPlayer;
+    private readonly GroupsViewModel _groupsVm;
+    private readonly CueListViewModel _cueListVm;
+    private readonly Action _onPatchApplied;
     private CommandComposer _composer;
     private string _pendingDigits = string.Empty;
     private bool _mirrorsExistingSelection;
@@ -61,6 +68,188 @@ public sealed class CommandSurfaceViewModel
     {
         ReleaseArmed = false;
         _armedReleaseFamilies.Clear();
+        // Any other composing key cancels an armed contextual panel, same "any other key cancels
+        // a two-press/panel gesture" idiom RELEASE itself already established - a STORE panel left
+        // open while the operator starts a completely different command would otherwise become a
+        // silently stale, confusing state.
+        if (StoreFamilyChoiceArmed) DisarmStoreFamilyChoice();
+        if (StoreConflictChoiceArmed) { StoreConflictChoiceArmed = false; _pendingConflict = null; }
+    }
+
+    /// <summary>STORE-family-choice panel (Store-grammar slice, §C) - armed when CommandComposer
+    /// hands back a <see cref="PendingStoreChoice"/> (a bare "STORE PRESET ENTER", or "STORE PRESET
+    /// n ENTER" with more than one PROGRAMMER family touched). Mirrors the RELEASE panel's own
+    /// arm/toggle/confirm shape, but this one is entered by a COMPLETED grammar resolution (not a
+    /// bare key press), so the command line stays showing whatever was typed (e.g. "Store Preset 5")
+    /// while the panel is open, rather than an empty line.</summary>
+    public bool StoreFamilyChoiceArmed { get; private set; }
+
+    private PendingStoreChoice? _pendingStoreChoice;
+    private readonly HashSet<AttributeClass> _selectedStoreFamilies = new();
+
+    /// <summary>The families to render as checkboxes - always the touched set CommandComposer
+    /// already computed, never re-derived here.</summary>
+    public IReadOnlyList<AttributeClass> StoreFamilyCandidates => _pendingStoreChoice?.TouchedFamilies ?? Array.Empty<AttributeClass>();
+
+    public IReadOnlySet<AttributeClass> SelectedStoreFamilies => _selectedStoreFamilies;
+
+    /// <summary>True only for the bare "STORE PRESET ENTER" form (§C's special case) - the panel
+    /// must also collect a Preset number, since grammar never auto-numbers.</summary>
+    public bool StoreFamilyChoiceNeedsNumber => _pendingStoreChoice is { Number: null };
+
+    /// <summary>Two-way-bindable number field for the above - only meaningful while
+    /// <see cref="StoreFamilyChoiceNeedsNumber"/> is true.</summary>
+    public int? PendingStorePresetNumberInput { get; set; }
+
+    private void ArmStoreFamilyChoice(PendingStoreChoice pending)
+    {
+        DisarmReleaseContext();
+        _pendingStoreChoice = pending;
+        StoreFamilyChoiceArmed = true;
+        _selectedStoreFamilies.Clear();
+        PendingStorePresetNumberInput = pending.Number;
+    }
+
+    private void DisarmStoreFamilyChoice()
+    {
+        StoreFamilyChoiceArmed = false;
+        _pendingStoreChoice = null;
+        _selectedStoreFamilies.Clear();
+        PendingStorePresetNumberInput = null;
+    }
+
+    public void ToggleStoreFamily(AttributeClass family)
+    {
+        if (!StoreFamilyChoiceArmed) return;
+        if (!_selectedStoreFamilies.Remove(family)) _selectedStoreFamilies.Add(family);
+        Changed?.Invoke();
+    }
+
+    /// <summary>The panel's "ALL" shortcut (§C: "ALL is only a UI shortcut meaning select all
+    /// relevant touched families") - never a distinct storage concept, just pre-checks every
+    /// candidate.</summary>
+    public void SelectAllStoreFamilies()
+    {
+        if (!StoreFamilyChoiceArmed) return;
+        _selectedStoreFamilies.Clear();
+        foreach (var family in StoreFamilyCandidates) _selectedStoreFamilies.Add(family);
+        Changed?.Invoke();
+    }
+
+    public void CancelStoreFamilyChoice()
+    {
+        if (!StoreFamilyChoiceArmed) return;
+        DisarmStoreFamilyChoice();
+        DispatchError = null;
+        _composer.Reset();
+        Current = _composer.Current;
+        Changed?.Invoke();
+    }
+
+    /// <summary>Confirms the family-choice panel (§C). Requires at least one family selected -
+    /// never silently proceeds with none, and never guesses a number for the bare "STORE PRESET
+    /// ENTER" form. If every selected family resolves conflict-free, dispatches immediately as one
+    /// atomic transaction (one CompositeCommand, one Undo entry, covering PrecedingCommands too);
+    /// if any selected family already has a Preset at this number, arms the OVERWRITE/UPDATE/CANCEL
+    /// panel instead - resolved via the SAME StorePresetTransactionBuilder CommandComposer itself
+    /// uses, so panel-resolved and grammar-resolved Preset stores never diverge.</summary>
+    public void ConfirmStoreFamilyChoice()
+    {
+        if (!StoreFamilyChoiceArmed || _pendingStoreChoice is null) return;
+        var pending = _pendingStoreChoice;
+
+        if (_selectedStoreFamilies.Count == 0)
+        {
+            DispatchError = "Select at least one family to store.";
+            Changed?.Invoke();
+            return;
+        }
+
+        int? number = pending.Number ?? PendingStorePresetNumberInput;
+        if (number is null)
+        {
+            DispatchError = "PRESET NUMBER IS MISSING";
+            Changed?.Invoke();
+            return;
+        }
+
+        var families = _selectedStoreFamilies.ToList();
+        DisarmStoreFamilyChoice();
+
+        var conflicts = StorePresetTransactionBuilder.FindConflicts(_context.Presets, families, number.Value);
+        if (conflicts.Count > 0)
+        {
+            ArmStoreConflictChoice(new PendingStoreConflictState(number.Value, families, conflicts, pending.Targets, pending.PrecedingCommands));
+            return;
+        }
+
+        DispatchStoreTransaction(StorePresetTransactionBuilder.BuildTransaction(
+            _context.Presets, families, number.Value, pending.Targets, pending.PrecedingCommands, overwrite: false));
+    }
+
+    /// <summary>OVERWRITE/UPDATE/CANCEL panel (§C) - armed only when ConfirmStoreFamilyChoice (or
+    /// CommandComposer's own deterministic/unambiguous path, via PendingStoreConflict) finds that
+    /// one or more of the resolved families already have a Preset at the requested number. ONE
+    /// shared decision applies to every conflicting family in this transaction at once.</summary>
+    public bool StoreConflictChoiceArmed { get; private set; }
+
+    private sealed record PendingStoreConflictState(int Number, IReadOnlyList<AttributeClass> Families,
+        IReadOnlyList<AttributeClass> ConflictingFamilies, IReadOnlyList<PatchedFixture> Targets, IReadOnlyList<IConsoleCommand> PrecedingCommands);
+
+    private PendingStoreConflictState? _pendingConflict;
+
+    public IReadOnlyList<AttributeClass> StoreConflictFamilies => _pendingConflict?.ConflictingFamilies ?? Array.Empty<AttributeClass>();
+
+    private void ArmStoreConflictChoice(PendingStoreConflictState conflict)
+    {
+        DisarmReleaseContext();
+        _pendingConflict = conflict;
+        StoreConflictChoiceArmed = true;
+        Changed?.Invoke();
+    }
+
+    public void ResolveStoreConflictOverwrite() => ResolveStoreConflict(overwrite: true);
+    public void ResolveStoreConflictUpdate() => ResolveStoreConflict(overwrite: false);
+
+    public void ResolveStoreConflictCancel()
+    {
+        if (!StoreConflictChoiceArmed) return;
+        StoreConflictChoiceArmed = false;
+        _pendingConflict = null;
+        DispatchError = null;
+        _composer.Reset();
+        Current = _composer.Current;
+        Changed?.Invoke();
+    }
+
+    private void ResolveStoreConflict(bool overwrite)
+    {
+        if (!StoreConflictChoiceArmed || _pendingConflict is null) return;
+        var conflict = _pendingConflict;
+        StoreConflictChoiceArmed = false;
+        _pendingConflict = null;
+
+        DispatchStoreTransaction(StorePresetTransactionBuilder.BuildTransaction(
+            _context.Presets, conflict.Families, conflict.Number, conflict.Targets, conflict.PrecedingCommands, overwrite));
+    }
+
+    /// <summary>Shared tail for every Preset-store transaction (direct, panel-confirmed, or
+    /// conflict-resolved) - same post-dispatch bookkeeping the generic completed-ReadyOperation
+    /// path in <see cref="Push"/> uses (ends the Selection Cycle, resets the composer).</summary>
+    private void DispatchStoreTransaction(IConsoleCommand operation)
+    {
+        var result = _dispatcher.Dispatch(operation);
+        DispatchError = result.Success ? null : (result.Error ?? "Store failed.");
+        if (result.Success)
+        {
+            _context.SelectionCycle.MarkExecutionCompleted();
+            _composer.ReplaceSelectionOnResolve = true;
+            _selectionContextEcho = null;
+        }
+        _mirrorsExistingSelection = false;
+        _composer.Reset();
+        Current = _composer.Current;
+        Changed?.Invoke();
     }
 
     public CommandComposition Current { get; private set; }
@@ -92,11 +281,24 @@ public sealed class CommandSurfaceViewModel
     public void Close() { IsOpen = false; Changed?.Invoke(); }
     public void Toggle() { IsOpen = !IsOpen; Changed?.Invoke(); }
 
-    public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher, EditorContextStack editorContext)
+    /// <summary>
+    /// groupsVm/cueListVm/onPatchApplied (Command Surface key-map completion + STORE-audit
+    /// slices): STORE/UPDATE/DELETE/GO TO and Quick Patch are central console actions - this
+    /// ViewModel is the ONE place that routes them to whichever screen's ViewModel (Group/Cue) or
+    /// operation (Patch) applies, by reading the shared EditorContext/ConsoleContext. Previously
+    /// this routing lived in CommandSurface.razor's own code-behind - Razor-specific glue with no
+    /// test coverage; moved here so it's the same testable ViewModel layer as every other Command
+    /// Surface gesture, and so Razor stays a thin proxy with zero routing logic of its own.
+    /// </summary>
+    public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher, EditorContextStack editorContext,
+        GroupsViewModel groupsVm, CueListViewModel cueListVm, Action onPatchApplied)
     {
         _context = context;
         _dispatcher = dispatcher;
         _editorContext = editorContext;
+        _groupsVm = groupsVm;
+        _cueListVm = cueListVm;
+        _onPatchApplied = onPatchApplied;
         _composer = new CommandComposer(context);
         _macroRecorder = new MacroRecorder(dispatcher, context.Macros);
         _macroPlayer = new MacroPlaybackService(dispatcher, context.Macros, _macroRecorder);
@@ -172,6 +374,19 @@ public sealed class CommandSurfaceViewModel
         DisarmLearn();
         _selectionContextEcho = null; // a new composing key permanently supersedes the echo (§A)
 
+        // Implicit Fixture context (§4): a bare digit starting a brand-new gesture (nothing
+        // composed yet) defaults to FIXTURE exactly like an explicit PressToken(Fixture) press -
+        // same ReplaceSelectionOnResolve recompute, so a value left stale by an external GUI
+        // selection gesture (SelectionViewModel.DispatchSelectionGesture updates SelectionCycle
+        // directly, bypassing this composer) can never make implicit numeric entry replace or
+        // accumulate differently than explicit "FIXTURE ..." entry would from the same state.
+        if (Current.Tokens.Count == 0 && _pendingDigits.Length == 0)
+        {
+            _mirrorsExistingSelection = false;
+            _composer.ReplaceSelectionOnResolve =
+                _context.SelectionCycle.StartFreshOnNextSelection || _context.Selection.Items.Count == 0;
+        }
+
         // A number added to a mirrored selection is a new selection gesture unless it is the
         // value following AT. This matters for the recorded selection-gesture history.
         if (_mirrorsExistingSelection && !Current.Tokens.Any(t => t.Kind == CommandTokenKind.At))
@@ -235,6 +450,18 @@ public sealed class CommandSurfaceViewModel
             ConfirmArmedRelease(viaSecondRelease: false);
             return;
         }
+
+        // STORE-family-choice-armed ENTER (Store-grammar slice, §C) - same "ENTER confirms the
+        // armed panel" idiom as RELEASE above. The OVERWRITE/UPDATE/CANCEL conflict panel is
+        // deliberately NOT confirmed by ENTER - it has three distinct, differently-named actions
+        // (ResolveStoreConflictOverwrite/Update/Cancel), never a generic single-key confirm that
+        // could be pressed without the operator consciously picking one.
+        if (kind == CommandTokenKind.Enter && StoreFamilyChoiceArmed)
+        {
+            ConfirmStoreFamilyChoice();
+            return;
+        }
+
         DisarmReleaseContext();
         ShiftArmed = false;
         DisarmLearn();
@@ -282,6 +509,34 @@ public sealed class CommandSurfaceViewModel
         }
 
         Push(CommandToken.Simple(kind));
+    }
+
+    /// <summary>
+    /// CAPTURE (Command Surface key-map completion slice) - the fixed key's own entry point.
+    /// The authoritative key map distinguishes CAPTURE from SHIFT+CAPTURE ("SHIFT+CAPTURE will
+    /// represent CAPTURE ALL later/currently where supported"): SHIFT+CAPTURE reuses the
+    /// existing, already-tested PressCaptureAll() unchanged (Shift is consumed exactly like any
+    /// other Shift combination). Bare CAPTURE (no Shift) has no capture-current-selection-only
+    /// command implemented yet - reported honestly via DispatchError, never silently treated as
+    /// Capture All (this project's own rule: an unimplemented gesture says so, it never fakes
+    /// success or silently does the nearest available thing instead).
+    /// </summary>
+    public void PressCapture()
+    {
+        if (ShiftArmed)
+        {
+            PressCaptureAll(); // consumes ShiftArmed internally
+            return;
+        }
+
+        DisarmReleaseContext();
+        DisarmLearn();
+        _pendingDigits = string.Empty;
+        _composer.Reset();
+        _selectionContextEcho = null;
+        DispatchError = "CAPTURE (current selection only) is not implemented yet - use SHIFT+CAPTURE for Capture All.";
+        Current = _composer.Current;
+        Changed?.Invoke();
     }
 
     /// <summary>
@@ -493,6 +748,87 @@ public sealed class CommandSurfaceViewModel
             _context.SelectionCycle.MarkExecutionCompleted();
             _selectionContextEcho = null; // a programming execution returns the Task line to true idle (§A)
         }
+        Changed?.Invoke();
+    }
+
+    // ---------- STORE/UPDATE/DELETE/GO TO: central console actions. ----------
+    //
+    // STORE (Store-grammar slice, §A/§B) - is now REAL CommandComposer grammar, not a
+    // ViewModel-to-ViewModel shortcut: pressing STORE pushes a Store token into the SAME composer
+    // every other key uses, so it visibly enters the Task line ("FIXTURE 1 THRU 10 STORE") and
+    // waits for an explicit target object (GROUP/CUE/PRESET/a family) + number before anything is
+    // dispatched - it can never again immediately store the current Selection as a Group just
+    // because that happened to be the last-entered EditorContext (the exact bug this slice fixes).
+    // See Push()'s handling of ReadyOperation/PendingStoreChoice/PendingStoreConflict for how a
+    // completed STORE composition actually dispatches.
+    //
+    // UPDATE/DELETE/GO TO are unchanged by this slice - still routed by the shared EditorContext
+    // to whichever screen's ViewModel is currently in context (Group or Cue), always the exact
+    // same GroupsViewModel/CueListViewModel RelayCommand the Groups/Cues panels themselves call
+    // directly. Silently does nothing when the context doesn't match anything updatable/deletable.
+
+    public void PressStore() => PressToken(CommandTokenKind.Store);
+
+    public void PressUpdate()
+    {
+        switch (_editorContext.Current.ObjectType)
+        {
+            case EditorObjectType.Group when _editorContext.Current.SelectedObject is FixtureGroup group:
+                _groupsVm.UpdateCommand.Execute(group);
+                break;
+            case EditorObjectType.Cue:
+                _cueListVm.UpdateCueCommand.Execute(null);
+                break;
+        }
+        Changed?.Invoke();
+    }
+
+    public void PressDelete()
+    {
+        switch (_editorContext.Current.ObjectType)
+        {
+            case EditorObjectType.Group when _editorContext.Current.SelectedObject is FixtureGroup group:
+                _groupsVm.RemoveCommand.Execute(group);
+                break;
+            case EditorObjectType.Cue when _editorContext.Current.SelectedObject is DmxConsole.Core.Engine.Cue cue:
+                _cueListVm.RemoveCueCommand.Execute(cue);
+                break;
+        }
+        Changed?.Invoke();
+    }
+
+    public void PressGoTo()
+    {
+        if (_editorContext.Current.ObjectType == EditorObjectType.Cue
+            && _editorContext.Current.SelectedObject is DmxConsole.Core.Engine.Cue cue)
+        {
+            _cueListVm.GoToCueCommand.Execute(cue);
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>GO (Command Surface key). SHIFT+GO (SHIFT+GO/SHIFT+BACK slice) - the existing
+    /// SHIFT modifier, consumed exactly like every other Shift combination this Command Surface
+    /// already supports - dispatches a zero-time jump to the next cue instead of a normal timed
+    /// GO. Same shared CueListViewModel/GoAction/CueList path either way, just a different
+    /// RelayCommand (GoInstantCommand vs GoCommand) - never a second cue-application mechanism.</summary>
+    public void PressGo()
+    {
+        bool instant = ShiftArmed;
+        ShiftArmed = false;
+        if (instant) _cueListVm.GoInstantCommand.Execute(null);
+        else _cueListVm.GoCommand.Execute(null);
+        Changed?.Invoke();
+    }
+
+    /// <summary>BACK/PAUSE (Command Surface key). SHIFT+BACK - see PressGo's own doc comment;
+    /// existing Back/Pause semantics are otherwise completely unchanged.</summary>
+    public void PressBack()
+    {
+        bool instant = ShiftArmed;
+        ShiftArmed = false;
+        if (instant) _cueListVm.BackInstantCommand.Execute(null);
+        else _cueListVm.BackCommand.Execute(null);
         Changed?.Invoke();
     }
 
@@ -725,12 +1061,54 @@ public sealed class CommandSurfaceViewModel
             return;
         }
 
+        // STORE PRESET family/number ambiguity (Store-grammar slice, §C) - not complete, not an
+        // error: arms the contextual panel and keeps showing whatever was typed so far (e.g.
+        // "Store Preset 5") until the operator confirms a choice.
+        if (composition.PendingStoreChoice is { } pendingChoice)
+        {
+            ArmStoreFamilyChoice(pendingChoice);
+            Current = composition;
+            Changed?.Invoke();
+            return;
+        }
+
+        // STORE PRESET number conflict (Store-grammar slice, §C) - resolved deterministically by
+        // the grammar (explicit family, or a single touched family) but that family already has a
+        // Preset at this number: never silently merge/overwrite - ask.
+        if (composition.PendingStoreConflict is { } pendingConflict)
+        {
+            ArmStoreConflictChoice(new PendingStoreConflictState(pendingConflict.Number, pendingConflict.Families,
+                pendingConflict.ConflictingFamilies, pendingConflict.Targets, pendingConflict.PrecedingCommands));
+            Current = composition;
+            Changed?.Invoke();
+            return;
+        }
+
+        if (composition.IsComplete && composition.ReadyAction is not null)
+        {
+            // Quick Patch (Patch/Undo-architecture slice) - a structural IConsoleAction, dispatched
+            // via DispatchAction so it never enters the normal programming Undo stack and never
+            // touches Selection/SelectionCycle - same "don't record a spurious/meaningless gesture"
+            // reasoning as PressCaptureAll's own bypass of this method's generic path.
+            var actionResult = _dispatcher.DispatchAction(composition.ReadyAction);
+            DispatchError = actionResult.Success ? null : (actionResult.Error ?? "Patch failed.");
+            if (actionResult.Success) _onPatchApplied();
+            _mirrorsExistingSelection = false;
+            _composer.Reset();
+            Current = _composer.Current;
+            Changed?.Invoke();
+            return;
+        }
+
         if (composition.IsComplete && composition.ReadyOperation is not null)
         {
             var result = _dispatcher.Dispatch(composition.ReadyOperation);
+
             if (result.Success)
             {
-                _context.SelectionCycle.RememberSelection(_context.Selection.Items);
+                // Selection History rule: LastSelection is now updated centrally by
+                // CommandDispatcher.Dispatch itself (driven by SelectionCommandBase.
+                // ProducesSelectionSnapshot) - no manual RememberSelection call needed here.
                 if (composition.ResolvedGroupNumber is int groupNumber) _context.SelectionCycle.RememberGroup(groupNumber);
                 if (composition.AppliedAtPercent is double atPercent) _context.SelectionCycle.RememberAt(atPercent);
                 if (!_mirrorsExistingSelection)

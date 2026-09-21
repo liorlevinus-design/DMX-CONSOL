@@ -36,7 +36,7 @@ public class CommandSurfaceViewModelClearTests
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         var editorContext = new EditorContextStack();
-        var surface = new CommandSurfaceViewModel(context, dispatcher, editorContext);
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, editorContext);
         return (context, dispatcher, undoRedo, editorContext, surface);
     }
 

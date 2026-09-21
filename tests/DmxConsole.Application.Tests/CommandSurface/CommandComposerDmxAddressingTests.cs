@@ -474,7 +474,7 @@ public class CommandComposerDmxAddressingTests
         var fixtureFinal = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
 
         Assert.True(fixtureFinal.IsComplete);
-        Assert.Equal("7", fixtureFinal.PreviewText); // resolved as bare FIXTURE 7, not DMX
+        Assert.Equal("Fixture 7", fixtureFinal.PreviewText); // resolved as FIXTURE 7 (implicit, §4), not DMX
         var result = dispatcher.Dispatch(fixtureFinal.ReadyOperation!);
         Assert.True(result.Success);
         Assert.Contains(fixture, context.Selection.Items);

@@ -63,7 +63,9 @@ public class SelectionCycleComposerTests
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
 
         Assert.True(final.IsComplete);
-        Assert.Equal("1 THRU 3", final.PreviewText.ToUpperInvariant());
+        // Quick-Patch/implicit-Fixture convergence slice (§4): "1 THRU 3" now shows the same
+        // "FIXTURE 1 THRU 3" preview explicit entry would - never a silently-different display.
+        Assert.Equal("FIXTURE 1 THRU 3", final.PreviewText.ToUpperInvariant());
         Assert.NotNull(final.ReadyOperation);
 
         dispatcher.Dispatch(final.ReadyOperation!);
@@ -103,5 +105,44 @@ public class SelectionCycleComposerTests
         withAt.Push(CommandToken.Number(50));
         var executed = withAt.Push(CommandToken.Simple(CommandTokenKind.Enter));
         Assert.True(executed.EndsSelectionCycle);
+    }
+
+    /// <summary>Quick-Patch/implicit-Fixture convergence slice (§4): explicit "FIXTURE 1 THRU 8"
+    /// and implicit "1 THRU 8" must produce composition results that are indistinguishable in
+    /// every way that matters - same Tokens shape, same PreviewText, same completion, same
+    /// EndsSelectionCycle, same dispatched Selection outcome. Never a second, parallel "numbers
+    /// without object" engine - the implicit form runs through the identical CommandComposer.Build
+    /// path once Push() has injected the Fixture token.</summary>
+    [Fact]
+    public void ImplicitFixture_And_ExplicitFixture_ProduceEquivalentCompositions_AndIdenticalDispatch()
+    {
+        var (explicitContext, explicitDispatcher, _) = TestFixtures.BuildConsole(fixtureCount: 8);
+        var explicitComposer = new CommandComposer(explicitContext);
+        explicitComposer.Push(CommandToken.Simple(CommandTokenKind.Fixture));
+        explicitComposer.Push(CommandToken.Number(1));
+        explicitComposer.Push(CommandToken.Simple(CommandTokenKind.Thru));
+        explicitComposer.Push(CommandToken.Number(8));
+        var explicitFinal = explicitComposer.Push(CommandToken.Simple(CommandTokenKind.Enter));
+
+        var (implicitContext, implicitDispatcher, _) = TestFixtures.BuildConsole(fixtureCount: 8);
+        var implicitComposer = new CommandComposer(implicitContext);
+        implicitComposer.Push(CommandToken.Number(1));
+        implicitComposer.Push(CommandToken.Simple(CommandTokenKind.Thru));
+        implicitComposer.Push(CommandToken.Number(8));
+        var implicitFinal = implicitComposer.Push(CommandToken.Simple(CommandTokenKind.Enter));
+
+        // Same shape: token kinds (Fixture, Number, Thru, Number), same preview text.
+        Assert.Equal(explicitFinal.Tokens.Select(t => t.Kind), implicitFinal.Tokens.Select(t => t.Kind));
+        Assert.Equal(explicitFinal.PreviewText, implicitFinal.PreviewText);
+        Assert.Equal(explicitFinal.IsComplete, implicitFinal.IsComplete);
+        Assert.Equal(explicitFinal.EndsSelectionCycle, implicitFinal.EndsSelectionCycle);
+
+        explicitDispatcher.Dispatch(explicitFinal.ReadyOperation!);
+        implicitDispatcher.Dispatch(implicitFinal.ReadyOperation!);
+
+        Assert.Equal(
+            explicitContext.Selection.Items.Select(f => f.Number),
+            implicitContext.Selection.Items.Select(f => f.Number));
+        Assert.Equal(explicitContext.SelectionCycle.StartFreshOnNextSelection, implicitContext.SelectionCycle.StartFreshOnNextSelection);
     }
 }

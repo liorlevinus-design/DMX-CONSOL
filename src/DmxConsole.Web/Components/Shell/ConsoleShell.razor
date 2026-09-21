@@ -1,3 +1,7 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
 @*
     Root of the Workspace shell. Per H1.6's Contextual Command Surface:
 
@@ -6,6 +10,7 @@
         +-- ConsoleChrome   (persistent - toolbar/status)
         +-- EditorToolBar   (persistent - contextual soft keys, reacts to the shared EditorContext)
         +-- CommandLine     (persistent - what's being composed right now)
+        +-- console-shell-resize-handle (Command Surface layout slice - drags .console-input-row's height cap)
         +-- console-input-row
             +-- EncoderDrawer   (persistent - fixed encoder bank, Milestone 1 work-plan handoff)
             +-- CommandSurface  (persistent - keypad/soft keys that compose the command line)
@@ -16,6 +21,19 @@
     responsive row (side by side on wide screens, stacked on narrow ones - see .console-input-row
     in app.css) since the work plan asks for the drawer "next to the keypad or above it depending
     on screen width", not two separate hardcoded placements.
+
+    Command Surface layout slice: .console-shell-workspace is already flex:1 1 auto (the dominant
+    area) while .console-input-row was flex:none, sized purely by its own content - with both
+    EncoderDrawer and CommandSurface open, that content is tall enough to squeeze the workspace
+    down to a sliver. .console-input-row now caps itself at _inputRowMaxHeightPx (a max-height,
+    not a fixed height - see the inline style below) with overflow-y:auto as a safety net, so nothing
+    is ever clipped/unreachable even at the smallest cap. Because it is a CAP, not a fixed height,
+    collapsing either EncoderDrawer or CommandSurface (their own existing IsOpen/Toggle) shrinks
+    the row's actual content immediately, and .console-shell-workspace's flex:1 reclaims the freed
+    space on the very next layout pass - no extra plumbing needed for that half of the requirement.
+    The drag handle below lets the operator raise/lower the cap itself, reusing the exact same
+    pointer-capture technique PaneHost.razor's own split-resize already established (dmxPaneResize
+    in workspacePaneResize.js) rather than inventing a second mechanism.
 *@
 
 <div class="console-shell">
@@ -25,8 +43,54 @@
     </div>
     <EditorToolBar />
     <CommandLine />
-    <div class="console-input-row">
+    <div class="pane-resize-handle vertical console-shell-resize-handle" @ref="_resizeHandleRef"
+         @onpointerdown="StartResize" @onpointermove="DoResize" @onpointerup="EndResize" @onpointercancel="EndResize"
+         title="Drag to resize the Encoder/Command Surface area">
+    </div>
+    <div class="console-input-row" style="max-height:@(_inputRowMaxHeightPx)px; overflow-y:auto;">
         <EncoderDrawer />
         <CommandSurface />
     </div>
 </div>
+
+@code {
+    // Command Surface layout slice: purely local, in-memory UI state (not Workspace show data -
+    // no reason to persist a screen-space preference into the saved Workspace JSON). Default
+    // chosen to keep the workspace dominant out of the box (roughly what the screenshot that
+    // prompted this slice showed as "too much"), while the drag handle lets the operator raise
+    // it back up to fit the full keypad without scrolling if they want to.
+    private double _inputRowMaxHeightPx = 320;
+    private const double MinInputRowHeightPx = 90;   // enough to show EncoderDrawer/CommandSurface collapsed strips
+    private const double MaxInputRowHeightPx = 720;  // generous enough for the full open keypad, still leaves the workspace visible
+
+    private ElementReference _resizeHandleRef;
+    private bool _resizing;
+    private double _resizeStartClientY;
+    private double _resizeStartHeightPx;
+
+    private async Task StartResize(PointerEventArgs e)
+    {
+        _resizing = true;
+        _resizeStartClientY = e.ClientY;
+        _resizeStartHeightPx = _inputRowMaxHeightPx;
+        await JS.InvokeVoidAsync("dmxPaneResize.capture", _resizeHandleRef, e.PointerId);
+    }
+
+    private void DoResize(PointerEventArgs e)
+    {
+        if (!_resizing) return;
+
+        // Dragging UP (negative deltaY) must GROW the input row (it sits below the handle), so
+        // the delta is subtracted, not added - the inverse of a typical top-to-bottom handle.
+        double deltaY = e.ClientY - _resizeStartClientY;
+        _inputRowMaxHeightPx = Math.Clamp(_resizeStartHeightPx - deltaY, MinInputRowHeightPx, MaxInputRowHeightPx);
+        StateHasChanged();
+    }
+
+    private async Task EndResize(PointerEventArgs e)
+    {
+        if (!_resizing) return;
+        _resizing = false;
+        await JS.InvokeVoidAsync("dmxPaneResize.release", _resizeHandleRef, e.PointerId);
+    }
+}
