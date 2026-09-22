@@ -120,16 +120,15 @@ public sealed class CommandComposer
         }
 
         // CUE establishes object context for the current command (§2/§3), symmetric with FIXTURE/
-        // GROUP as a head token. But there is no existing Application-layer command for targeting
-        // a Cue by number from the Command Surface yet - Cues aren't a FixtureSelection-like
-        // multi-select concept in this console's architecture (which CueList would "Cue 5" even
-        // mean, with multiple Executors potentially each running their own?). Recognized honestly
-        // as incomplete rather than silently falling through to Fixture-selection grammar or
-        // fabricating a resolution - a real gap, tracked in docs/COMMAND_SURFACE_KEY_SPEC.md, not
-        // guessed at here.
+        // GROUP as a head token. Cues aren't a FixtureSelection-like multi-select concept in this
+        // console's architecture, so most CUE-numeric grammar remains a real, honestly-reported
+        // gap (tracked in docs/COMMAND_SURFACE_KEY_SPEC.md) rather than something silently falling
+        // through to Fixture-selection grammar. The ONE exception (Cue-timing slice): "CUE <n>
+        // [THRU <n>] TIME <value>[/<value>] ENTER" - sets Cue(s) In/Out fade timing, resolved by
+        // ResolveCueCommand below. Nothing else after a Cue number/range is implemented yet.
         if (_tokens[0].Kind == CommandTokenKind.Cue)
         {
-            return Incomplete(preview, "Cue numeric commands are not implemented yet - no Application-layer command exists for targeting a Cue by number from the Command Surface.");
+            return ResolveCueCommand(preview, finalize);
         }
 
         // DMX DIRECT ADDRESSING - establishes object/domain context for THIS command only
@@ -712,6 +711,134 @@ public sealed class CommandComposer
 
         IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
         return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true, ReadyOperation = operation };
+    }
+
+    /// <summary>
+    /// CUE &lt;n&gt; [THRU &lt;n&gt;] TIME &lt;value&gt;[/&lt;value&gt;] ENTER (Cue-timing slice) -
+    /// the one implemented CUE-numeric grammar branch. Cue-number range parsing deliberately
+    /// mirrors the FIXTURE/GROUP THRU pattern (a bare number anchors, THRU extends to a second
+    /// number) rather than reusing the Clause/BuildSelectionCommands machinery wholesale - Cues
+    /// have no Selection concept to build (CLAUDE.md §1: Selection != Playback), so this is a
+    /// small, self-contained clause reader over Cue.Number instead. Anything after the Cue
+    /// number(s) other than TIME is an honest "not implemented" gap, same spirit as the doc
+    /// comment on the CUE branch in Build() above - never guessed at.
+    /// </summary>
+    private CommandComposition ResolveCueCommand(string preview, bool finalize)
+    {
+        int i = 1;
+        if (i >= _tokens.Count)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+
+        if (_tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a Cue number.", CommandTokenKind.Number);
+
+        double fromNumber = _tokens[i].NumericValue!.Value;
+        double toNumber = fromNumber;
+        i++;
+
+        if (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Thru)
+        {
+            i++;
+            if (i >= _tokens.Count)
+                return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+            if (_tokens[i].Kind != CommandTokenKind.Number)
+                return Incomplete(preview, "Expected a Cue number after Thru.", CommandTokenKind.Number);
+
+            toNumber = _tokens[i].NumericValue!.Value;
+            i++;
+        }
+
+        if (i >= _tokens.Count)
+        {
+            // Genuinely ambiguous only while still typing (ENTER not yet pressed) - THRU could
+            // still extend the range, or TIME could still follow. On finalize with nothing else
+            // typed, this is the same honest "not implemented" gap as any other post-number token
+            // (Trigger/Wait/Follow/...) - never silently treated as complete.
+            if (!finalize)
+                return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Thru, CommandTokenKind.Timing } };
+            return Incomplete(preview, "Cue numeric commands are not implemented yet - only CUE ... TIME ... is supported by the Command Surface.");
+        }
+
+        if (_tokens[i].Kind == CommandTokenKind.Timing)
+            return ResolveCueTiming(preview, finalize, fromNumber, toNumber, i + 1);
+
+        return Incomplete(preview, "Cue numeric commands are not implemented yet - only CUE ... TIME ... is supported by the Command Surface.");
+    }
+
+    /// <summary>
+    /// The TIME half of CUE &lt;n&gt; [THRU &lt;n&gt;] TIME &lt;value&gt;[/&lt;value&gt;] ENTER -
+    /// `i` points just past the TIME token. A single numeric value sets both In and Out to the
+    /// same value; an optional "/" splits it into In/Out explicitly (§ In=first, Out=second, never
+    /// the reverse). Resolved into one <see cref="SetCueTimingCommand"/> per matched Cue, batched
+    /// into one CompositeCommand for a THRU range so the whole range update is one atomic Undo
+    /// step (CLAUDE.md §14) - never N separate Undo entries. Only ever touches CueTiming.TimeIn/
+    /// TimeOut (DelayIn/DelayOut carried through unchanged by SetCueTimingCommand itself) and never
+    /// TriggerMode/WaitTime - Cue Trigger Semantics (CLAUDE.md §9) are completely untouched by this
+    /// grammar.
+    /// </summary>
+    private CommandComposition ResolveCueTiming(string preview, bool finalize, double fromNumber, double toNumber, int i)
+    {
+        if (i >= _tokens.Count)
+        {
+            if (!finalize) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+            return Incomplete(preview, "TIME VALUE IS MISSING");
+        }
+        if (_tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a numeric Time value.", CommandTokenKind.Number);
+
+        double timeIn = _tokens[i].NumericValue!.Value;
+        double timeOut = timeIn;
+        i++;
+
+        if (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Slash)
+        {
+            i++;
+            if (i >= _tokens.Count)
+            {
+                if (!finalize) return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Number } };
+                return Incomplete(preview, "Expected an Out time after '/'.", CommandTokenKind.Number);
+            }
+            if (_tokens[i].Kind != CommandTokenKind.Number)
+                return Incomplete(preview, "Expected an Out time after '/'.", CommandTokenKind.Number);
+
+            timeOut = _tokens[i].NumericValue!.Value;
+            i++;
+
+            if (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Slash)
+                return Incomplete(preview, "Time accepts at most one '/' split (In/Out).");
+        }
+
+        if (i < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the Time value.", CommandTokenKind.Enter);
+
+        if (timeIn < 0 || timeOut < 0)
+            return Incomplete(preview, "Time values must be zero or greater.");
+
+        const double MaxCueTimeSeconds = 86400; // 24 hours - a sane ceiling for a cue fade, well under TimeSpan's own limit.
+        if (timeIn > MaxCueTimeSeconds || timeOut > MaxCueTimeSeconds)
+            return Incomplete(preview, "Time values must be 24 hours or less.");
+
+        if (!finalize)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+
+        if (_context.PrimaryCueList is not { } cueList)
+            return Incomplete(preview, "No Cue List available to edit.");
+
+        double lo = Math.Min(fromNumber, toNumber), hi = Math.Max(fromNumber, toNumber);
+        var cues = cueList.Cues.Where(c => c.Number >= lo && c.Number <= hi).OrderBy(c => c.Number).ToList();
+        if (cues.Count == 0)
+        {
+            return Incomplete(preview, fromNumber == toNumber
+                ? $"Cue {FormatNumber(fromNumber)} not found."
+                : $"No cues found in range {FormatNumber(fromNumber)} THRU {FormatNumber(toNumber)}.");
+        }
+
+        var commands = cues
+            .Select(c => (IConsoleCommand)new SetCueTimingCommand(cueList, c, TimeSpan.FromSeconds(timeIn), TimeSpan.FromSeconds(timeOut)))
+            .ToList();
+        IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
+
+        return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, ReadyOperation = operation };
     }
 
     /// <summary>

@@ -874,4 +874,64 @@ public class CueListTests
             Assert.Equal(1, cueList.CurrentCueIndex); // never advances/changes on its own
         }
     }
+
+    // ---------- Cue-timing slice: CueList.SetTiming actually drives playback ----------
+
+    /// <summary>Command Surface acceptance criterion #6: a Cue's In/Out timing edited via
+    /// SetTiming (what SetCueTimingCommand calls) is what GO/fade playback actually reads - not a
+    /// second, unused field. Records a Cue with a long original fade, GOes to it (so it starts
+    /// fading), overwrites its timing to a much shorter one mid-flight via SetTiming, then asserts
+    /// the fade completes on the NEW duration, not the original one.</summary>
+    [Fact]
+    public void SetTiming_ChangesTheDurationTheActiveFadeActuallyUses()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        programmer.SetChannel(0, 0, 0);
+
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        cueList.Go();
+        cueList.TryGetChannelValue(0, 0, out _); // settle at 0
+
+        programmer.SetChannel(0, 0, 200);
+        // Recorded with a long 10-minute fade - if SetTiming's new value were never actually
+        // consumed, the fade below would still be sitting at ~0% after only 150ms.
+        var cue2 = Record(cueList, patch, programmer, "Cue 2", 2, TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(10));
+        cueList.Go();
+
+        // Immediately shorten the still-running transition's timing to 100ms via the exact same
+        // API SetCueTimingCommand uses (CLAUDE.md §3/§4 - Application layer, but this Core test
+        // exercises CueList.SetTiming directly, the one place the mutation actually lands).
+        Assert.True(cueList.SetTiming(cue2, new CueTiming(TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100), TimeSpan.Zero, TimeSpan.Zero)));
+
+        Thread.Sleep(150);
+        Assert.True(cueList.TryGetChannelValue(0, 0, out var value));
+        Assert.Equal(200, value); // fully settled on the NEW 100ms timing, not still ~0% of the original 10-minute one
+    }
+
+    /// <summary>SetTiming never touches TriggerMode/WaitTime (Cue Trigger Semantics, CLAUDE.md
+    /// §9, are a completely separate concern from In/Out fade timing) and is a no-op returning
+    /// false for a Cue no longer in the list - same shape as SetTriggerMode.</summary>
+    [Fact]
+    public void SetTiming_NeverTouchesTriggerModeOrWaitTime_AndNoOpsForARemovedCue()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        var cue = Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.Zero);
+        cueList.SetTriggerMode(cue, CueTriggerMode.Wait);
+        cue.WaitTime = TimeSpan.FromSeconds(7);
+
+        bool applied = cueList.SetTiming(cue, new CueTiming(TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(4), TimeSpan.Zero, TimeSpan.Zero));
+
+        Assert.True(applied);
+        Assert.Equal(CueTriggerMode.Wait, cue.TriggerMode);
+        Assert.Equal(TimeSpan.FromSeconds(7), cue.WaitTime);
+        Assert.Equal(TimeSpan.FromSeconds(3), cue.Timing.TimeIn);
+        Assert.Equal(TimeSpan.FromSeconds(4), cue.Timing.TimeOut);
+
+        cueList.RemoveCue(cue);
+        Assert.False(cueList.SetTiming(cue, CueTiming.Default));
+    }
 }

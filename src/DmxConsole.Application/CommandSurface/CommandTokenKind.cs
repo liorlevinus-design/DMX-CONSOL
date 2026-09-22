@@ -40,6 +40,12 @@ public enum CommandTokenKind
     Odd,
     Even,
 
+    /// <summary>Cue-timing In/Out split (CUE ... TIME grammar) - "8/10" means In=8s, Out=10s,
+    /// parsed as Number, Slash, Number (same decomposed-token shape as every other operator in
+    /// this grammar, never a single token carrying a pre-split pair). Not used anywhere else in
+    /// the grammar today.</summary>
+    Slash,
+
     /// <summary>Selection History rule slice - reverses the current Selection's order in place,
     /// same shape as Odd/Even (bare, or as a clause inside a Fixture/Group sequence).</summary>
     Reverse,

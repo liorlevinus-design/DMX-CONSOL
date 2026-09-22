@@ -269,6 +269,24 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         return true;
     }
 
+    /// <summary>Sets an already-recorded Cue's flat In/Out fade timing in place (Command Surface's
+    /// CUE ... TIME ... grammar) - same shape as <see cref="SetTriggerMode"/>, no-op (returns
+    /// false) if the Cue is no longer in this list. Never touches TriggerMode/WaitTime - Cue
+    /// Trigger Semantics are a completely separate concern (CLAUDE.md §9), untouched by this
+    /// method. The new CueTiming is whatever the caller built (typically the existing Timing with
+    /// only TimeIn/TimeOut replaced, DelayIn/DelayOut preserved) - this method performs no
+    /// validation of its own, same as SetTriggerMode.</summary>
+    public bool SetTiming(Cue cue, CueTiming timing)
+    {
+        lock (_lock)
+        {
+            if (!Cues.Contains(cue)) return false;
+            cue.Timing = timing;
+        }
+        Changed?.Invoke();
+        return true;
+    }
+
     private void InsertSorted(Cue cue)
     {
         int i = 0;

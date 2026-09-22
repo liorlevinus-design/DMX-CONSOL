@@ -74,6 +74,8 @@ public sealed record CommandToken
         CommandTokenKind.Full => "Full",
         CommandTokenKind.Home => "Home",
         CommandTokenKind.Dmx => "Dmx",
+        CommandTokenKind.Slash => "/",
+        CommandTokenKind.Timing => "Time",
         _ => kind.ToString(),
     };
 }

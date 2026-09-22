@@ -63,10 +63,14 @@ public class CommandComposerObjectContextTests
     [Fact]
     public void CueHeadToken_EstablishesContext_ButHonestlyReportsNoResolutionPathYet()
     {
-        // §3: CUE is a recognized head token symmetric with FIXTURE/GROUP - but this console has
-        // no Application-layer command for targeting a Cue by number from the keypad (a real,
-        // documented gap, not a fabricated resolution). It must never fall through to
-        // Fixture-selection parsing or the old generic "Expected a fixture number..." error.
+        // §3: CUE is a recognized head token symmetric with FIXTURE/GROUP. Since the Cue-timing
+        // slice, "CUE <n> TIME <value> ENTER" is a real, implemented grammar branch - so "CUE 5"
+        // alone (before Enter) is legitimately still-typing (THRU or TIME could still follow),
+        // never an immediate error. But this console still has no Application-layer command for
+        // anything else targeting a Cue by number, so finalizing with nothing but the bare number
+        // (no THRU, no TIME) remains a real, honestly-reported gap - never a fabricated resolution,
+        // and never falls through to Fixture-selection parsing or its "Expected a fixture
+        // number..." error.
         var (context, _, _) = TestFixtures.BuildConsole(fixtureCount: 1);
         var composer = new CommandComposer(context);
 
@@ -75,9 +79,11 @@ public class CommandComposerObjectContextTests
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
 
         Assert.False(afterNumber.IsComplete);
-        Assert.NotNull(afterNumber.Error);
-        Assert.DoesNotContain("Expected a fixture number", afterNumber.Error);
+        Assert.Null(afterNumber.Error); // still-typing - THRU/TIME could still follow
+        Assert.Contains(CommandTokenKind.Timing, afterNumber.ExpectedNext);
         Assert.False(final.IsComplete);
+        Assert.NotNull(final.Error);
+        Assert.DoesNotContain("Expected a fixture number", final.Error);
         Assert.Null(final.ReadyOperation);
     }
 

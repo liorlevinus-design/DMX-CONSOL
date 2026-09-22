@@ -34,6 +34,12 @@ public enum ConsoleActionType
     /// both the Cues panel and the Command Surface's STORE grammar dispatch through.</summary>
     StoreCue,
 
+    /// <summary>CUE &lt;n&gt; [THRU &lt;n&gt;] TIME &lt;value&gt;[/&lt;value&gt;] grammar - sets an
+    /// already-recorded Cue's flat In/Out fade timing (CueTiming.TimeIn/TimeOut). Never touches
+    /// TriggerMode/WaitTime (Cue Trigger Semantics stay untouched by this grammar) and never
+    /// introduces per-AttributeClass timing storage - see CLAUDE.md's "Known contradiction" note.</summary>
+    SetCueTiming,
+
     /// <summary>Several commands dispatched and undone together as one transaction.</summary>
     Batch,
 

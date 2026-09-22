@@ -514,6 +514,44 @@ Store conflict terminology (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.
 UPDATE / OVERWRITE / CANCEL, matching CLAUDE.md §5. Do not rename UPDATE to MERGE and do not add
 REMOVE without a separate decision.
 
+### CUE TIME grammar — implemented
+
+Cue-level In/Out timing is programmable from the Command Surface:
+
+```
+CUE X TIME A ENTER
+= sets Cue X's In Time and Out Time to A seconds (TIME A => In=A, Out=A).
+
+CUE X TIME A/B ENTER
+= sets Cue X's In Time to A seconds and Out Time to B seconds (TIME A/B => In=A, Out=B).
+
+CUE X THRU Y TIME A ENTER
+= applies In=Out=A to every existing Cue in the X-Y range.
+
+CUE X THRU Y TIME A/B ENTER
+= applies In=A / Out=B to every existing Cue in the X-Y range.
+```
+
+Both `A` and `B` accept decimal values (e.g. `CUE 1 TIME 10.5 ENTER`). No mutation happens before
+`ENTER` resolves the composition — malformed input (missing value, a dangling/leading/doubled `/`,
+a range matching no existing Cue, or a value large enough to overflow `TimeSpan`) fails explicitly
+with no partial write, exactly like every other grammar form in this spec. A `THRU` range edit is
+one atomic, undoable operation — one `CompositeCommand` covers every Cue in the range, so `UNDO`
+reverts the whole range in a single step, never one step per Cue. Delay In/Delay Out are untouched
+by this grammar; only Time In/Time Out are written. This grammar does not read or write Selection,
+Programmer, or Cue Trigger state (Manual/AutoFollow/Wait) in any way.
+
+Bare `TIME` (with no `CUE` prefix) remains unresolved and is NOT implemented: there is no
+authoritative "current Cue being programmed" concept anywhere in the codebase today (playback's
+current Cue is not an editing target — CLAUDE.md §1 forbids inferring one from the other), so
+giving `TIME` an implicit target would mean inventing that concept rather than deciding it. This
+is an open DECISION REQUIRED item, not an oversight.
+
+Parameter/family-level TIME (e.g. `POSITION TIME 5`, `COLOR TIME 3`, §9A) remains future work and
+is untouched by this grammar. Timing storage stays per-Cue only — no `AttributeClass`-level timing
+field exists or is introduced here (CLAUDE.md's "Known contradiction — do not reintroduce" callout
+continues to apply).
+
 ---
 
 ## 14. ENTER
