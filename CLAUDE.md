@@ -38,7 +38,7 @@ Never infer one from another.
 
 ---
 
-## 2. Last Selection
+## 2. Last Selection & CLEAR
 
 Authoritative rule:
 
@@ -54,13 +54,32 @@ Sources include:
 - NEXT / PREVIOUS
 - future Selection filters/transforms
 
-CLEAR:
-- clears Current Selection
-- does NOT overwrite Last Selection
-
 `FIXTURE .` recalls Last Selection.
 
 Do not derive Last Selection from Programmer contents.
+
+### CLEAR (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C1)
+
+CLEAR is a fixed physical key with a single, immediate meaning:
+
+- CLEAR immediately clears Current Selection.
+- CLEAR also resets/dismisses pending Command Surface state: it clears the CommandComposer /
+  command line's in-progress composition, clears any pending numeric entry, and dismisses an
+  armed contextual RELEASE state (the Release Panel / awaiting-`ENTER` escalation from §6).
+- CLEAR does NOT clear the Programmer. Programmer values are released via RELEASE (§6), not
+  CLEAR.
+- CLEAR does NOT overwrite Last Selection.
+- CLEAR is not Undo and not Backspace. It does not delete show data, does not undo a completed
+  Store, does not release playbacks, and does not release Editor/Programmer values.
+- There is no `CLEAR CLEAR` behavior. A single CLEAR press clears the entire Current Selection;
+  there is no "remove only the last selection gesture" step before it, and no second press is
+  required or meaningful.
+- CLEAR is a non-undoable console Action (`IConsoleAction`, e.g. `ClearSelectionAction`), not an
+  `IConsoleCommand` — selection clearing never enters the Programming Undo stack (see §7).
+
+Backspace (`⌫`) is a separate physical key. It edits pending numeric/command-line input one digit
+at a time and never modifies a committed Selection. Backspace and CLEAR are two independent keys
+with two independent responsibilities — never multiplexed onto one physical control.
 
 ---
 
@@ -103,6 +122,20 @@ Examples:
 - MINUS in object context = subtraction
 - MINUS in signed-value context = unary negative sign
 
+TIME semantics (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N4): timing is stored per
+parameter/channel only, never per family/AttributeClass. Family-scoped TIME syntax (e.g.
+`POSITION TIME 5`, `COLOR TIME 3`) is shorthand only — it expands, at the grammar layer, into the
+relevant per-parameter TIME writes from the fixture profile (e.g. `POSITION TIME 5` may resolve to
+`PAN TIME 5` and `TILT TIME 5`). Do not introduce `PositionTime`/`ColorTime`/AttributeClass-level
+timing storage anywhere in the data model. This reinforces, and must stay consistent with, the
+"Known contradiction — do not reintroduce" callout below.
+
+STORE/UPDATE/DELETE routing (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C6): the shared
+Command Surface STORE / UPDATE / DELETE operations are authoritative. Contextual per-object
+soft keys (Cue, Group, Fixture, Preset, ...) may exist as UI affordances, but every one of them
+must route to the same shared Application-layer STORE / UPDATE / DELETE operations described in
+this section — never a separately implemented per-context mutation.
+
 ---
 
 ## 5. STORE
@@ -133,17 +166,27 @@ STORE COLOR ENTER   → PRESET NUMBER IS MISSING
 STORE PRESET ENTER  → contextual dialog may ask for family + number
 ```
 
-Preset family behavior:
+Preset family behavior (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C4):
+- Preset pools remain per-family / per AttributeClass. There is no single collapsed Preset
+  namespace.
 - one Preset object per AttributeClass pool
 - multi-family store creates multiple Preset objects
 - same number may be used in each pool
+- `PRESET 5 ENTER` (recall) without an explicit family context must not silently guess which
+  pool's Preset 5 to apply. Resolve the family from context (an armed family key) or expose the
+  choice; never guess.
+- `STORE PRESET` without an explicit family may open a family-selection workflow (see §5's
+  earlier `STORE PRESET ENTER` example).
+
+Store conflict terminology (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C7). Exactly
+three options, never renamed and never a fourth added without a separate decision:
 
 UPDATE:
-- merge touched values
+- merge newly touched values into existing stored content
 - preserve untouched existing values
 
 OVERWRITE:
-- replace stored content entirely with current store result
+- replace existing stored content entirely with the current store result
 
 CANCEL:
 - no mutation
@@ -215,6 +258,14 @@ Long-term: Programming Undo and Structural Show/Patch history are separate syste
 
 Do not build a second structural Undo stack unless explicitly requested.
 
+Selection history is also separate from Programming/Edit Undo (decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C5). Selection changes made through CLEAR are console
+Actions (`IConsoleAction`, see §2's CLEAR rule), never `IConsoleCommand`, and never enter the
+Programming Undo stack. This is a distinct question from whether other selection-building
+operations (FIXTURE, GROUP, ODD/EVEN, REVERSE, etc.) are themselves undoable `IConsoleCommand`s —
+that remains governed by the existing `IConsoleCommand`/`IConsoleAction` split (§14); the point
+decided here is narrower: CLEAR specifically is not part of Programming Undo.
+
 ---
 
 ## 8. Quick Patch
@@ -261,6 +312,10 @@ Automatic chaining is allowed only for forward progression.
 
 BACK / GO TO / instant SHIFT navigation must not seed an automatic chain.
 
+No list-level "AUTO CONTINUE" feature (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C8).
+Automatic chaining is expressed only through the target cue's own CueTriggerMode above; do not add
+a separate Cue List-level auto-continue concept alongside it.
+
 ---
 
 ## 10. Cue Navigation
@@ -280,6 +335,24 @@ SHIFT + BACK:
 - zero-time navigation
 
 Instant navigation must not arm automatic trigger chains.
+
+### EDIT vs LOAD vs GO TO (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N2)
+
+`CUE X ENTER`, `LOAD CUE X ENTER`, and `GO TO CUE X ENTER` are three distinct operations. Never
+collapse them into one meaning:
+
+```
+CUE X ENTER      = EDIT — load stored Cue X content into the Programmer for editing.
+LOAD CUE X ENTER = LOAD — load Cue X data/state into the Programmer for reuse (e.g. as a starting
+                    point for a new Cue), distinct from opening it for in-place editing.
+GO TO CUE X ENTER = playback jump to Cue X.
+```
+
+EDIT and LOAD both populate the Programmer; GO TO never does (Selection ≠ Programmer ≠ Playback,
+§1). Only a playback path that actually starts a Cue (GO, AutoFollow, Wait, GO TO, BACK,
+SHIFT+GO, SHIFT+BACK, or any other valid playback entry) fires that Cue's Macro assignments (see
+§15 Macro Assignment To Cues below) — EDIT and LOAD are inspection/authoring operations and must
+never fire them.
 
 ---
 
@@ -307,11 +380,20 @@ Distribution:
 
 ODD / EVEN / REVERSE belong in contextual SOFTKEYS, not permanent fixed keypad controls.
 
+EFFECT is a fixed Command Surface key (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C3;
+see also KEY_SPEC §11). This reverses an earlier draft position that treated EFFECT as a
+contextual soft key only.
+
 DELETE is a fixed editing key.
 
 Main contextual SOFTKEYS represent console actions/context.
 
 Fixture parameters belong in Encoder/Parameter surfaces, not main fixed softkeys.
+
+The general design principle behind fixed vs. contextual keys is: avoid duplicated semantics — the
+same operation implemented two different ways in two places — not "avoid permanent/fixed keys in
+general" (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` P3). A key may be fixed when its
+meaning is stable across contexts; it must still route to one shared Application operation (§3).
 
 ---
 
@@ -353,6 +435,57 @@ Never invent calibration, physical ranges or capability metadata. If metadata is
 
 ---
 
+## 15. Macros
+
+`SHIFT + STORE` = Store Options. `SHIFT + LEARN MACRO` = Macro Manager.
+
+`LEARN MACRO` remains the recording workflow (already implemented — see KEY_SPEC §17/§23.7).
+Macro playback must use shared console operations, never independent semantics — recorded steps
+replay through the same `Dispatch`/`DispatchAction` calls a live operator press would use.
+
+Macro Manager (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N3) is future work, not yet
+built. LEARN MACRO records macros; Macro Manager manages already-recorded macros — the two are
+distinct. v1 Macro Manager responsibilities:
+- list macros
+- show macro number/slot
+- show name
+- rename
+- delete
+- inspect recorded operations
+- assign/reassign slots
+- duplicate/copy
+- playback/test
+- show where macros are referenced (including Cue assignments, see below)
+- indicate structural operations (e.g. Patch) recorded within a macro
+
+Out of scope for v1 (future work beyond v1): import/export; advanced step editing.
+
+### Macro assignment to Cues (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` M1/M2/M3)
+
+Macros are independent show objects. Cues store references/assignments to macros, not copies.
+Approved grammar (new grammar, not yet implemented — see KEY_SPEC §23 gap inventory):
+
+```
+STORE MACRO 1 AT CUE 5 ENTER
+STORE MACRO 1+2 AT CUE 1 THRU 5 ENTER
+DELETE MACRO 1 AT CUE 5 ENTER
+DELETE MACRO 1+2 AT CUE 1 THRU 5 ENTER
+```
+
+- `ENTER` is mandatory. No mutation before `ENTER` resolves successfully.
+- Assignment/removal across a Cue range must be atomic.
+
+Cue Macro Assignments fire on Cue entry/start. This means: playback entry caused by GO,
+AutoFollow, Wait, GO TO, BACK, SHIFT+GO, SHIFT+BACK, or any other valid playback path that
+actually starts the Cue. They do NOT fire on EDIT, LOAD, inspection, or any other non-playback
+operation (see §10's EDIT/LOAD/GO TO distinction).
+
+Macro Manager should show which Cues reference each Macro, and allow inspection of those
+assignments. An optional future reverse view (which Macros are assigned to a selected Cue) may be
+added later.
+
+---
+
 # Project Reference
 
 ## Solution Layout
@@ -384,6 +517,10 @@ dotnet run --project src/DmxConsole.Web
 - `docs/COMMAND_SURFACE_KEY_SPEC.md` — command grammar, keys, value/time fans.
 - `docs/ARCHITECTURE.md` — engine history, Steps A–F (Hebrew).
 - `docs/UX_PHILOSOPHY.md` — console research and derived principles.
+- `docs/SPEC_CONFLICTS_FOR_DECISION.md` / `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` — decision
+  records for cross-document conflicts, round 1 and round 2. Decisions recorded there have already
+  been applied into CLAUDE.md/KEY_SPEC; the files themselves are the historical record, not a
+  second source of binding rules.
 
 Precedence: CLAUDE.md > ROADMAP > SPATIAL_PLOT_ARCHITECTURE > KEY_SPEC > ARCHITECTURE.
 If documents contradict each other: STOP and report. Never resolve silently.
@@ -391,7 +528,10 @@ If documents contradict each other: STOP and report. Never resolve silently.
 ### Known contradiction — do not reintroduce
 `ARCHITECTURE.md` Step E still describes per-`AttributeClass` cue timing (`AttributeTiming`).
 That was deliberately removed in H1.6 Slice 2. Cue timing is flat per Cue; the only finer
-granularity planned is per-channel (ROADMAP §9a). Never add per-family timing storage.
+granularity planned is per-channel (ROADMAP §9a). Never add per-family timing storage. This
+applies identically to TIME grammar (§4 above, decided — round 2 item N4): family-scoped TIME
+syntax is shorthand that expands into per-channel writes — there is no `PositionTime`/`ColorTime`
+or any other AttributeClass-keyed timing storage, now or later.
 
 ## Blazor Conventions
 
@@ -406,7 +546,8 @@ granularity planned is per-channel (ROADMAP §9a). Never add per-family timing s
 
 ## One Slice At A Time
 
-Do not combine unrelated feature work.
+Do not combine unrelated feature work. One slice per Claude Code session (decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` P6).
 
 Every task should have:
 - clear scope
@@ -414,6 +555,11 @@ Every task should have:
 - implementation
 - tests
 - report
+
+Development workflow for a slice: implementer → qa-regression → architecture-reviewer → operator
+approval → commit. Agents do not commit or push on their own (see Commit / Push Rule below). If a
+contradiction or architecture/product ambiguity remains after implementation, mark it DECISION
+REQUIRED and stop rather than silently deciding — see Stop-On-Ambiguity Rule below.
 
 ---
 

@@ -1,7 +1,10 @@
 # DMX-CONSOL Operator UX Roadmap
 
 Status: active roadmap
-Branch: `chatgpt/ux-integration-fixes`
+Current development baseline: branch `claude/selection-cycle`, stabilized test baseline 733/733
+(decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` P1). This document was originally authored
+against `chatgpt/ux-integration-fixes` — that is historical context only, not the current
+baseline.
 
 This document is the current UX source of truth for the operator-facing console workflow. It reflects the latest agreed direction: LIVE is the primary operational view, while Programmer remains an internal state/engine and is not a primary workspace view.
 
@@ -140,10 +143,13 @@ Target behaviour remains:
 - GUI/touch/keyboard/Command Surface all affect the same selection;
 - selection history and recall remain separate concepts from Undo history.
 
+CLEAR semantics are decided — see `CLAUDE.md` §2 and `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C1:
+CLEAR immediately clears Current Selection, resets pending command-line/RELEASE state, never
+touches the Programmer, never overwrites Last Selection, and has no `CLEAR CLEAR` step. The
+current implementation already matches this (`docs/COMMAND_SURFACE_KEY_SPEC.md` §23.15).
+
 Still to complete:
 
-- full `CLEAR` semantics and edge cases;
-- `CLEAR CLEAR` semantics and verification;
 - contextual recall: `FIXTURE .`, `GROUP .`, `AT .`;
 - selection history / LAST selection workflows;
 - parameter-level cycle behaviour where required.
@@ -164,7 +170,12 @@ Target:
 
 ## 9. Command Surface and Editor Tool Bar
 
-Continue expanding the existing context-driven command/editor architecture rather than adding fixed global buttons for every feature.
+Continue expanding the existing context-driven command/editor architecture. The approved fixed-key
+map in `docs/COMMAND_SURFACE_KEY_SPEC.md` (including EFFECT as a fixed key, decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C3) is authoritative (P3): the design principle is to avoid
+duplicated semantics — the same operation implemented two different ways in two places — not to
+avoid fixed/permanent keys in general. A key may be fixed when its meaning is stable across
+contexts, provided it still routes to one shared Application operation (`CLAUDE.md` §3).
 
 Priorities include:
 
@@ -187,9 +198,12 @@ Cue List work still required:
 
 - deeper compact redesign;
 - tracking;
-- timing and delay by attribute family;
 - unified Store/Update through Application commands;
 - stronger editing workflow and source integration with LIVE.
+
+Timing is per parameter/channel only (`CLAUDE.md` §4, §9a below, decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N4/P5). There is no "timing and delay by attribute family"
+workstream — that line is removed as obsolete; do not reintroduce family-level timing storage.
 
 Executor work still required:
 
@@ -455,26 +469,24 @@ Still open:
 - effects/phasers operator UX;
 - remaining show-control roadmap.
 
-## Current implementation priority
+## Current development approach: slice-based, dependency-driven
 
-Unless a blocking regression appears, the current priority order is:
+Decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` P2. Development planning is slice-based and
+dependency-driven, not a fixed numbered priority list. The fixed 16-item priority ordering
+previously listed here is removed: it contradicted the currently approved direction, most visibly
+the PATCH → 2D Plot → Spatial Database → Venue Adaptation dependency chain already documented in
+`docs/SPATIAL_PLOT_ARCHITECTURE.md` §6 and referenced in §11a above, which cannot be expressed as a
+single linear priority number without either misplacing PATCH relative to LIVE/Command Surface
+work or hiding the real dependency order.
 
-1. LIVE View redesign as the primary operational surface.
-2. LIVE filters: All / Editor Only / Patched / Used in Show / Live on Stage / Selected.
-3. Effective Live + Editor/Pending + Provenance in one model/view.
-4. Channels LIVE dense operational grid.
-5. Fixtures LIVE semantic summary integrated with Encoder Drawer.
-6. Selection History + CLEAR + Recall completion.
-7. Groups operator pool.
-8. Command Surface + Editor Tool Bar expansion.
-9. Quick Grid.
-10. Preset scope model and full preset workflow: Fixture / Fixture Type / Compatible.
-11. Cue Lists + Executors.
-12. Patch + Fixture Library / Device Profiles.
-13. Fixture Calibration / Venue Adaptation.
-14. Effects UX.
-15. Workspace polish.
-16. Stage / 2D / 3D / diagnostics.
+Each workstream in this document (§1–§16 above) is a candidate slice. Which slice comes next is
+decided per the actual dependency chain that workstream sits in (see §11a's chain for PATCH/Plot,
+and each section's own "still required" list for what blocks what), combined with CLAUDE.md's "One
+Slice At A Time" rule and the workflow in CLAUDE.md's Working Rules section (implementer →
+qa-regression → architecture-reviewer → operator approval → commit). There is no standing
+assumption that, say, LIVE View work must complete before Command Surface work, or vice versa —
+only that a slice's own prerequisites (as recorded in its section or in a dedicated architecture
+document like `docs/SPATIAL_PLOT_ARCHITECTURE.md`) must be stable before it starts.
 
 ## Definition of done for future UX slices
 

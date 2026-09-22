@@ -1,7 +1,12 @@
 # DMX-CONSOL Command Surface Key Spec (v1)
 
 Status: authoritative functional specification — v1 grammar/layout definition
-Branch: `chatgpt/ux-integration-fixes`
+Current development baseline: branch `claude/selection-cycle`, stabilized test baseline 733/733
+(decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` P1). This spec's grammar/layout definition
+was originally authored against `chatgpt/ux-integration-fixes` (583 tests at commit d06e663) — that
+is historical context for how this document came to exist, not the current baseline; do not treat
+either `chatgpt/ux-integration-fixes` or the 583-test figure as current-state guidance anywhere in
+this document.
 Companion documents: [`OPERATOR_UX_ROADMAP.md`](OPERATOR_UX_ROADMAP.md) (overall operator UX direction), [`ARCHITECTURE.md`](ARCHITECTURE.md) (layering), [`VECTOR_EDITOR_TOOLBAR_REFERENCE.md`](VECTOR_EDITOR_TOOLBAR_REFERENCE.md) (reference material only, not a spec source)
 
 This document is the single source of truth for the Command Surface's key layout, grammar and semantics. It supersedes any inline comment, prior chat discussion, or ad-hoc UI choice that conflicts with it. Where the current implementation disagrees with this document, §23 records the conflict explicitly — the code has not yet been changed to match every rule below purely because this document now states it.
@@ -427,11 +432,13 @@ Operate on resolved ordered fixture selection, not on group IDs.
 
 ## 11. EFFECT
 
-`EFFECT` is **NOT** a fixed physical key.
+`EFFECT` is a fixed physical key in the Command Surface (decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C3; not yet implemented, see §23.24).
 
-It is a contextual Soft Key that becomes available when fixtures are selected, including when the fixture selection came through GROUP.
-
-Do not make EFFECT a permanent fixed key in the main Command Surface.
+This reverses this spec's earlier position, which described EFFECT as a contextual Soft Key only
+and explicitly forbade making it a fixed key. That earlier position no longer applies — EFFECT is
+placed with the other fixed keys (§20 layout) and must route to shared Application-layer Effects
+grammar/semantics like every other fixed key (§21).
 
 ---
 
@@ -488,6 +495,25 @@ The Store and the Programmer clear are one atomic, undoable transaction:
 
 Selection and Playback are unaffected (Selection ≠ Programmer ≠ Playback — CLAUDE.md §1).
 
+### CUE X ENTER vs LOAD CUE X ENTER vs GO TO CUE X ENTER (decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N2; not yet implemented, see §23.26)
+
+Three distinct operations, never collapsed into one meaning:
+
+```
+CUE X ENTER       = EDIT — load stored Cue X content into the Programmer for editing.
+LOAD CUE X ENTER  = LOAD — load Cue X data/state into the Programmer for reuse, distinct from
+                     opening it for in-place editing.
+GO TO CUE X ENTER = playback jump to Cue X.
+```
+
+EDIT and LOAD populate the Programmer; GO TO never does. Only a playback path that actually
+starts a Cue fires that Cue's Macro assignments (§17) — EDIT and LOAD must never fire them.
+
+Store conflict terminology (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C7): exactly
+UPDATE / OVERWRITE / CANCEL, matching CLAUDE.md §5. Do not rename UPDATE to MERGE and do not add
+REMOVE without a separate decision.
+
 ---
 
 ## 14. ENTER
@@ -528,61 +554,51 @@ If ENTER is pressed while the command is invalid/incomplete, do not guess. Leave
 
 ## 15. CLEAR
 
-`CLEAR` is a fixed physical key.
+`CLEAR` is a fixed physical key. CLEAR semantics are decided — see
+`docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C1. This section previously described a different,
+layered model (digit-backspace / remove-last-gesture / `CLEAR CLEAR`); that model is superseded by
+the decision below. The current implementation (`CommandSurfaceViewModel.PressClear`,
+`ClearSelectionAction`) already matches the decided model described here — see §23.15.
 
-CLEAR is NOT Undo. CLEAR is NOT Release. CLEAR is NOT playback Back.
+CLEAR is NOT Undo. CLEAR is NOT Release. CLEAR is NOT playback Back. CLEAR is NOT Backspace.
 
-### Priority / behavior
+### Behavior
 
-**A. While entering a numeric token:** CLEAR behaves like Backspace one digit at a time.
+CLEAR has one immediate meaning, not a layered/priority state machine:
+
+- CLEAR immediately clears Current Selection.
+- CLEAR also resets/dismisses pending Command Surface state: the CommandComposer / command
+  line's in-progress composition, any pending numeric entry, and an armed contextual RELEASE
+  state (the Release Panel / awaiting-`ENTER` escalation, §7).
+- CLEAR does NOT clear the Programmer/Editor. Programmer values are released via RELEASE (§7),
+  never via CLEAR.
+- CLEAR does NOT overwrite Last Selection (CLAUDE.md §2).
+- There is no `CLEAR CLEAR` behavior and no "remove only the last selection gesture" step. A
+  single CLEAR press clears the entire Current Selection outright.
+- CLEAR does NOT: delete show data, undo a Store that already completed, release playbacks, or
+  release Editor/Programmer values. For those, use Undo or RELEASE as appropriate.
+- CLEAR is a non-undoable console Action (`IConsoleAction`), not an `IConsoleCommand` — selection
+  clearing via the physical CLEAR key never enters the Programming Undo stack (CLAUDE.md §7).
+
+Backspace (`⌫`) is a separate physical key/handler (`PressBackspace`). It edits pending
+numeric/command-line input one digit at a time and never touches committed Selection. Backspace
+and CLEAR are two independent keys with two independent responsibilities, never multiplexed onto
+one physical control.
 
 ```
 AT 57_
-CLEAR
+Backspace
 => AT 5_
 
-CLEAR again
+Backspace again
 => AT _
 ```
-
-**B. If there is no active numeric digit token but the current command has a last logical token/gesture:** CLEAR removes the last logical token/selection gesture.
 
 ```
 1 THRU 10 + GROUP 3
 CLEAR
-=> 1 THRU 10
+=> Current Selection is empty; command line reset to idle.
 ```
-
-GROUP 3 must be removed as one gesture, not fixture-by-fixture.
-
-**C. Consecutive selection gestures:**
-
-```
-GROUP 1
-GROUP 2
-GROUP 5
-
-CLEAR
-=> remove GROUP 5 gesture only.
-```
-
-**D. CLEAR CLEAR** = clear the entire current command / current selection cycle and return to idle command state.
-
-It does NOT:
-
-- delete show data
-- undo a Store that already completed
-- release playbacks
-- release Editor values
-
-For completed state changes use Undo or Release as appropriate.
-
-If a selection exists and no command line is active:
-
-- `CLEAR` = remove last selection gesture.
-- `CLEAR CLEAR` = clear entire selection.
-
-Selection clearing should remain undoable if selection mutation is represented as an undoable command in the existing architecture.
 
 ---
 
@@ -625,13 +641,58 @@ SHIFT + MACRO 3 = MACRO 7
 SHIFT + MACRO 4 = MACRO 8
 ```
 
-`LEARN MACRO` = start/stop macro recording workflow.
+`LEARN MACRO` = start/stop macro recording workflow. Already implemented (§23.7) — records
+structured `IConsoleCommand`/`IConsoleAction` instances, not raw UI gestures.
 
 `SHIFT + LEARN MACRO` = Macro Manager / Macro Edit workflow.
 
 Macro recording should capture structured console operations, not raw mouse coordinates or arbitrary UI gestures.
 
 Do not implement unsafe hidden side effects.
+
+### Macro Manager (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N3)
+
+Macro Manager is future work — not yet built (SHIFT+LEARN MACRO currently behaves like a bare
+LEARN MACRO press, per §23.7's own note). It manages already-recorded macros; LEARN MACRO records
+them. The two are distinct workflows.
+
+v1 responsibilities:
+- list macros
+- show macro number/slot
+- show name
+- rename
+- delete
+- inspect recorded operations
+- assign/reassign slots
+- duplicate/copy
+- playback/test
+- show where macros are referenced (including Cue assignments, below)
+- indicate structural operations (e.g. Patch) recorded within a macro
+
+Out of scope for v1: import/export; advanced step editing.
+
+### Macro assignment to Cues (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` M1/M2/M3; not
+yet implemented, see §23.25)
+
+Macros are independent show objects. Cues store references/assignments to macros, not copies.
+
+```
+STORE MACRO 1 AT CUE 5 ENTER
+STORE MACRO 1+2 AT CUE 1 THRU 5 ENTER
+DELETE MACRO 1 AT CUE 5 ENTER
+DELETE MACRO 1+2 AT CUE 1 THRU 5 ENTER
+```
+
+- `ENTER` is mandatory. No mutation before `ENTER` resolves successfully.
+- Assignment/removal across a Cue range must be atomic.
+
+**Cue Macro Assignments fire on Cue entry/start.** Fires on playback entry caused by GO,
+AutoFollow, Wait, GO TO, BACK, SHIFT+GO, SHIFT+BACK, or any other valid playback path that
+actually starts the Cue. Does NOT fire on EDIT, LOAD, inspection, or other non-playback operations
+(§13's EDIT/LOAD/GO TO distinction).
+
+Macro Manager should show which Cues reference each Macro. An optional future reverse view (which
+Macros are assigned to a selected Cue) may be added later.
 
 ---
 
@@ -698,6 +759,7 @@ The important spatial relationships are:
 - family keys together
 - PRESET next to family keys
 - HOME / RELEASE / FULL together
+- EFFECT (fixed key — decided, see §11/C3)
 - NEXT / LAST close to numeric keypad
 - numeric keypad
 - AT
@@ -709,7 +771,8 @@ The important spatial relationships are:
 
 CAPTURE ALL should live in the selection/action area, not the numeric bank.
 
-ODD / EVEN and EFFECT remain contextual Soft Keys in the upper context bar.
+ODD / EVEN remain contextual Soft Keys in the upper context bar. EFFECT is now a fixed key (§11)
+and no longer sits with ODD/EVEN.
 
 SETUP should be visually treated as a utility/system key.
 
@@ -753,6 +816,14 @@ CAPTURE ALL must use the effective-output model, not reimplement merge logic in 
 
 HOME / RELEASE family logic should use semantic attributes/families, never hard-coded raw DMX assumptions.
 
+### Placeholder soft keys (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` P4)
+
+Do not show misleading disabled contextual soft keys for features that have no engine yet. Hide
+unimplemented actions until their semantics genuinely exist, rather than rendering a row of
+disabled buttons. This applies to any future contextual action with no Application-layer support
+yet — for example MIB, LOOK AHEAD, BLOCK, UNBLOCK, TRY TIME, CUE ONLY, TRACKING. "Prefer absence
+over misleading behavior."
+
 ---
 
 ## 22. Implementation order (process reference)
@@ -776,7 +847,7 @@ This is the working order this project follows to build v1 against this spec —
 
 ## 23. Known conflicts / gaps vs. current implementation (authored alongside this spec, before any implementation change)
 
-This section is the required "document the conflict before changing behavior" checkpoint. Nothing in this section has been changed yet — it is a factual inventory of where `chatgpt/ux-integration-fixes` (as of this spec's commit) disagrees with, or simply doesn't yet cover, §1-21 above.
+This section is the required "document the conflict before changing behavior" checkpoint. It is a factual inventory of where the codebase disagrees with, or simply doesn't yet cover, §1-21 above. The original entries below were authored against `chatgpt/ux-integration-fixes` (as of this spec's commit) — that branch reference is historical (this document's current baseline is `claude/selection-cycle`, 733/733 tests, per the header above and P1); later entries (§23.20 onward) were verified against the current baseline directly.
 
 ### 23.1 Family granularity mismatch — RESOLVED (migrated to one unified six-family `AttributeClass`)
 
@@ -839,9 +910,12 @@ No utility key or route exists today that gathers Patch/Fixture Library/Show set
 
 `fixture.odd` / `fixture.even` are already registered as `ContextAction` soft keys (not fixed Command Surface keys) in `SoftKeyRegistryBuilder`, dispatching to `SelectionViewModel.SelectOddCommand`/`SelectEvenCommand`, which already operate on the resolved ordered `Selection`, not group IDs. This already agrees with §10 — no conflict. It is not yet exposed as a soft key specifically in the "upper context bar" location §20 describes; that is a layout gap, not a semantics gap.
 
-### 23.12 EFFECT soft key does not exist yet
+### 23.12 EFFECT key does not exist yet — superseded by §23.24
 
-No `EditorToolBar` context currently registers an `EFFECT` key anywhere. §11 requires it as a contextual soft key whenever fixtures are selected (including via GROUP) — new, not a conflict, just unbuilt.
+**Superseded.** This entry originally described EFFECT as a missing contextual soft key, matching
+this spec's pre-C3 text. Per the C3 decision (§11), EFFECT is now a fixed Command Surface key, not
+a soft key. See §23.24 for the current gap entry (still unbuilt either way — nothing in the
+codebase registers an EFFECT key of any kind today).
 
 ### 23.13 FULL (semantic 100%) does not exist as a token/action
 
@@ -851,11 +925,31 @@ There is no `CommandTokenKind.Full` and no handling for a bare `FULL` self-termi
 
 The existing grammar already requires `ENTER` to finalize a plain selection/AT command (`1 THRU 10 AT 50` does not resolve until `ENTER`), matching §14's default rule. There is currently no self-terminating Action-key path at all (no `HOME`, `RELEASE`, `FULL` tokens exist yet to self-terminate) — so §14's "ends in an unambiguous Action key may self-terminate" rule has nothing to test against yet; it becomes relevant only once HOME/RELEASE/FULL tokens are added.
 
-### 23.15 CLEAR hierarchy already matches §15 closely for the cases that exist today
+### 23.15 CLEAR — RESOLVED (implementation already matches the decided C1 model; this spec's text was stale)
 
-`CommandSurfaceViewModel.PressClear` / `CommandComposer.Push(Clear)` already implement: digit backspace is handled separately via `PressBackspace` (not currently multiplexed onto the same physical Clear key — see below); a Clear with active tokens removes the whole in-progress command line in one step (not literally "last logical token" when a composed multi-clause command line is involved — see caveat below); an empty-line Clear removes the last selection *gesture* as one unit (§15-B/C, already correct, including whole-Group-as-one-gesture); a second consecutive empty-line Clear clears the entire selection (§15-D, already correct: `_clearArmedForFullSelection`).
+**Status: no implementation gap.** This entry originally compared the codebase against §15's old
+layered digit-backspace/remove-last-gesture/`CLEAR CLEAR` text. That old text is superseded by the
+C1 decision (`docs/SPEC_CONFLICTS_FOR_DECISION_1.md`), and — verified directly against
+`CommandSurfaceViewModel.PressClear`/`ClearSelectionAction` while reconciling this round of docs —
+the current implementation already matches the *new*, decided model exactly, with no code change
+required:
 
-**Caveat worth flagging, not yet a confirmed conflict:** §15-A describes `CLEAR` itself behaving as digit-backspace while a numeric token is being entered ("AT 57_ / CLEAR => AT 5_"). Today, digit entry and Clear are two separate physical keys/handlers (`PressBackspace` vs `PressClear`) — pressing Clear while mid-digit-entry today does **not** backspace the digit, it takes the empty-line-Clear path against a stale composer state, since `PressClear` unconditionally zeroes `_pendingDigits` without treating that as a backspace step. This needs to be reconciled with §15-A during implementation (most likely: make the digit-backspace behavior the first branch of `PressClear`, mirroring what `PressBackspace` already does for `⌫`, rather than two independently-firing key handlers).
+- `PressClear()` dispatches `ClearSelectionAction` (`context.Selection.Clear()`), an `IConsoleAction`
+  — immediate, single-step, never entering the Undo stack.
+- `PressClear()` also resets `_pendingDigits`, calls `_composer.Reset()`, and calls
+  `DisarmReleaseContext()` (which dismisses an armed RELEASE panel and any armed STORE
+  family/conflict choice) — matching "CLEAR also resets pending command-line state and dismisses
+  an armed RELEASE state."
+- `FixtureSelection.Clear()` only clears `Items`; nothing about Last Selection tracking is touched
+  by it — matching "CLEAR does NOT overwrite Last Selection."
+- There is no `CLEAR CLEAR` code path anywhere in `CommandSurfaceViewModel`/`CommandComposer` — a
+  single `PressClear()` call fully clears Current Selection; matching "no `CLEAR CLEAR`
+  behavior."
+- Digit entry and CLEAR are already two separate physical keys/handlers (`PressBackspace` vs
+  `PressClear`) — matching "Backspace edits pending input only, CLEAR is a separate key."
+
+No test changes or code changes are required for C1; this entry exists only so the (now corrected)
+§15 text and this gap-inventory both reflect the actual, already-correct implementation.
 
 ### 23.16 SHIFT does not exist as a modifier concept anywhere
 
@@ -863,7 +957,18 @@ No `Shift` state exists on `CommandSurfaceViewModel`, no visual Shift key, no ph
 
 ### 23.17 STORE/UPDATE/DELETE/EDIT/COPY/MOVE already exist per-object-family, generically dispatched
 
-§13's fixed Record/Edit keys already exist as a pattern: `SoftKeyRegistryBuilder` registers `STORE`/`UPDATE`/`DELETE` per context (`Cue`, `Group`, `Fixture`) and `EditorToolBarViewModel.RunContextAction` resolves them generically via `(action, ObjectType)` onto existing RelayCommands — exactly the "same key, context-dependent behavior, never duplicated business logic" rule this spec requires (§21). `EDIT`/`COPY`/`MOVE` are already present as registered-but-`NotImplemented` keys (honest placeholders, not fake buttons) for every object family. This is the closest thing in the codebase today to what this spec asks the whole Command Surface to look like, and should be the template for the family-key/Home/Release wiring described above, not a separate mechanism.
+§13's fixed Record/Edit keys already exist as a pattern: `SoftKeyRegistryBuilder` registers `STORE`/`UPDATE`/`DELETE` per context (`Cue`, `Group`, `Fixture`) and `EditorToolBarViewModel.RunContextAction` resolves them generically via `(action, ObjectType)` onto existing RelayCommands — exactly the "same key, context-dependent behavior, never duplicated business logic" rule this spec requires (§21). `EDIT`/`COPY`/`MOVE` are already present as registered-but-`NotImplemented` keys (honest placeholders, not fake buttons) for every object family.
+
+**Revised per C6 (decided — see `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C6):** this per-context
+soft-key pattern is a legitimate contextual *entry point*, but it is not itself "the template for
+future wiring." The authoritative pattern going forward is: shared Command Surface `STORE` /
+`UPDATE` / `DELETE` grammar/operations (CLAUDE.md §5–§6, §15 above) are the single source of
+semantics; any contextual soft key (per-object or otherwise) must route to those same shared
+Application-layer operations, never implement its own local STORE/UPDATE/DELETE behavior. Where
+`RunContextAction`'s existing RelayCommands already do this (dispatching into the same
+Application-layer commands the Command Surface grammar uses), they remain correct and require no
+change; the correction here is purely about which direction future work should generalize from —
+outward from the shared Command Surface operations, not outward from the per-context soft keys.
 
 ### 23.18 Undo/Redo boundary already matches §16 exactly
 
@@ -914,6 +1019,18 @@ The DMX DIRECT ADDRESSING follow-up made the **Command Surface's own** `DMX <Uni
 
 **Status: new decided rule, no code yet.** `docs/SPEC_CONFLICTS_FOR_DECISION.md` N1 decides that a successful `STORE CUE` must atomically clear the entire Programmer (including anything excluded by a Store filter), with `UNDO`/`REDO` covering the Store and the clear together as one transaction, and no partial mutation on failure/cancel. `StoreCueCommand` (`DmxConsole.Application/Commands/Cues/StoreCueCommand.cs`) does not do this today — `Execute` only calls `_cueList.RecordCue(...)` and never touches `context.Programmer`. §5 and §13 above document the decided rule; implementing it is a future slice (likely `DispatchBatch`/`CompositeCommand` wrapping `StoreCueCommand` with a new Programmer-clear command, per CLAUDE.md §14, with the composite made `IReplayableCommand` for Macro safety per §23.7's existing pattern).
 
+### 23.24 EFFECT as a fixed key — decided (C3), not yet implemented
+
+**Status: new decided rule, no code yet.** `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` C3 decides EFFECT is a fixed Command Surface key (§11), reversing this spec's earlier "not a fixed key" position. Verified against the codebase: no `CommandTokenKind.Effect` exists in `CommandToken.cs`/`CommandTokenKind.cs`, `CommandComposer.cs` has no Effect grammar branch, and no `EditorToolBar`/`SoftKeyRegistryBuilder` context registers an `EFFECT` key of any kind — fixed or contextual. This entry supersedes §23.12 (which described the pre-decision "missing contextual soft key" framing). Implementing this is a future slice: add the token/grammar, wire a fixed key in `CommandSurface.razor`'s layout (§20), and define what EFFECT actually composes into (Effects grammar is itself still a "future Effects grammar" placeholder per CLAUDE.md §4 — this decision fixes EFFECT's *key placement*, not its full grammar, which remains unbuilt).
+
+### 23.25 Macro assignment to Cues (STORE MACRO ... AT CUE ...) — decided (M1/M2/M3), not yet implemented
+
+**Status: new decided grammar, no code yet.** `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` M1/M2/M3 decide new grammar (`STORE MACRO n AT CUE n ENTER`, `DELETE MACRO n AT CUE n ENTER`, ranges and `+`-combined macro lists, atomic across a Cue range) and firing semantics ("Cue Macro Assignments fire on Cue entry/start" — GO/AutoFollow/Wait/GO TO/BACK/SHIFT+GO/SHIFT+BACK, never EDIT/LOAD/inspection). Verified against the codebase: there is no `AT CUE` clause anywhere in `CommandComposer.cs`'s grammar, `Cue.cs` (`DmxConsole.Core/Engine/Cue.cs`) has no field referencing a Macro (no macro-reference list of any kind), and `MacroPlaybackService`/`MacroBank` (`DmxConsole.Application.Macros`, §23.7) have no playback-entry hook into `CueList`/`Executor` Cue-start logic. This is entirely new: new grammar (`CommandComposer`), a new Cue→Macro reference field (`Cue.cs`, keyed by Macro slot identity, never a copy of `MacroStep`s), a new atomic Store/Delete command pair, and a new firing hook at whatever code path already transitions a Cue to "started" (Manual GO completion, AutoFollow, Wait-timer completion, GO TO, BACK, SHIFT+GO, SHIFT+BACK). Macro Manager's "show which Cues reference each Macro" (N3/M3) depends on this same Cue→Macro reference field existing first.
+
+### 23.26 CUE X ENTER / LOAD CUE X ENTER / GO TO CUE X ENTER — decided (N2), not yet implemented
+
+**Status: new decided rule, no code yet.** `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N2 decides three distinct meanings: `CUE X ENTER` = EDIT (load stored Cue content into the Programmer), `LOAD CUE X ENTER` = LOAD (load Cue data for reuse, distinct from editing in place), `GO TO CUE X ENTER` = playback jump. Verified against the codebase: `CommandComposer.Build` (line ~130) explicitly returns `Incomplete(...)` for any command starting with a bare `Cue` token today — "Cue numeric commands are not implemented yet - no Application-layer command exists for targeting a Cue by number from the Command Surface." There is no `LOAD` token/grammar and no `GO TO` command-line grammar either (playback jump exists only via the Cue List UI/Executor actions, not the Command Surface keypad). All three of EDIT/LOAD/GO TO are unbuilt at the Command Surface grammar layer; implementing N2 means building all three as distinct `CommandComposer` branches/Application commands rather than one shared `CUE X ENTER` meaning. This is a genuine behavior decision, not just a gap: per the round-1 N2 note this spec already carried (§23.9's sibling concern), `CUE 12 ENTER` had no prior behavior to preserve, so implementing EDIT here is additive, not a breaking change.
+
 ---
 
-**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.12–§23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10, §23.15 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first. §23.20 (Universe numbering consistency) is a known, deliberately deferred inconsistency — the DMX Command Surface is 1-based operator-facing, while Patch/Toolbar/LIVE displays and persisted data remain 0-based — tracked for a future slice, not scheduled now. §23.22 and §23.23 record two decisions from `docs/SPEC_CONFLICTS_FOR_DECISION.md` (C2, N1) whose doc text is now reconciled but whose implementation has not started — both are real, scoped future slices, not ambiguity.
+**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.15 is now RESOLVED — the implementation already matches the decided C1 CLEAR model; only this spec's text was stale. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first. §23.20 (Universe numbering consistency) is a known, deliberately deferred inconsistency — the DMX Command Surface is 1-based operator-facing, while Patch/Toolbar/LIVE displays and persisted data remain 0-based — tracked for a future slice, not scheduled now. §23.22 and §23.23 record two round-1 decisions (C2, N1) whose doc text is reconciled but whose implementation has not started. §23.24–§23.26 record three round-2 decisions (C3, M1/M2/M3, N2) whose doc text is now written here for the first time and whose implementation has not started — all are real, scoped future slices, not ambiguity.
