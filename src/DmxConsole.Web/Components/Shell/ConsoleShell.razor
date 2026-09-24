@@ -1,6 +1,9 @@
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.JSInterop
+@using DmxConsole.Web.Services
 @inject IJSRuntime JS
+@inject FloatingWindowCoordinator FloatingWindows
+@implements IAsyncDisposable
 
 @*
     Root of the Workspace shell. Per H1.6's Contextual Command Surface:
@@ -12,28 +15,29 @@
         +-- CommandLine     (persistent - what's being composed right now)
         +-- console-shell-resize-handle (Command Surface layout slice - drags .console-input-row's height cap)
         +-- console-input-row
-            +-- EncoderDrawer   (persistent - fixed encoder bank, Milestone 1 work-plan handoff)
-            +-- CommandSurface  (persistent - keypad/soft keys that compose the command line)
+        |   +-- EncoderDrawer   (persistent - fixed encoder bank, Milestone 1 work-plan handoff)
+        +-- FloatingWindow(CommandSurface)  (persistent - keypad/soft keys that compose the
+              command line; floats free of console-input-row per the floating-window
+              infrastructure slice - see FloatingWindow.razor's own doc comment)
 
     EditorToolBar/CommandLine/EncoderDrawer/CommandSurface are persistent console infrastructure,
     exactly like ConsoleChrome - never part of the pane tree, never closable/splittable Views. See
-    each component's own doc comment for what it owns. EncoderDrawer and CommandSurface share one
-    responsive row (side by side on wide screens, stacked on narrow ones - see .console-input-row
-    in app.css) since the work plan asks for the drawer "next to the keypad or above it depending
-    on screen width", not two separate hardcoded placements.
+    each component's own doc comment for what it owns. Command Surface used to share
+    .console-input-row with EncoderDrawer; it now floats instead (drag/bring-to-front via
+    FloatingWindow), while EncoderDrawer stays pinned in the fixed input row - floating every
+    persistent surface at once was out of scope for that slice.
 
     Command Surface layout slice: .console-shell-workspace is already flex:1 1 auto (the dominant
-    area) while .console-input-row was flex:none, sized purely by its own content - with both
-    EncoderDrawer and CommandSurface open, that content is tall enough to squeeze the workspace
-    down to a sliver. .console-input-row now caps itself at _inputRowMaxHeightPx (a max-height,
-    not a fixed height - see the inline style below) with overflow-y:auto as a safety net, so nothing
-    is ever clipped/unreachable even at the smallest cap. Because it is a CAP, not a fixed height,
-    collapsing either EncoderDrawer or CommandSurface (their own existing IsOpen/Toggle) shrinks
-    the row's actual content immediately, and .console-shell-workspace's flex:1 reclaims the freed
-    space on the very next layout pass - no extra plumbing needed for that half of the requirement.
-    The drag handle below lets the operator raise/lower the cap itself, reusing the exact same
-    pointer-capture technique PaneHost.razor's own split-resize already established (dmxPaneResize
-    in workspacePaneResize.js) rather than inventing a second mechanism.
+    area) while .console-input-row was flex:none, sized purely by its own content. .console-input-row
+    now caps itself at _inputRowMaxHeightPx (a max-height, not a fixed height - see the inline style
+    below) with overflow-y:auto as a safety net, so nothing is ever clipped/unreachable even at the
+    smallest cap. Because it is a CAP, not a fixed height, collapsing EncoderDrawer (its own
+    existing IsOpen/Toggle) shrinks the row's actual content immediately, and
+    .console-shell-workspace's flex:1 reclaims the freed space on the very next layout pass - no
+    extra plumbing needed for that half of the requirement. The drag handle below lets the operator
+    raise/lower the cap itself, reusing the exact same pointer-capture technique PaneHost.razor's
+    own split-resize already established (dmxPaneResize in workspacePaneResize.js) rather than
+    inventing a second mechanism - the same technique FloatingWindow.razor's own drag reuses too.
 *@
 
 <div class="console-shell">
@@ -45,12 +49,14 @@
     <CommandLine />
     <div class="pane-resize-handle vertical console-shell-resize-handle" @ref="_resizeHandleRef"
          @onpointerdown="StartResize" @onpointermove="DoResize" @onpointerup="EndResize" @onpointercancel="EndResize"
-         title="Drag to resize the Encoder/Command Surface area">
+         title="Drag to resize the Encoder area">
     </div>
     <div class="console-input-row" style="max-height:@(_inputRowMaxHeightPx)px; overflow-y:auto;">
         <EncoderDrawer />
-        <CommandSurface />
     </div>
+    <FloatingWindow WindowId="command-surface" Title="Command Surface" DefaultX="40" DefaultY="90">
+        <CommandSurface />
+    </FloatingWindow>
 </div>
 
 @code {
@@ -58,15 +64,60 @@
     // no reason to persist a screen-space preference into the saved Workspace JSON). Default
     // chosen to keep the workspace dominant out of the box (roughly what the screenshot that
     // prompted this slice showed as "too much"), while the drag handle lets the operator raise
-    // it back up to fit the full keypad without scrolling if they want to.
+    // it back up if they want more room for the Encoder Drawer.
     private double _inputRowMaxHeightPx = 320;
-    private const double MinInputRowHeightPx = 90;   // enough to show EncoderDrawer/CommandSurface collapsed strips
-    private const double MaxInputRowHeightPx = 720;  // generous enough for the full open keypad, still leaves the workspace visible
+    private const double MinInputRowHeightPx = 90;   // enough to show EncoderDrawer collapsed
+    private const double MaxInputRowHeightPx = 720;  // generous enough for a fully open drawer
 
     private ElementReference _resizeHandleRef;
     private bool _resizing;
     private double _resizeStartClientY;
     private double _resizeStartHeightPx;
+
+    // Floating-window positioning-bug fix: the shell is the one place that both knows the real
+    // browser viewport size and always stays on screen itself, so it is what reports viewport
+    // size into FloatingWindowCoordinator - never the floating window itself, which may be the
+    // very thing that's gone missing. See FloatingWindowCoordinator.SetViewportSize's own doc
+    // comment for the re-clamp behavior this feeds.
+    private DotNetObjectReference<ConsoleShell>? _selfRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _selfRef = DotNetObjectReference.Create(this);
+        var size = await JS.InvokeAsync<ViewportSize>("dmxPaneResize.getViewportSize");
+        FloatingWindows.SetViewportSize(size.Width, size.Height);
+        await JS.InvokeVoidAsync("dmxPaneResize.watchViewportResize", _selfRef);
+    }
+
+    [JSInvokable]
+    public void OnViewportResized(double width, double height) => FloatingWindows.SetViewportSize(width, height);
+
+    private sealed class ViewportSize
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+
+    // Unregister the JS-side resize listener BEFORE disposing the DotNetObjectReference it
+    // invokes into - otherwise a resize event racing the disposal (or arriving after it) calls
+    // into an already-disposed reference and throws in the browser console. Must be
+    // IAsyncDisposable (not plain IDisposable.Dispose): unregistering is a JS interop call, and
+    // Blazor's synchronous Dispose() cannot reliably await one.
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("dmxPaneResize.unwatchViewportResize");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit already gone - nothing to unregister JS-side.
+        }
+
+        _selfRef?.Dispose();
+    }
 
     private async Task StartResize(PointerEventArgs e)
     {

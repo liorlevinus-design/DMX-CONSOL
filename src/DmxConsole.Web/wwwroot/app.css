@@ -930,14 +930,55 @@ html, body {
    GUI Workspace Engine / Shell (Slice 2 preview - /workspace-preview only)
    ============================================================ */
 
-.console-shell { display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
+/* FloatingWindow.razor - the ONE reusable floating-window shell (drag/z-order/position only,
+   no business-state styling). Positioned absolutely within .console-shell (position:relative
+   above), so it can sit anywhere over the workspace/console-input-row without disturbing their
+   own flex layout. */
+.floating-window {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 45%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--panel-alt);
+}
+.floating-window-header {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+.floating-window-header:active { cursor: grabbing; }
+.floating-window-title { color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; }
+.floating-window-close {
+    flex: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    line-height: 1;
+    padding: 2px 6px;
+    cursor: pointer;
+}
+.floating-window-close:hover { border-color: var(--accent); color: var(--text); }
+.floating-window-body { flex: none; display: flex; }
+
+.console-shell { position: relative; display: flex; flex-direction: column; height: 100vh; background: var(--bg); color: var(--text); }
 .console-chrome { flex: none; }
 .console-shell-workspace { flex: 1 1 auto; min-height: 0; display: flex; }
 
 /* Encoder Drawer + Command Surface share one responsive row: side by side on wide screens,
    stacked (drawer above keypad) on narrow ones - work-plan Milestone 1 §81. */
 .console-input-row { flex: none; display: flex; flex-direction: row; }
-.console-input-row .command-surface { border-right: none; }
 @media (max-width: 900px) {
     .console-input-row { flex-direction: column; }
     .console-input-row .encoder-drawer { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }

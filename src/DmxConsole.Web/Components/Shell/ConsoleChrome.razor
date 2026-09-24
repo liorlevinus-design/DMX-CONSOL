@@ -1,5 +1,7 @@
 @using DmxConsole.Web.Components.ConsoleUi
+@using DmxConsole.Web.Services
 @inject MainViewModel Vm
+@inject FloatingWindowCoordinator FloatingWindows
 @implements IDisposable
 
 @*
@@ -7,10 +9,21 @@
     status / engine-output status / Undo-Redo / layout-lock indication live OUTSIDE the pane
     tree - never closable, never splittable. Slice 2 just hosts/adapts the existing Toolbar and
     status bar; a real command line and richer status readout are future slices.
+
+    Floating-window positioning-bug fix: "Recover Command Surface" lives here rather than on the
+    floating window itself, precisely because the floating window is the thing that can go
+    missing - this button is fixed chrome and can never itself become unreachable. It is a thin
+    proxy straight onto FloatingWindowCoordinator.Recover (show + re-clamp to a reachable position
+    + bring to front), same as every other floating-window operation - no bespoke recovery state
+    of its own, purely presentational, never touches Selection/Programmer/Playback/CommandComposer.
 *@
 
 <div class="console-chrome">
     <Toolbar />
+    <button class="btn" title="Show and recover the Command Surface if it's hidden or off-screen"
+            @onclick="RecoverCommandSurface">
+        ⌘ Command Surface
+    </button>
 </div>
 <div class="status-bar">@Vm.StatusMessage</div>
 
@@ -18,6 +31,8 @@
     protected override void OnInitialized() => Vm.PropertyChanged += OnChanged;
 
     private void OnChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void RecoverCommandSurface() => FloatingWindows.Recover("command-surface");
 
     public void Dispose() => Vm.PropertyChanged -= OnChanged;
 }

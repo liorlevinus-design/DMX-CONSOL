@@ -1,0 +1,111 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using DmxConsole.Web.Services
+@inject FloatingWindowCoordinator Coordinator
+@inject IJSRuntime JS
+@implements IDisposable
+
+@*
+    FloatingWindow: the ONE reusable floating-window shell for operator UI surfaces. Every
+    floatable panel (Command Surface today; any future one, e.g. a Macro Manager) wraps its own
+    content in this component instead of growing its own drag/z-order/position code - "ONE shared
+    implementation, no per-panel duplicate drag code" per the work-plan slice that introduced it.
+
+    Purely presentational/positional: this component knows nothing about Selection, Programmer,
+    Playback or CommandComposer, and never calls into any command-execution path. It only tracks,
+    via FloatingWindowCoordinator, where a window sits on screen and which window is on top.
+    Dragging, focusing, opening or closing a FloatingWindow therefore can never mutate console
+    state - it can only ever change position/z-order/visibility in the coordinator.
+
+    Drag reuses the exact same pointer-capture technique PaneHost.razor/ConsoleShell.razor's own
+    resize handles already established (dmxPaneResize in workspacePaneResize.js) - not a second
+    drag mechanism.
+
+    Close/hide is OPTIONAL (Closable parameter) - a hosted surface that already has its own
+    collapse/expand affordance (Command Surface's ▲OPEN/▼CLOSE strip, driven by its own
+    ViewModel) does not also need the floating shell's close button; a future surface with no such
+    affordance of its own can opt in.
+*@
+
+@if (_state is { IsVisible: true })
+{
+    <div class="floating-window" style="left:@(_state.X.ToString(System.Globalization.CultureInfo.InvariantCulture))px; top:@(_state.Y.ToString(System.Globalization.CultureInfo.InvariantCulture))px; z-index:@_state.ZIndex;"
+         @onpointerdown="OnWindowPointerDown">
+        <div class="floating-window-header" @ref="_headerRef"
+             @onpointerdown="StartDrag" @onpointermove="DoDrag" @onpointerup="EndDrag" @onpointercancel="EndDrag">
+            <span class="floating-window-title">@Title</span>
+            @if (Closable)
+            {
+                <button class="floating-window-close" title="Hide @Title" @onclick="Close" @onclick:stopPropagation="true">✕</button>
+            }
+        </div>
+        <div class="floating-window-body">
+            @ChildContent
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Stable identity for this window's position/z-order in FloatingWindowCoordinator -
+    /// never reused for two different hosted surfaces at once.</summary>
+    [Parameter, EditorRequired] public string WindowId { get; set; } = "";
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public double DefaultX { get; set; } = 24;
+    [Parameter] public double DefaultY { get; set; } = 24;
+    /// <summary>Shows the shell's own close (hide) button when true. Default false - most hosted
+    /// surfaces manage their own open/closed affordance and don't need a second one.</summary>
+    [Parameter] public bool Closable { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private FloatingWindowState? _state;
+    private ElementReference _headerRef;
+    private bool _dragging;
+    private double _dragStartClientX;
+    private double _dragStartClientY;
+    private double _dragStartX;
+    private double _dragStartY;
+
+    protected override void OnInitialized()
+    {
+        _state = Coordinator.GetOrRegister(WindowId, DefaultX, DefaultY);
+        Coordinator.Changed += OnCoordinatorChanged;
+    }
+
+    private void OnCoordinatorChanged() => InvokeAsync(StateHasChanged);
+
+    private void OnWindowPointerDown(PointerEventArgs e) => Coordinator.BringToFront(WindowId);
+
+    private async Task StartDrag(PointerEventArgs e)
+    {
+        if (_state is null) return;
+
+        _dragging = true;
+        _dragStartClientX = e.ClientX;
+        _dragStartClientY = e.ClientY;
+        _dragStartX = _state.X;
+        _dragStartY = _state.Y;
+        Coordinator.BringToFront(WindowId);
+        await JS.InvokeVoidAsync("dmxPaneResize.capture", _headerRef, e.PointerId);
+    }
+
+    private void DoDrag(PointerEventArgs e)
+    {
+        if (!_dragging) return;
+
+        double dx = e.ClientX - _dragStartClientX;
+        double dy = e.ClientY - _dragStartClientY;
+        Coordinator.Move(WindowId, _dragStartX + dx, _dragStartY + dy);
+    }
+
+    private async Task EndDrag(PointerEventArgs e)
+    {
+        if (!_dragging) return;
+
+        _dragging = false;
+        await JS.InvokeVoidAsync("dmxPaneResize.release", _headerRef, e.PointerId);
+    }
+
+    private void Close() => Coordinator.Hide(WindowId);
+
+    public void Dispose() => Coordinator.Changed -= OnCoordinatorChanged;
+}

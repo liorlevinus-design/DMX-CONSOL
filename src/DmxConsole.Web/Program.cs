@@ -15,6 +15,12 @@ builder.Services.AddSingleton<MainViewModel>();
 // Exposed only via /workspace-preview for now; the existing / route is untouched.
 builder.Services.AddSingleton<WorkspaceViewModel>();
 
+// Floating-window infrastructure slice: where each floating operator window sits on screen is
+// this operator's own client-local UI preference, not shared console show state - Scoped (one
+// per circuit/browser connection), unlike the shared/Singleton MainViewModel/WorkspaceViewModel
+// above. Purely positional; see FloatingWindowCoordinator's own doc comment.
+builder.Services.AddScoped<FloatingWindowCoordinator>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
