@@ -39,6 +39,11 @@ public static class KeyboardCommandMap
         Token("-", CommandTokenKind.Minus);
         Token("@", CommandTokenKind.At);
 
+        // Cue TIME split syntax (CUE n TIME 8/10 ENTER) - "/" is the literal In/Out separator
+        // CommandComposer.ResolveCueTiming already parses (CommandTokenKind.Slash). This is the
+        // one physical key needed to reach that existing token; no new grammar here.
+        Token("/", CommandTokenKind.Slash);
+
         Token("f", CommandTokenKind.Fixture);
         Token("F", CommandTokenKind.Fixture);
         Token("g", CommandTokenKind.Group);

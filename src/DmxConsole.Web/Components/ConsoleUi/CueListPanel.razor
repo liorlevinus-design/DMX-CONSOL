@@ -54,8 +54,12 @@
         </div>
 
         <div style="font-size:13px; margin-bottom:4px">Active: @Cues.CurrentCueLabel</div>
-        <div class="progress-bar"><div style="width:@((Cues.TransitionProgress * 100).ToString("0"))%"></div></div>
-        <div style="font-size:11px; color:var(--text-dim); margin-top:2px">@Cues.RemainingTimeText</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:2px">IN</div>
+        <div class="progress-bar"><div style="width:@((Cues.FadeInProgress * 100).ToString("0"))%"></div></div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:2px; margin-bottom:6px">@Cues.FadeInRemainingText</div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:2px">OUT</div>
+        <div class="progress-bar"><div style="width:@((Cues.FadeOutProgress * 100).ToString("0"))%"></div></div>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:2px">@Cues.FadeOutRemainingText</div>
     </div>
 
     <div class="scroll-y">

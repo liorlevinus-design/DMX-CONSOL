@@ -208,6 +208,109 @@ public class CueListTests
         Assert.Equal(TimeSpan.FromSeconds(1), status.FadeOut.Total);
     }
 
+    /// <summary>Separate IN/OUT progress display (docs/OPERATOR_UX_ROADMAP.md) - GetStatus().FadeIn/
+    /// FadeOut are pure derived views off the same EffectiveElapsed() clock GetTransitionStatus()'s
+    /// Overall already uses; these tests prove the two ratios move independently per their own
+    /// TimeIn/TimeOut, not that a second clock was added.</summary>
+    [Fact]
+    public void GetStatus_EqualInOut_BothProgressTogether_BothCompleteAtSameElapsed()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(300));
+        cueList.Go();
+
+        Thread.Sleep(150);
+        var mid = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        // Both mid-flight and roughly together (generous tolerance for real-clock scheduling jitter).
+        Assert.InRange(mid.FadeIn.PercentComplete, 0.2, 0.9);
+        Assert.InRange(mid.FadeOut.PercentComplete, 0.2, 0.9);
+
+        Thread.Sleep(250);
+        var done = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, done.FadeIn.PercentComplete);
+        Assert.Equal(1.0, done.FadeOut.PercentComplete);
+    }
+
+    [Fact]
+    public void GetStatus_Asymmetric_InShorterThanOut_InCompletesFirst_OutKeepsGoing()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.FromMilliseconds(150), TimeSpan.FromMilliseconds(500));
+        cueList.Go();
+
+        Thread.Sleep(200); // past TimeIn (150ms), well before TimeOut (500ms)
+        var mid = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, mid.FadeIn.PercentComplete); // In finished
+        Assert.True(mid.FadeOut.PercentComplete < 1.0); // Out still progressing independently
+
+        Thread.Sleep(400); // now past TimeOut too (total ~600ms elapsed)
+        var done = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, done.FadeIn.PercentComplete);
+        Assert.Equal(1.0, done.FadeOut.PercentComplete);
+    }
+
+    [Fact]
+    public void GetStatus_Asymmetric_OutShorterThanIn_OutCompletesFirst_InKeepsGoing()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(150));
+        cueList.Go();
+
+        Thread.Sleep(200); // past TimeOut (150ms), well before TimeIn (500ms)
+        var mid = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, mid.FadeOut.PercentComplete); // Out finished
+        Assert.True(mid.FadeIn.PercentComplete < 1.0); // In still progressing independently
+
+        Thread.Sleep(400); // now past TimeIn too (total ~600ms elapsed)
+        var done = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, done.FadeIn.PercentComplete);
+        Assert.Equal(1.0, done.FadeOut.PercentComplete);
+    }
+
+    [Fact]
+    public void GetStatus_ZeroTimeIn_ReportsFadeInComplete_FadeOutStillProgressesOverItsOwnDuration()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.Zero, TimeSpan.FromMilliseconds(300));
+        cueList.Go();
+
+        var status = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, status.FadeIn.PercentComplete); // zero-duration side: immediately complete
+        Assert.Equal(TimeSpan.Zero, status.FadeIn.Remaining);
+
+        Thread.Sleep(150);
+        var mid = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, mid.FadeIn.PercentComplete); // still complete, never regresses
+        Assert.InRange(mid.FadeOut.PercentComplete, 0.1, 0.9); // Out is genuinely progressing on its own
+    }
+
+    [Fact]
+    public void GetStatus_ZeroTimeOut_ReportsFadeOutComplete_FadeInStillProgressesOverItsOwnDuration()
+    {
+        var (patch, _) = BuildPatch();
+        var programmer = new Programmer();
+        var cueList = new CueList();
+        Record(cueList, patch, programmer, "Cue 1", 1, TimeSpan.FromMilliseconds(300), TimeSpan.Zero);
+        cueList.Go();
+
+        var status = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, status.FadeOut.PercentComplete); // zero-duration side: immediately complete
+        Assert.Equal(TimeSpan.Zero, status.FadeOut.Remaining);
+
+        Thread.Sleep(150);
+        var mid = Assert.IsType<CueListPlaybackStatus>(cueList.GetStatus());
+        Assert.Equal(1.0, mid.FadeOut.PercentComplete); // still complete, never regresses
+        Assert.InRange(mid.FadeIn.PercentComplete, 0.1, 0.9); // In is genuinely progressing on its own
+    }
+
     [Fact]
     public void TryGetRevision_BumpsOnGo_SameForEveryChannelInThatCue()
     {

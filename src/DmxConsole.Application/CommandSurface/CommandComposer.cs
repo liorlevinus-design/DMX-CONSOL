@@ -790,8 +790,16 @@ public sealed class CommandComposer
         double timeOut = timeIn;
         i++;
 
+        // Whether an In/Out split ("/") was actually consumed on THIS composition - governs
+        // whether Slash still belongs in ExpectedNext below (Command Surface UI gating, e.g. the
+        // contextual "/" softkey AND the fixed TIME key's own enable state, both of which read
+        // ExpectedNext/CanPressToken - never a separate UI-owned check). A dangling second Slash
+        // is still rejected explicitly a few lines down, same as before.
+        bool sawSlash = false;
+
         if (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Slash)
         {
+            sawSlash = true;
             i++;
             if (i >= _tokens.Count)
             {
@@ -819,7 +827,16 @@ public sealed class CommandComposer
             return Incomplete(preview, "Time values must be 24 hours or less.");
 
         if (!finalize)
-            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Enter } };
+        {
+            // Right after a bare In value ("CUE 1 TIME 8"), both a commit (Enter, scalar
+            // In=Out=8) and a still-open In/Out split (Slash) are valid next tokens - once a
+            // split has already been consumed ("CUE 1 TIME 8/10"), only Enter remains valid
+            // (a second Slash is a hard error, handled above).
+            var expected = sawSlash
+                ? new[] { CommandTokenKind.Enter }
+                : new[] { CommandTokenKind.Enter, CommandTokenKind.Slash };
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = expected };
+        }
 
         if (_context.PrimaryCueList is not { } cueList)
             return Incomplete(preview, "No Cue List available to edit.");

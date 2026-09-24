@@ -332,6 +332,104 @@ public class CommandComposerCueTimingTests
         Assert.Equal("Cue 1 not found.", final.Error);
     }
 
+    // ---------- ExpectedNext (Command Surface UI gating - Cue-timing UI bug fix slice) ----------
+    // These prove the exact ExpectedNext contents a UI surface (razor, keyboard, softkey) relies
+    // on to enable/disable buttons - CommandComposer is the single source of truth for grammar
+    // continuations, never re-guessed in CommandSurface.razor/CommandSurfaceViewModel.
+
+    [Fact]
+    public void ExpectedNext_AfterCueNumber_IncludesThruAndTiming()
+    {
+        var (context, _, _, cueList) = BuildRig();
+        RecordCue(cueList, context, 1);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Cue));
+        var afterNumber = composer.Push(CommandToken.Number(1));
+
+        Assert.Contains(CommandTokenKind.Thru, afterNumber.ExpectedNext);
+        Assert.Contains(CommandTokenKind.Timing, afterNumber.ExpectedNext);
+    }
+
+    [Fact]
+    public void ExpectedNext_AfterCueThruRange_IncludesTiming()
+    {
+        var (context, _, _, cueList) = BuildRig();
+        RecordCue(cueList, context, 1);
+        RecordCue(cueList, context, 5);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Cue));
+        composer.Push(CommandToken.Number(1));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Thru));
+        var afterRange = composer.Push(CommandToken.Number(5));
+
+        Assert.Contains(CommandTokenKind.Timing, afterRange.ExpectedNext);
+    }
+
+    [Fact]
+    public void ExpectedNext_AfterTimeToken_IsNumberOnly()
+    {
+        var (context, _, _, cueList) = BuildRig();
+        RecordCue(cueList, context, 1);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Cue));
+        composer.Push(CommandToken.Number(1));
+        var afterTime = composer.Push(CommandToken.Simple(CommandTokenKind.Timing));
+
+        Assert.Equal(new[] { CommandTokenKind.Number }, afterTime.ExpectedNext);
+    }
+
+    [Fact]
+    public void ExpectedNext_AfterSingleTimeValue_IncludesEnterAndSlash()
+    {
+        var (context, _, _, cueList) = BuildRig();
+        RecordCue(cueList, context, 1);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Cue));
+        composer.Push(CommandToken.Number(1));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Timing));
+        var afterValue = composer.Push(CommandToken.Number(8));
+
+        Assert.Contains(CommandTokenKind.Enter, afterValue.ExpectedNext);
+        Assert.Contains(CommandTokenKind.Slash, afterValue.ExpectedNext);
+    }
+
+    [Fact]
+    public void ExpectedNext_AfterSlash_IsNumberOnly()
+    {
+        var (context, _, _, cueList) = BuildRig();
+        RecordCue(cueList, context, 1);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Cue));
+        composer.Push(CommandToken.Number(1));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Timing));
+        composer.Push(CommandToken.Number(8));
+        var afterSlash = composer.Push(CommandToken.Simple(CommandTokenKind.Slash));
+
+        Assert.Equal(new[] { CommandTokenKind.Number }, afterSlash.ExpectedNext);
+    }
+
+    [Fact]
+    public void ExpectedNext_AfterOutValue_IsEnterOnly_NoSecondSlash()
+    {
+        var (context, _, _, cueList) = BuildRig();
+        RecordCue(cueList, context, 1);
+
+        var composer = new CommandComposer(context);
+        composer.Push(CommandToken.Simple(CommandTokenKind.Cue));
+        composer.Push(CommandToken.Number(1));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Timing));
+        composer.Push(CommandToken.Number(8));
+        composer.Push(CommandToken.Simple(CommandTokenKind.Slash));
+        var afterOut = composer.Push(CommandToken.Number(10));
+
+        Assert.Equal(new[] { CommandTokenKind.Enter }, afterOut.ExpectedNext);
+    }
+
     [Fact]
     public void CueTime_SomethingElseAfterCueNumber_IsHonestlyNotImplemented_NeverGuessed()
     {

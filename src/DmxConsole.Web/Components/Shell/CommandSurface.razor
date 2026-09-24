@@ -114,7 +114,13 @@ else
             </div>
             <div class="keypad-row">
                 <button class="key" disabled title="Effect - not implemented on the Command Surface yet (use the Effects panel)">Effect</button>
-                <button class="key" disabled title="Time - per-attribute/Cue timing entry is not implemented on the Command Surface yet (use the Cues panel's Time/Delay/Wait fields)">Time</button>
+                @* Cue-timing bug fix slice: TIME is real CommandComposer grammar ("CUE <n> [THRU <n>]
+                   TIME <value>[/<value>] ENTER" - CommandComposer.ResolveCueCommand/ResolveCueTiming)
+                   - a FIXED key (CLAUDE.md §12), always present, whose enabled state is derived from
+                   the shared grammar via CanPressToken (the same probe the contextual "/" softkey
+                   above already uses - CLAUDE.md §4, one grammar, no UI-owned semantics), never a
+                   second, Razor-local notion of "when is Cue timing available". *@
+                <button class="key" disabled="@(!Sfc.CanPressToken(CommandTokenKind.Timing))" @onclick="() => PressToken(CommandTokenKind.Timing)" title="Time - sets Cue fade timing: CUE n [THRU n] TIME value[/value] ENTER">Time</button>
                 <button class="key" disabled title="Fan - spreading a value across a fixture range is not implemented yet">Fan</button>
             </div>
             <div class="keypad-row">
@@ -171,6 +177,21 @@ else
             <div class="keypad-row">
                 <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Odd)" title="Odd - filters the current Selection down to its odd 1-based positions (Selection order, not fixture numbers)">Odd</button>
                 <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Even)" title="Even - filters the current Selection down to its even 1-based positions (Selection order, not fixture numbers)">Even</button>
+            </div>
+            @* Cue TIME split syntax slice, revised (permanent-key decision): "/" is a FIXED key,
+               always present, like every other syntax key on this surface (CLAUDE.md §12 - object/
+               family keys are contextual by role, not by visibility gating; ODD/EVEN/REVERSE are
+               the only keys documented to be contextual softkeys, and "/" is not one of them). The
+               earlier revision hid this key unless CommandSurfaceViewModel.CanPressToken reported
+               the composer would accept Slash next - that made the key invisible/undiscoverable
+               outside one narrow moment of Cue TIME entry, which is wrong for a permanent physical
+               key. Grammar validity is still enforced exactly the same way as any other key: pressing
+               "/" where it's not syntactically valid reaches CommandComposer.Push generically
+               (CLAUDE.md §4 - no separate UI-side validation), which rejects it cleanly with an
+               Incomplete/Error result and no state mutation - see CommandComposerCueTimingTests and
+               CommandSurfaceViewModelSlashPermanentTests for both sides of that behavior. *@
+            <div class="keypad-row">
+                <button class="key key-op" @onclick="() => PressToken(CommandTokenKind.Slash)" title="Slash - splits a Cue TIME value into separate In/Out times, e.g. TIME 8/10">/</button>
             </div>
             @* Numeric keypad layout fix: 0-9/./Backspace form one uniform 3-column grid (all
                .key-num, no key-wide override) - +/- move to their own row below it so they never

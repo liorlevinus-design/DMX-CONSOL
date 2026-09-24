@@ -47,6 +47,10 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     [ObservableProperty] private bool _isActive;
     [ObservableProperty] private double _transitionProgress;
     [ObservableProperty] private string _remainingTimeText = string.Empty;
+    [ObservableProperty] private double _fadeInProgress;
+    [ObservableProperty] private string _fadeInRemainingText = string.Empty;
+    [ObservableProperty] private double _fadeOutProgress;
+    [ObservableProperty] private string _fadeOutRemainingText = string.Empty;
     [ObservableProperty] private string _currentCueLabel = "(none)";
     [ObservableProperty] private string _statusMessage = string.Empty;
 
@@ -80,6 +84,18 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         TransitionProgress = progress;
         RemainingTimeText = IsActive ? $"{remaining:mm\\:ss\\.f}" : string.Empty;
         CurrentCueLabel = CueList.CurrentCue is { } c ? $"{c.Number:0.##} - {c.Name}" : "(none)";
+
+        // Separate IN/OUT progress (docs/OPERATOR_UX_ROADMAP.md progress display) - pure derived
+        // views off the SAME elapsed-time state GetTransitionStatus() already uses, exposed by
+        // CueList.GetStatus() (CueListPlaybackStatus.FadeIn/FadeOut). No second clock, no change
+        // to trigger-chain logic, which never reads GetStatus().
+        if (CueList.GetStatus() is CueListPlaybackStatus status)
+        {
+            FadeInProgress = status.FadeIn.PercentComplete;
+            FadeInRemainingText = IsActive ? $"{status.FadeIn.Remaining:mm\\:ss\\.f}" : string.Empty;
+            FadeOutProgress = status.FadeOut.PercentComplete;
+            FadeOutRemainingText = IsActive ? $"{status.FadeOut.Remaining:mm\\:ss\\.f}" : string.Empty;
+        }
     }
 
     private CueStoreOptions BuildStoreOptions(CueStoreFilter filter) => new(

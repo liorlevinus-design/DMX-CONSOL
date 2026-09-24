@@ -430,6 +430,37 @@ public sealed class CommandSurfaceViewModel
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Whether pressing a bare/simple token (e.g. Slash) RIGHT NOW would be structurally valid -
+    /// what a CONTEXTUAL Command Surface softkey (one that only appears when syntactically valid,
+    /// e.g. the Cue TIME split "/" - Cue TIME split syntax slice) uses to decide whether to render
+    /// itself. Deliberately generic and Cue/TIME-agnostic: it never inspects Current.Tokens for a
+    /// Cue/Timing shape itself - CommandComposer's own grammar is the only thing consulted, via a
+    /// disposable probe composer seeded with the exact same tokens (plus any not-yet-committed
+    /// pending digits, mirroring CommitPendingDigits) and one non-finalizing Push of the candidate
+    /// token. This is the SAME CommandComposer.Push entry point every other input already goes
+    /// through (CLAUDE.md §4 - "do not create separate parsers"), just called once, non-mutating,
+    /// on a throwaway instance - never a second grammar. A null Error on the probe result means the
+    /// real composer would accept this token next without complaint. Read-only: never touches the
+    /// live _composer, _pendingDigits, or ConsoleContext state (Build(finalize:false) only reads
+    /// ConsoleContext, never mutates or dispatches), so merely asking this question - e.g. to
+    /// compute whether to render a softkey - can never advance or alter command-line state.
+    /// </summary>
+    public bool CanPressToken(CommandTokenKind kind)
+    {
+        var probe = new CommandComposer(_context) { ReplaceSelectionOnResolve = _composer.ReplaceSelectionOnResolve };
+        foreach (var token in Current.Tokens) probe.Push(token);
+
+        if (_pendingDigits.Length > 0)
+        {
+            if (!double.TryParse(_pendingDigits, out var pendingValue)) return false;
+            probe.Push(CommandToken.Number(pendingValue));
+        }
+
+        var probed = probe.Push(CommandToken.Simple(kind));
+        return probed.Error is null;
+    }
+
     public void PressToken(CommandTokenKind kind)
     {
         // Backspace and Clear each have exactly ONE behavior, implemented by their own dedicated
