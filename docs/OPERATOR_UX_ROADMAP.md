@@ -192,6 +192,29 @@ Priorities include:
 
 Full functional definition, grammar examples, and implementation-gap analysis: `docs/COMMAND_SURFACE_KEY_SPEC.md` §9A/§23.19. Summary: every fixture parameter (channel) carries its own Fade Time and Delay Time, defaulting to the owning Cue's flat timing until explicitly overridden per channel. `THRU` distributes an ordered multi-point fan (not just a two-endpoint range) of values or of per-channel Fade/Delay times across the resolved, ordered fixture selection — one shared interpolation engine for both, symmetric center-peak handling for even selection counts, reverse ranges supported. This is additive to H1.6 Slice 2's flat per-Cue timing model (§9 above), not a reintroduction of the per-`AttributeClass` timing that slice deliberately removed — the new granularity is per-channel, never per-family, and there is no separate family-timing storage bucket. Nothing in this area is implemented yet; see the spec's §23.19 for the exact list of missing engine/grammar/storage pieces.
 
+### 9b. Parameter Selection (future workstream ordering)
+
+Decided product direction: `CLAUDE.md` §16 (PSEL-1 – PSEL-5), full grammar/UI restatement in
+`docs/COMMAND_SURFACE_KEY_SPEC.md` §9B, gap inventory in that spec's §23.27–§23.33. Parameter
+Selection — explicitly targeting one or more logical fixture parameters as a first-class operator
+context, distinct from Fixture Selection — is future work; nothing in this area is implemented yet.
+This subsection records only the intended future sequence for that workstream; it does not
+reorder or reprioritize any other current roadmap item.
+
+Sequence:
+
+1. Logical parameter folding consistency — fix the Encoder Drawer to match the Parameter
+   Picker/RELEASE folding model (KEY_SPEC §23.30).
+2. Shared first-class Parameter Selection model/state (KEY_SPEC §23.27).
+3. Operator ability to select one parameter.
+4. Operator ability to select multiple ordered parameters (PSEL-1).
+5. Shared compatibility/feedback behavior for parameter-scoped writes (PSEL-2).
+6. Parameter-scoped `AT` / `HOME` / `RELEASE` wiring (KEY_SPEC §23.28/§23.29; RELEASE parameter
+   targeting already exists, §23.21).
+7. Parameter `TIME` (KEY_SPEC §23.19/§23.32).
+8. Family shorthand (`POSITION TIME` / `COLOR TIME`, KEY_SPEC §23.33).
+9. Future FAN / Effects reuse of the ordered Parameter Selection (PSEL-1).
+
 ## 10. Cue Lists and Executors
 
 Cue List work still required:

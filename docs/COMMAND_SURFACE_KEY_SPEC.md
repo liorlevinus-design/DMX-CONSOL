@@ -364,6 +364,19 @@ Every fixture parameter (channel) supports its own **Fade Time** and **Delay Tim
 
 `THRU` is not limited to a two-endpoint range. It also expresses an **ordered multi-point fan**: a sequence of control-point values distributed across the resolved, ordered fixture selection, with linear interpolation between adjacent control points.
 
+### Canonical grammar order (reconciled with CLAUDE.md §16 / PSEL-3)
+
+The examples below (originally authored before Parameter Selection was decided) write the
+parameter keyword after the verb — `AT INTENSITY 30 THRU 80`, `INTENSITY TIME 4 THRU 8`. That
+verb-first placement is **illustrative of the fan-distribution mechanism only** and is **not** the
+canonical token order. CLAUDE.md §16 (PSEL-3) decides that canonical parameter-targeting grammar
+is PARAMETER-FIRST (`PAN AT 40 ENTER`, `PAN TIME 5 ENTER`), consistent with the already-implemented
+parameter/family-first RELEASE and HOME patterns in §6/§7 above. When this section's value/time fan
+grammar is implemented, it must be built parameter-first (e.g. `FIXTURE 1 THRU 6 INTENSITY AT 30
+THRU 80`, `FIXTURE 1 THRU 6 INTENSITY TIME 4 THRU 8`), not verb-first as shown below. The examples
+are kept in their original verb-first form here only to illustrate the distribution/interpolation
+behavior itself; do not treat their token order as authoritative.
+
 ### Examples
 
 ```
@@ -404,6 +417,65 @@ FIXTURE 1 THRU 10 INTENSITY TIME 2 THRU 8 THRU 2
 ```
 
 No third layer, no per-family layer — consistent with the point above.
+
+---
+
+## 9B. Parameter Selection
+
+Decided product direction (CLAUDE.md §16, PSEL-1 – PSEL-5) — not yet implemented (§23.27–§23.33).
+This section restates the grammar/UI-facing implications for the Command Surface; CLAUDE.md §16 is
+authoritative for the underlying product rules.
+
+### Concept
+
+Parameter Selection is a first-class operator context — WHICH logical parameters (PAN, TILT, RED,
+...) are targeted — distinct from Fixture Selection (§9) and from Programmer contents. It is
+ordered (PSEL-1), independent of Fixture Selection's own order, and never merged with it.
+
+### Grammar direction
+
+Canonical grammar is parameter-first (PSEL-3): `PAN AT 40 ENTER`, `PAN RELEASE ENTER`,
+`PAN HOME ENTER`, `PAN TIME 5 ENTER`. This matches the parameter/family-first pattern RELEASE (§7)
+and HOME (§6) already use, and resolves §9A's verb-first illustrative examples in favor of
+parameter-first as the authoritative direction (see the note added in §9A above). `AT PAN 40`
+(verb-first) is not the canonical form.
+
+### Compatibility feedback (PSEL-2)
+
+A parameter-scoped write applies only to fixtures in the current Fixture Selection that support
+the requested logical parameter. The operator must see how many fixtures were affected and how
+many were skipped for lacking the parameter — never a silent partial-apply presented as if it were
+universal. This governs parameter-scoped WRITES (`AT`, `TIME`, future parameter operations);
+existing RELEASE/HOME behavior is unchanged by this decision, though the two should converge on one
+shared compatibility primitive later.
+
+### Lifecycle (PSEL-4)
+
+CLEAR clears the current Parameter Selection (§15 below, CLAUDE.md §2/§16). Changing Fixture
+Selection does not clear Parameter Selection. A selection-only ENTER (building a Fixture Selection
+with no parameter operation) does not necessarily destroy Parameter Selection; an actual
+parameter-scoped command completing (e.g. `PAN AT 40 ENTER`) closes the active
+parameter-programming cycle, following the same general principles as the existing Selection Cycle
+(`SelectionCycleState`). Parameter Selection is never derived from Programmer contents, and the
+Encoder Drawer must read/write the shared Parameter Selection model rather than being an
+independent source of truth for it.
+
+### Logical parameter folding (PSEL-5)
+
+Parameter Selection targets logical parameters, not raw DMX bytes — a coarse/fine pair (Pan +
+PanFine, Tilt + TiltFine) is one selectable logical parameter, exactly as `ReleaseParameterCommand`
+and `ParameterPickerViewModel` already fold them (§23.21). The Encoder Drawer must use this same
+folding model; its current inconsistency with the Parameter Picker/RELEASE is a tracked gap
+(§23.30), not an acceptable permanent divergence. Generalizing coarse/fine folding beyond
+Pan/Tilt to other 16-bit parameters depends on Fixture Profile data (§13, ROADMAP §11) and remains
+future work (§23.31).
+
+### Architecture
+
+Command Surface, Encoder Drawer, parameter softkeys, keyboard, touch, physical hardware, and any
+future Text/AI interpreter must all converge on one shared parameter identity/targeting model
+(§21's "all input paths converge on Application-layer semantics", applied to this new concept). No
+UI surface may implement parameter-targeting semantics independently.
 
 ---
 
@@ -611,6 +683,9 @@ CLEAR has one immediate meaning, not a layered/priority state machine:
 - CLEAR does NOT clear the Programmer/Editor. Programmer values are released via RELEASE (§7),
   never via CLEAR.
 - CLEAR does NOT overwrite Last Selection (CLAUDE.md §2).
+- CLEAR also clears the current Parameter Selection (CLAUDE.md §2, §16 PSEL-4) — the same
+  physical-key behavior extended to the Parameter Selection concept; this is not a new key and
+  does not change any of the behavior already described above.
 - There is no `CLEAR CLEAR` behavior and no "remove only the last selection gesture" step. A
   single CLEAR press clears the entire Current Selection outright.
 - CLEAR does NOT: delete show data, undo a Store that already completed, release playbacks, or
@@ -1069,6 +1144,58 @@ The DMX DIRECT ADDRESSING follow-up made the **Command Surface's own** `DMX <Uni
 
 **Status: new decided rule, no code yet.** `docs/SPEC_CONFLICTS_FOR_DECISION_1.md` N2 decides three distinct meanings: `CUE X ENTER` = EDIT (load stored Cue content into the Programmer), `LOAD CUE X ENTER` = LOAD (load Cue data for reuse, distinct from editing in place), `GO TO CUE X ENTER` = playback jump. Verified against the codebase: `CommandComposer.Build` (line ~130) explicitly returns `Incomplete(...)` for any command starting with a bare `Cue` token today — "Cue numeric commands are not implemented yet - no Application-layer command exists for targeting a Cue by number from the Command Surface." There is no `LOAD` token/grammar and no `GO TO` command-line grammar either (playback jump exists only via the Cue List UI/Executor actions, not the Command Surface keypad). All three of EDIT/LOAD/GO TO are unbuilt at the Command Surface grammar layer; implementing N2 means building all three as distinct `CommandComposer` branches/Application commands rather than one shared `CUE X ENTER` meaning. This is a genuine behavior decision, not just a gap: per the round-1 N2 note this spec already carried (§23.9's sibling concern), `CUE 12 ENTER` had no prior behavior to preserve, so implementing EDIT here is additive, not a breaking change.
 
+### 23.27 No shared first-class Parameter Selection state exists yet
+
+Decided direction: CLAUDE.md §16 / this spec's §9B. There is no data structure anywhere in
+`DmxConsole.Core`/`DmxConsole.Application` representing an ordered set of targeted logical
+parameters, independent of Fixture Selection and Programmer. `ParameterPickerViewModel` (§23.21)
+is a read-only query/display surface over the current Selection's channels — it does not hold or
+persist a Parameter Selection of its own. Building this shared model is the prerequisite for
+PSEL-1/PSEL-4's ordering and lifecycle rules.
+
+### 23.28 AT has no parameter-scoped form
+
+`AT <number>` (`CommandComposer.Build`'s `At` branch) is hardcoded to Intensity via
+`AdjustIntensityCommand`. There is no `PAN AT 40 ENTER` grammar and no Application-layer command
+that writes an arbitrary logical parameter by number. This blocks PSEL-3's canonical
+`<Parameter> AT <value>` grammar and PSEL-2's compatibility-feedback requirement for parameter
+writes.
+
+### 23.29 HOME has no command-line parameter-level grammar
+
+Today `HOME`/`<Family> HOME` (§6) exist at the family level only. There is a separate,
+Encoder-Drawer-local per-parameter Home method (`EncoderDrawerViewModel.Home()`, §23.4) that is not
+reachable from the command line. `PAN HOME ENTER` (PSEL-3's canonical form) has no grammar or
+shared Application command yet.
+
+### 23.30 Encoder Drawer's coarse/fine folding is inconsistent with other surfaces
+
+The Parameter Picker and `ReleaseParameterCommand` already fold Pan+PanFine / Tilt+TiltFine into
+one logical parameter via `ChannelTypeExtensions.SemanticComponents` (§23.21). The Encoder Drawer
+does not use this same folding today. PSEL-5 requires this reconciled — the Encoder Drawer must
+converge on the same logical-parameter model, not remain a second, inconsistent implementation.
+
+### 23.31 General coarse/fine profile modeling is not yet data-driven
+
+Coarse/fine pairing is currently hardcoded for Pan/Tilt only (`ChannelTypeExtensions`). PSEL-5's
+requirement that future 16-bit parameters (Zoom, Focus, Gobo Rotation) fold the same way depends on
+Fixture Profile metadata (CLAUDE.md §13, ROADMAP §11) that does not exist yet — this is a roadmap
+dependency, not a currently-generalized mechanism.
+
+### 23.32 Parameter TIME is not implemented
+
+Already recorded as a gap at §23.19 (no `TIME` token/grammar for parameter-level timing entry, no
+per-channel timing override storage). Cross-referenced here because PSEL-3's canonical
+`PAN TIME 5 ENTER` grammar depends on the same missing pieces — not duplicated, see §23.19 for the
+full analysis.
+
+### 23.33 Family shorthand (POSITION TIME / COLOR TIME) is not implemented
+
+Family-scoped TIME syntax is decided (CLAUDE.md §4, §16/PSEL-3) to expand into per-parameter TIME
+writes at the grammar layer, with no AttributeClass-level timing storage. No such expansion exists
+in `CommandComposer` today — this depends on §23.32/§23.19 landing first (an actual per-parameter
+TIME write to expand into).
+
 ---
 
-**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.15 is now RESOLVED — the implementation already matches the decided C1 CLEAR model; only this spec's text was stale. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first. §23.20 (Universe numbering consistency) is a known, deliberately deferred inconsistency — the DMX Command Surface is 1-based operator-facing, while Patch/Toolbar/LIVE displays and persisted data remain 0-based — tracked for a future slice, not scheduled now. §23.22 and §23.23 record two round-1 decisions (C2, N1) whose doc text is reconciled but whose implementation has not started. §23.24–§23.26 record three round-2 decisions (C3, M1/M2/M3, N2) whose doc text is now written here for the first time and whose implementation has not started — all are real, scoped future slices, not ambiguity.
+**Summary for implementation planning:** §23.1 (family granularity) has been resolved by explicit operator direction — `AttributeClass` is now the one authoritative six-family model everywhere, `EncoderCategory` is gone. §23.2–§23.8 and §23.13, §23.16 are net-new capabilities with no existing conflicting behavior to reconcile — they are additive. §23.9, §23.10 are real but narrow gaps/bugs in already-existing Command Surface code that this spec's grammar rules resolve unambiguously. §23.11, §23.17, §23.18 are confirmations that existing code already matches this spec and should be reused, not rebuilt. §23.15 is now RESOLVED — the implementation already matches the decided C1 CLEAR model; only this spec's text was stale. §23.19 (Parameter-level Value/Time Fans, §9A) is entirely new — no engine, grammar, or storage exists for it today; per the operator's own specified implementation order, it is built in its own sequence of slices (shared fan engine → parameter timing data model/precedence → value-fan execution → time-fan execution + Store/Update persistence) after the Command Surface layout and already-supported semantics land first. §23.20 (Universe numbering consistency) is a known, deliberately deferred inconsistency — the DMX Command Surface is 1-based operator-facing, while Patch/Toolbar/LIVE displays and persisted data remain 0-based — tracked for a future slice, not scheduled now. §23.22 and §23.23 record two round-1 decisions (C2, N1) whose doc text is reconciled but whose implementation has not started. §23.24–§23.26 record three round-2 decisions (C3, M1/M2/M3, N2) whose doc text is now written here for the first time and whose implementation has not started — all are real, scoped future slices, not ambiguity. §23.27–§23.33 record the Parameter Selection decisions (CLAUDE.md §16, PSEL-1–PSEL-5, this spec's §9B) — entirely new direction, no engine/grammar/storage exists for any of it today; §23.28/§23.29/§23.32/§23.33 (parameter-scoped AT/HOME/TIME/family-shorthand) depend on §23.27 (the shared Parameter Selection model) landing first, and §23.31 (general coarse/fine profile modeling) depends on Fixture Profile work (CLAUDE.md §13) rather than on Parameter Selection itself.

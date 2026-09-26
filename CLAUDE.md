@@ -36,6 +36,15 @@ Represents cue/executor output.
 
 Never infer one from another.
 
+### Fixture Selection vs Parameter Selection
+
+The Selection described above is **Fixture Selection** — WHICH fixtures the operator is working
+with. A separate, ordered, first-class **Parameter Selection** concept — WHICH logical parameters
+(PAN, TILT, RED, ...) the operator is targeting — is approved product direction; see §16 for the
+decided PSEL-1 through PSEL-5 rules (not yet implemented). Fixture Selection and Parameter
+Selection are two independent ordered lists and are never merged into one. Do not derive Parameter
+Selection from Programmer contents, mirroring the existing rule for Fixture Selection above.
+
 ---
 
 ## 2. Last Selection & CLEAR
@@ -69,6 +78,9 @@ CLEAR is a fixed physical key with a single, immediate meaning:
 - CLEAR does NOT clear the Programmer. Programmer values are released via RELEASE (§6), not
   CLEAR.
 - CLEAR does NOT overwrite Last Selection.
+- CLEAR also clears the current Parameter Selection (see §16, PSEL-4) — this extends the same
+  physical key's committed-context-clearing behavior to the new Parameter Selection concept; it is
+  not a new key and does not change any of the behavior already decided above.
 - CLEAR is not Undo and not Backspace. It does not delete show data, does not undo a completed
   Store, does not release playbacks, and does not release Editor/Programmer values.
 - There is no `CLEAR CLEAR` behavior. A single CLEAR press clears the entire Current Selection;
@@ -483,6 +495,92 @@ operation (see §10's EDIT/LOAD/GO TO distinction).
 Macro Manager should show which Cues reference each Macro, and allow inspection of those
 assignments. An optional future reverse view (which Macros are assigned to a selected Cue) may be
 added later.
+
+---
+
+## 16. Parameter Selection (PSEL-1 – PSEL-5)
+
+Decided product direction for a future "Parameter Selection" concept — the ability to explicitly
+target one or more fixture parameters (PAN, TILT, RED, ...) as a first-class operator context,
+distinct from Fixture Selection (§1). This section documents DECIDED direction. It is binding for
+future design/implementation; none of it is implemented yet (see
+`docs/COMMAND_SURFACE_KEY_SPEC.md` §23.27–§23.33 for the current gap inventory).
+
+### PSEL-1 — Ordered Parameter Selection
+
+Parameter Selection is ordered. `PAN + TILT` and `RED + GREEN + BLUE` preserve the order in which
+parameters were selected. Existing commands may not use this order yet, but the order is
+intentionally preserved for future FAN, distribution, Effects, and other parameter-sequence-
+sensitive operations. Parameter Selection order is independent of Fixture Selection order — two
+separate ordered lists, never merged.
+
+### PSEL-2 — Mixed-fixture compatibility
+
+Parameter-scoped writes (`AT`, `TIME`, future parameter operations) apply only to selected
+fixtures that support the requested logical parameter. Example: Fixture Selection contains a
+moving head with PAN and an LED PAR without PAN; `PAN AT 40` writes PAN 40 to the moving head only
+— the LED PAR is unchanged. This is not a hard failure. The operator must receive clear feedback
+stating how many fixtures were affected and how many were skipped for lacking the parameter —
+never silently pretend all fixtures were affected. This compatibility rule governs parameter-scoped
+WRITES. Existing RELEASE/HOME behavior is preserved as-is unless separately changed later; shared
+parameter-targeting infrastructure should converge on the same compatibility model where
+appropriate — RELEASE's existing silent-filter behavior and this explicit-feedback model should be
+reconcilable under one shared primitive later, even though RELEASE itself is not changed by this
+decision.
+
+### PSEL-3 — Canonical parameter-first grammar
+
+Canonical command grammar is PARAMETER-FIRST: `PAN AT 40 ENTER`, `PAN RELEASE ENTER`,
+`PAN HOME ENTER`, `PAN TIME 5 ENTER`, `TILT AT 20 ENTER`, `RED TIME 2 ENTER`. `AT PAN 40`
+(verb-first) is NOT the canonical form. This is consistent with the already-implemented
+parameter/family-first RELEASE and HOME patterns (`PAN RELEASE`, `POSITION HOME`, §6, §7 above).
+`docs/COMMAND_SURFACE_KEY_SPEC.md` §9A previously illustrated the value/time fan grammar with
+verb-first examples (`AT INTENSITY 30 THRU 80`) — those examples are marked there as illustrative
+of the fan-distribution mechanism only, not of canonical token order; parameter-first is the
+authoritative direction for any parameter-targeting grammar going forward, including fan grammar.
+Family-level forms (`POSITION TIME 5`, `COLOR TIME 3`) remain shorthand only: they expand into
+per-parameter writes and never introduce AttributeClass-level timing storage (see the "Known
+contradiction — do not reintroduce" callout below, and §4's TIME semantics above).
+
+### PSEL-4 — Parameter Selection lifecycle
+
+Parameter Selection is distinct from Fixture Selection, Programmer, CommandComposer, and Playback
+(§1). Changing Fixture Selection does not automatically clear Parameter Selection. CLEAR clears
+the current Parameter Selection (§2 above). Parameter Selection may persist through a
+selection-only interaction — building a Fixture Selection with no parameter operation, then
+pressing ENTER, does not necessarily destroy Parameter Selection. A programming execution (an
+actual parameter-scoped command completing, e.g. `PAN AT 40 ENTER`) closes the active
+parameter-programming cycle under the same general operator-cycle principles the existing
+Selection Cycle concept already uses (`SelectionCycleState`, see KEY_SPEC's selection-cycle
+material and ROADMAP §7), while preserving whatever resulting fixture/programmer state that
+command's own semantics require. Do not derive Parameter Selection from Programmer contents. Do
+not automatically rebuild Parameter Selection from current Encoder Drawer UI state — the Encoder
+Drawer reads/writes the shared model; it is never its own independent source of truth (§3).
+
+### PSEL-5 — Logical parameter folding
+
+Operator-facing Parameter Selection targets LOGICAL parameters, not raw DMX bytes. A coarse/fine
+pair appears as ONE logical parameter (PAN coarse + PAN fine → logical PAN; TILT coarse + TILT
+fine → logical TILT). Future imported 16-bit parameters (Zoom, Focus, Gobo Rotation) follow the
+same model once profile data supports them. The Encoder Drawer must use the same logical-parameter
+folding model as the Parameter Picker, RELEASE parameter targeting, and future Parameter Selection
+— the operator must never see PAN and PAN FINE as two separately selectable operator parameters
+anywhere. The Encoder Drawer's current lack of this folding is a gap to fix, not an acceptable
+permanent divergence (see KEY_SPEC §23.30). Coarse/fine generalization is currently hardcoded
+mainly for PAN/TILT only; broader generalization to arbitrary 16-bit parameters depends on Fixture
+Profile work (§13) and is tracked as a roadmap dependency, not treated as already generalized.
+
+### Architecture direction
+
+Fixture Selection and Parameter Selection are separate first-class operator contexts. Different
+surfaces may initiate Parameter Selection — Command Surface, Encoder Drawer, parameter softkeys,
+keyboard, touch, physical hardware, a future Text/AI interpreter — but all must converge on ONE
+shared parameter identity and targeting model. This is a direct application of §3's "UI must not
+own semantics" rule extended to this new concept: no UI surface may implement parameter semantics
+independently. The shared model is expected to support: ordered logical parameter identities,
+compatibility resolution against the current Fixture Selection (PSEL-2), and reuse by
+AT/HOME/RELEASE/TIME/Effects. No specific class name is mandated for this model — the requirement
+is its properties/behavior, not a literal type name.
 
 ---
 
