@@ -66,6 +66,15 @@ public enum ConsoleActionType
     /// value, a distributed fan, and a multi-parameter write are all this single action type.</summary>
     SetParameterValues,
 
+    /// <summary>Parameter-scoped TIME (CLAUDE.md §16/PSEL, ROADMAP §9a): writes an optional
+    /// TimeIn/TimeOut override for one or more logical parameters (PAN, RED, ...) across Current
+    /// Fixture Selection x Current Parameter Selection, resolved via the SAME
+    /// <see cref="DmxConsole.Core.Selection.ParameterTargetResolver"/> as <see cref="SetParameterValues"/>.
+    /// Writes only to the Programmer's parallel per-channel timing store - never Programmer
+    /// VALUES, never a Cue directly. Fixed, distributed, and multi-parameter writes are all this
+    /// single action type, mirroring SetParameterValues.</summary>
+    SetParameterTiming,
+
     /// <summary>CAPTURE ALL (docs/COMMAND_SURFACE_KEY_SPEC.md §8): reads the current effective
     /// live output for every actively-owned channel across the whole patch and writes it into
     /// the Programmer as a new Editor value - an undoable editing command (IConsoleCommand), not

@@ -260,11 +260,18 @@ public sealed class CommandComposer
             if (j < _tokens.Count && _tokens[j].Kind == CommandTokenKind.At)
                 return ResolveParameterAt(parameters, j, preview, finalize);
 
+            // PARAMETER-FIRST TIME (CLAUDE.md §16/ROADMAP §9a): "<Parameter> [+ <Parameter>]*
+            // TIME [IN|OUT] <value> [THRU <value>]* [ENTER]" - e.g. "RED TIME 5", "PAN TIME IN 2".
+            // Same parameter-list parsing as parameter-first AT immediately above; only the verb
+            // token (Timing vs At) and the resulting command differ.
+            if (j < _tokens.Count && _tokens[j].Kind == CommandTokenKind.Timing)
+                return ResolveParameterTime(parameters, j, preview, finalize);
+
             if (j < _tokens.Count && _tokens[j].Kind == CommandTokenKind.Plus)
                 return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Parameter } };
 
             if (j == _tokens.Count && j > 1)
-                return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.At, CommandTokenKind.Plus } };
+                return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.At, CommandTokenKind.Timing, CommandTokenKind.Plus } };
         }
 
         // COLOR PRESET 5 [ENTER] (§4) - family-qualified Preset recall against the current
@@ -313,6 +320,15 @@ public sealed class CommandComposer
         // Build() and never reaches here.
         if (_tokens[0].Kind == CommandTokenKind.At)
             return ResolveBareAt(preview, finalize);
+
+        // Bare Parameter TIME (CLAUDE.md §16/ROADMAP §9a) - "TIME [IN|OUT] <value> [THRU <value>]*
+        // [ENTER]" with no Parameter/Cue clause on THIS line at all: resolved against the CURRENT
+        // Fixture Selection x current ParameterSelection (typically armed via the Encoder Drawer),
+        // mirroring bare AT immediately above. This can never collide with "CUE <n> [THRU <n>]
+        // TIME ..." (ResolveCueCommand/ResolveCueTiming) - that grammar's Timing token is never
+        // the FIRST token on the line, since it always follows a leading Cue token.
+        if (_tokens[0].Kind == CommandTokenKind.Timing)
+            return ResolveBareTime(preview, finalize);
 
         var head = _tokens[0];
         ObjectType objectType;
@@ -846,6 +862,166 @@ public sealed class CommandComposer
         }
 
         return (new SetParameterValuesCommand(valueTargets, resolved.Skipped), null);
+    }
+
+    /// <summary>Which side(s) of a Parameter TIME write a parsed command line touches - Both for
+    /// bare "TIME 5" (In=Out=5, mirroring CUE ... TIME's own bare-value semantics), In/Out for the
+    /// "TIME IN ..."/"TIME OUT ..." keyword forms. Never a data field on any stored type - purely a
+    /// grammar-parsing intermediate, consumed immediately by BuildParameterTimingCommand.</summary>
+    private enum ParameterTimeSide { Both, In, Out }
+
+    /// <summary>Parse result for the shared TIME-tail grammar below: either a non-null
+    /// <see cref="Composition"/> (still typing, or a hard grammar error - the caller returns it
+    /// as-is) or a null Composition with <see cref="ControlPoints"/> populated, meaning parsing
+    /// fully succeeded and the caller should proceed to resolve targets and build the command.</summary>
+    private readonly record struct ParsedParameterTime(CommandComposition? Composition, ParameterTimeSide Side, List<double>? ControlPoints);
+
+    /// <summary>
+    /// The shared tail grammar behind BOTH Parameter TIME entry points (explicit "&lt;Parameter&gt;
+    /// TIME ..." and the ParameterSelection-driven bare "TIME ..." fallback) - mirrors
+    /// ResolveParameterAt's own value/THRU control-point parsing exactly, plus an optional leading
+    /// In/Out side keyword (CLAUDE.md §16/ROADMAP §9a) that At has no equivalent of. `i` points
+    /// just past the TIME token itself.
+    /// </summary>
+    private ParsedParameterTime ParseParameterTimeTail(int i, string preview, bool finalize)
+    {
+        var side = ParameterTimeSide.Both;
+        if (i < _tokens.Count && _tokens[i].Kind is CommandTokenKind.In or CommandTokenKind.Out)
+        {
+            side = _tokens[i].Kind == CommandTokenKind.In ? ParameterTimeSide.In : ParameterTimeSide.Out;
+            i++;
+        }
+
+        if (i >= _tokens.Count)
+        {
+            if (!finalize)
+            {
+                var expected = side == ParameterTimeSide.Both
+                    ? new[] { CommandTokenKind.In, CommandTokenKind.Out, CommandTokenKind.Number }
+                    : new[] { CommandTokenKind.Number };
+                return new ParsedParameterTime(
+                    new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = expected }, side, null);
+            }
+            return new ParsedParameterTime(Incomplete(preview, "TIME VALUE IS MISSING"), side, null);
+        }
+
+        if (_tokens[i].Kind != CommandTokenKind.Number)
+            return new ParsedParameterTime(Incomplete(preview, "Expected a numeric Time value.", CommandTokenKind.Number), side, null);
+
+        var controlPoints = new List<double> { _tokens[i].NumericValue!.Value };
+        i++;
+
+        while (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Thru)
+        {
+            if (i + 1 >= _tokens.Count || _tokens[i + 1].Kind != CommandTokenKind.Number)
+                return new ParsedParameterTime(Incomplete(preview, "Expected a number after Thru.", CommandTokenKind.Number), side, null);
+
+            controlPoints.Add(_tokens[i + 1].NumericValue!.Value);
+            i += 2;
+        }
+
+        if (i < _tokens.Count)
+            return new ParsedParameterTime(Incomplete(preview, "Nothing may follow the Time value.", CommandTokenKind.Enter), side, null);
+
+        if (controlPoints.Any(v => v < 0))
+            return new ParsedParameterTime(Incomplete(preview, "Time values must be zero or greater."), side, null);
+
+        const double MaxParameterTimeSeconds = 86400; // 24 hours - same ceiling as Cue-level TIME.
+        if (controlPoints.Any(v => v > MaxParameterTimeSeconds))
+            return new ParsedParameterTime(Incomplete(preview, "Time values must be 24 hours or less."), side, null);
+
+        if (!finalize)
+            return new ParsedParameterTime(
+                new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Thru, CommandTokenKind.Enter } },
+                side, null);
+
+        return new ParsedParameterTime(null, side, controlPoints);
+    }
+
+    /// <summary>
+    /// PARAMETER-FIRST TIME (CLAUDE.md §16/ROADMAP §9a): "&lt;Parameter&gt; [+ &lt;Parameter&gt;]*
+    /// TIME [IN|OUT] &lt;value&gt; [THRU &lt;value&gt;]* [ENTER]" - resolved against the CURRENT
+    /// Fixture Selection (there is no object-clause here, exactly like ResolveParameterAt).
+    /// `timeTokenIndex` points at the TIME token itself.
+    /// </summary>
+    private CommandComposition ResolveParameterTime(List<ChannelType> parameters, int timeTokenIndex, string preview, bool finalize)
+    {
+        var parsed = ParseParameterTimeTail(timeTokenIndex + 1, preview, finalize);
+        if (parsed.Composition is { } incomplete) return incomplete;
+
+        var targets = _context.Selection.Items.ToList();
+        if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
+
+        var (command, error) = BuildParameterTimingCommand(targets, parameters, parsed.Side, parsed.ControlPoints!);
+        if (error is not null) return Incomplete(preview, error);
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+            ReadyOperation = command,
+        };
+    }
+
+    /// <summary>
+    /// Bare Parameter TIME (CLAUDE.md §16/ROADMAP §9a) - "TIME [IN|OUT] &lt;value&gt; [THRU
+    /// &lt;value&gt;]* [ENTER]" with no Parameter clause on this line, resolved against the current
+    /// Parameter Selection (typically armed via the Encoder Drawer) - mirrors ResolveBareAt's own
+    /// shape, but TIME has no legacy no-ParameterSelection fallback (there is no "bare Intensity
+    /// TIME" concept the way bare AT falls back to AdjustIntensityCommand), so an empty Parameter
+    /// Selection is an honest, explicit error here instead.
+    /// </summary>
+    private CommandComposition ResolveBareTime(string preview, bool finalize)
+    {
+        var parsed = ParseParameterTimeTail(1, preview, finalize);
+        if (parsed.Composition is { } incomplete) return incomplete;
+
+        if (_context.ParameterSelection.IsEmpty)
+            return Incomplete(preview, "Select a Parameter before using Time.");
+
+        var targets = _context.Selection.Items.ToList();
+        if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
+
+        var (command, error) = BuildParameterTimingCommand(targets, _context.ParameterSelection.Items.ToList(), parsed.Side, parsed.ControlPoints!);
+        if (error is not null) return Incomplete(preview, error);
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+            ReadyOperation = command,
+        };
+    }
+
+    /// <summary>
+    /// The one shared build step behind both Parameter TIME entry points, mirroring
+    /// BuildParameterAtCommand exactly (same fixture-position-once distribution rule, PSEL-2
+    /// skip-not-fail via the same ParameterTargetResolver) but producing a
+    /// <see cref="SetParameterTimingCommand"/> instead of a value write. `side` decides which of
+    /// TimeIn/TimeOut receives the interpolated seconds value for every resolved target - Both
+    /// writes the SAME value to both sides (bare TIME's In=Out=value semantics), In/Out writes only
+    /// that one side, leaving the other's existing override (if any) untouched.
+    /// </summary>
+    private (IConsoleCommand? Command, string? Error) BuildParameterTimingCommand(
+        List<PatchedFixture> targets, IReadOnlyList<ChannelType> parameters, ParameterTimeSide side, List<double> controlPoints)
+    {
+        var resolved = ParameterTargetResolver.Resolve(targets, parameters);
+        if (resolved.Targets.Count == 0)
+            return (null, "No selected fixtures support the selected parameter(s).");
+
+        var timingTargets = new List<SetParameterTimingCommand.ParameterTimingTarget>();
+        for (int index = 0; index < targets.Count; index++)
+        {
+            var fixture = targets[index];
+            double t = targets.Count == 1 ? 0.0 : (double)index / (targets.Count - 1);
+            double seconds = InterpolateAlongPath(controlPoints, t);
+            var value = TimeSpan.FromSeconds(seconds);
+            TimeSpan? timeIn = side is ParameterTimeSide.Both or ParameterTimeSide.In ? value : null;
+            TimeSpan? timeOut = side is ParameterTimeSide.Both or ParameterTimeSide.Out ? value : null;
+
+            foreach (var target in resolved.Targets.Where(rt => rt.Fixture.Id == fixture.Id))
+                timingTargets.Add(new SetParameterTimingCommand.ParameterTimingTarget(fixture, target.Channel, timeIn, timeOut));
+        }
+
+        return (new SetParameterTimingCommand(timingTargets, resolved.Skipped), null);
     }
 
     /// <summary>Value-distribution slice (§7): linear interpolation across one or more control

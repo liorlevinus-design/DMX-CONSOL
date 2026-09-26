@@ -187,18 +187,25 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
 
                 if (requireProgrammerTouch && !programmer.HasStoredValue(fixture.UniverseId, idx, out _)) continue;
 
+                // Parameter TIME slice (CLAUDE.md §16/ROADMAP §9a): whatever per-channel TimeIn/
+                // TimeOut override the operator programmed (independent of whether this channel's
+                // VALUE was itself touched) rides along into the stored CueValue - captured
+                // regardless of the Store filter's value-inclusion rules, since a channel included
+                // here for its VALUE may carry a timing override set at a different moment.
+                programmer.TryGetTiming(fixture.UniverseId, idx, out var timeInOverride, out var timeOutOverride);
+
                 if (presetOverrides is not null
                     && presetOverrides.TryGetValue(channel.Type.ToAttributeClass(), out var preset)
                     && preset.Values.ContainsKey(channel.Type))
                 {
-                    levels[key] = CueValue.FromPreset(channel.Type, preset.Id);
+                    levels[key] = CueValue.FromPreset(channel.Type, preset.Id, timeInOverride, timeOutOverride);
                     continue;
                 }
 
                 byte value = readLiveMerged
                     ? effectiveOutput.GetEffectiveValue(fixture.UniverseId, idx)
                     : programmer.TryGetChannelValue(fixture.UniverseId, idx, out var live) ? live : channel.DefaultValue;
-                levels[key] = CueValue.Absolute(channel.Type, value);
+                levels[key] = CueValue.Absolute(channel.Type, value, timeInOverride, timeOutOverride);
             }
         }
 
@@ -421,11 +428,46 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
         if (_currentCue is null) return false;
         if (_instantTransition) return true;
 
+        return EffectiveElapsed().TotalSeconds >= EffectiveTransitionDurationUnlocked().TotalSeconds;
+    }
+
+    /// <summary>
+    /// Parameter TIME slice (CLAUDE.md §16/ROADMAP §9a): the TRUE overall transition duration this
+    /// tick must wait for before the cue is allowed to count as complete - the Cue-level
+    /// CueTiming.TimeIn/TimeOut/DelayIn/DelayOut baseline, widened to also cover the LONGEST
+    /// per-channel TimeIn/TimeOut override actually present on this cue. This is the single place
+    /// completion is computed - both <see cref="CurrentTransitionHasCompletedUnlocked"/> (which
+    /// gates AutoFollow/Wait/chain-advance in Tick()) and <see cref="GetTransitionStatus"/> read
+    /// the SAME value, so a per-parameter override can never let AutoFollow/Wait fire, or a
+    /// progress bar report 100%, before the slowest overridden channel has genuinely finished -
+    /// CLAUDE.md's Cue Trigger Semantics (§9) apply to the REAL completion instant, never a
+    /// Cue-level-only approximation once overrides exist. Delay is never overridden per-channel
+    /// (only TimeIn/TimeOut are, by design - see CueValue's own doc comment), so each channel's
+    /// own direction still uses the Cue's flat DelayIn/DelayOut. Must be called with _lock held.
+    /// </summary>
+    private TimeSpan EffectiveTransitionDurationUnlocked()
+    {
+        if (_currentCue is null) return TimeSpan.Zero;
+
         var timing = _currentCue.Timing;
         var inTotal = timing.DelayIn + timing.TimeIn;
         var outTotal = timing.DelayOut + timing.TimeOut;
         var maxDuration = inTotal > outTotal ? inTotal : outTotal;
-        return EffectiveElapsed().TotalSeconds >= maxDuration.TotalSeconds;
+
+        foreach (var (key, cueValue) in _currentCue.Levels)
+        {
+            if (cueValue.TimeInOverride is null && cueValue.TimeOutOverride is null) continue;
+            if (!cueValue.TryResolve(_presetResolver, out var target)) continue;
+
+            byte from = _fadeFrom.TryGetValue(key, out var f) ? f : (byte)0;
+            bool goingUp = target >= from;
+            var delay = goingUp ? timing.DelayIn : timing.DelayOut;
+            var duration = goingUp ? (cueValue.TimeInOverride ?? timing.TimeIn) : (cueValue.TimeOutOverride ?? timing.TimeOut);
+            var total = delay + duration;
+            if (total > maxDuration) maxDuration = total;
+        }
+
+        return maxDuration;
     }
 
     /// <summary>AutoFollow correction slice: chain-eligibility must only be granted when this
@@ -512,12 +554,14 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
             // is already fully complete the instant it happens, never a misleading "0%, N seconds
             // remaining" for a fade that will never actually run.
             if (_instantTransition) return (1.0, TimeSpan.Zero);
-            // Worst case of the two directions (each including its own delay) - a per-channel-accurate
-            // progress bar would need every channel's own direction; this is a reasonable overall estimate.
-            var timing = _currentCue.Timing;
-            var inTotal = timing.DelayIn + timing.TimeIn;
-            var outTotal = timing.DelayOut + timing.TimeOut;
-            var maxDuration = inTotal > outTotal ? inTotal : outTotal;
+            // Worst case of the two directions (each including its own delay), WIDENED to also
+            // cover any per-channel Parameter TIME override (EffectiveTransitionDurationUnlocked) -
+            // so this can never report 100%/zero-remaining before the slowest overridden channel
+            // has actually finished (CLAUDE.md's "must not lie about completion"). A per-channel-
+            // accurate progress BREAKDOWN (which channel is at what %) is a separate, larger UI
+            // concern intentionally left as a follow-up - only the overall completion instant is
+            // guaranteed correct here.
+            var maxDuration = EffectiveTransitionDurationUnlocked();
             double elapsed = EffectiveElapsed().TotalSeconds;
             double progress = maxDuration.TotalSeconds <= 0
                 ? 1.0
@@ -623,7 +667,10 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
                 var timing = _currentCue.Timing;
                 bool goingUp = target >= from;
                 var delay = goingUp ? timing.DelayIn : timing.DelayOut;
-                var duration = goingUp ? timing.TimeIn : timing.TimeOut;
+                // Parameter TIME slice: this channel's own TimeIn/TimeOut override (if any) wins
+                // over the Cue-level flat timing for its direction - delay is never overridden
+                // per-channel (see CueValue's own doc comment), only the duration.
+                var duration = goingUp ? (cueValue.TimeInOverride ?? timing.TimeIn) : (cueValue.TimeOutOverride ?? timing.TimeOut);
                 double afterDelaySeconds = elapsedSeconds - delay.TotalSeconds;
                 double t = afterDelaySeconds <= 0
                     ? 0.0

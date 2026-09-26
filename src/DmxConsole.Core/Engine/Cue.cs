@@ -17,9 +17,14 @@ public sealed class Cue
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>One flat set of fade timing for the whole Cue - Vector's actual Time mode
-    /// (TIME-IN/TIME-OUT/DELAY-IN/DELAY-OUT), see CueTiming's own doc comment. No per-AttributeClass
-    /// or per-channel override anymore (H1.6 Slice 2 - a deliberate replacement, not an addition).</summary>
+    /// <summary>One flat set of DEFAULT/fallback fade timing for the whole Cue - Vector's actual
+    /// Time mode (TIME-IN/TIME-OUT/DELAY-IN/DELAY-OUT), see CueTiming's own doc comment. No
+    /// per-AttributeClass/family override (H1.6 Slice 2 deliberately removed that - see CLAUDE.md's
+    /// "Known contradiction" callout, never reintroduce it). A FINER per-(fixture, logical
+    /// parameter) TimeIn/TimeOut override DOES exist (Parameter TIME slice, ROADMAP §9a) but lives
+    /// on the individual <see cref="CueValue"/> entries in <see cref="Levels"/> below, never here -
+    /// this property remains the single flat baseline every channel falls back to when it carries
+    /// no override of its own.</summary>
     public CueTiming Timing { get; set; } = CueTiming.Default;
 
     /// <summary>AutoFollow correction slice: describes how THIS cue is entered once the PREVIOUS

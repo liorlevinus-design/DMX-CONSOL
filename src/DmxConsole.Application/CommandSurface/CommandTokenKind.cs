@@ -102,4 +102,14 @@ public enum CommandTokenKind
     Trigger,
     Follow,
     Wait,
+
+    /// <summary>Parameter TIME's In/Out side keyword (CLAUDE.md §16/ROADMAP §9a) - "TIME IN
+    /// &lt;value&gt;" / "&lt;Parameter&gt; TIME IN &lt;value&gt;". Distinct from the Cue-level TIME
+    /// grammar's own In/Out split, which uses Number/Slash/Number instead (never these two
+    /// keywords) - the two TIME grammars remain structurally non-overlapping per CLAUDE.md's hard
+    /// boundary between Cue TIME and Parameter TIME.</summary>
+    In,
+
+    /// <summary>Parameter TIME's Out side keyword - see <see cref="In"/>.</summary>
+    Out,
 }
