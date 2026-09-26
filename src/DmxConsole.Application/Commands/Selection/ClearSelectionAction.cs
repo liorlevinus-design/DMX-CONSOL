@@ -15,12 +15,16 @@ namespace DmxConsole.Application.Commands.Selection;
 /// Touches <see cref="ConsoleContext.Selection"/> and resets <see cref="ConsoleContext.SelectionCycle"/>
 /// to a clean idle state (StartFreshOnNextSelection=false - "no completed programming action is
 /// pending", matching an empty Selection) - both parts of the ONE Selection-related reset CLEAR
-/// performs. It never touches Programmer/Editor values, never touches the shared
-/// EditorContextStack. The command line's own composition/pending-digit reset and the RELEASE
-/// softkey-context dismissal live in CommandSurfaceViewModel.PressClear (a UI-layer concern this
-/// Action has no access to) - not duplicated here. It has no second-press/escalation behavior of
-/// any kind: pressing CLEAR again simply clears an already-empty (and already-idle) selection
-/// again. Backspace remains the sole editor of not-yet-resolved digits/tokens.
+/// performs. It also clears <see cref="ConsoleContext.ParameterSelection"/> (CLAUDE.md §16, PSEL-4
+/// - CLEAR clears the current Parameter Selection, extending this same physical key's
+/// committed-context-clearing behavior to that separate concept; this is not a new key and does
+/// not change any of the Fixture-Selection behavior documented above). It never touches
+/// Programmer/Editor values, never touches the shared EditorContextStack. The command line's own
+/// composition/pending-digit reset and the RELEASE softkey-context dismissal live in
+/// CommandSurfaceViewModel.PressClear (a UI-layer concern this Action has no access to) - not
+/// duplicated here. It has no second-press/escalation behavior of any kind: pressing CLEAR again
+/// simply clears an already-empty (and already-idle) selection again. Backspace remains the sole
+/// editor of not-yet-resolved digits/tokens.
 ///
 /// It is also deliberately EXCLUDED from Macro recording - see MacroRecorder.OnActionExecuted:
 /// clearing the operating selection is a navigation gesture, never a step worth replaying.
@@ -31,6 +35,7 @@ public sealed class ClearSelectionAction : IConsoleAction
     {
         context.Selection.Clear();
         context.SelectionCycle.MarkSelectionStarted();
+        context.ParameterSelection.Clear();
         return new CommandResult { ActionType = ConsoleActionType.ClearSelection };
     }
 }

@@ -28,6 +28,16 @@ public sealed class ConsoleContext
     public SelectionCycleState SelectionCycle { get; } = new();
 
     /// <summary>
+    /// Shared, first-class Parameter Selection state (CLAUDE.md §16, PSEL-1 through PSEL-5) - the
+    /// ordered set of LOGICAL parameters (PAN, TILT, RED, ...) the operator is currently
+    /// targeting. Independent of <see cref="Selection"/> (Fixture Selection) and of
+    /// <see cref="Programmer"/> - see PSEL-4: changing Fixture Selection never clears this, and
+    /// this is never derived from Programmer contents. Exactly one instance lives here, exposed to
+    /// every consumer (operator-facing surfaces, CLEAR) - never a per-consumer copy.
+    /// </summary>
+    public ParameterSelection ParameterSelection { get; } = new();
+
+    /// <summary>
     /// Read-only view of the engine's actual merged output - what a Relative adjustment
     /// treats as "the current value", since a Cue/Effect can be driving a channel with no
     /// Programmer override present at all. Narrowed to this one read-only method (not the

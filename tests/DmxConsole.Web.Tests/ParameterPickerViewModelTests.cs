@@ -373,6 +373,43 @@ public class ParameterPickerViewModelTests
         Assert.Null(rig.Picker.ArmedFamily); // no longer a lone family token - state derived, not stale
     }
 
+    // 15: SelectParameter writes into the SHARED ConsoleContext.ParameterSelection (CLAUDE.md §16,
+    // PSEL-1/PSEL-4/PSEL-5) - not a picker-local copy - proving the Parameter Picker is the
+    // operator-facing surface wired to the new shared state this slice introduces.
+    [Fact]
+    public void SelectParameter_WritesIntoSharedConsoleContextParameterSelection()
+    {
+        var rig = BuildRig();
+        var fixture = Patch(rig, MovingHeadFull(), 1);
+        rig.Context.Selection.Add(fixture);
+        rig.Surface.PressToken(CommandTokenKind.Position);
+
+        rig.Picker.SelectParameter(ChannelType.Pan);
+
+        Assert.True(rig.Context.ParameterSelection.Contains(ChannelType.Pan));
+        Assert.Equal(new[] { ChannelType.Pan }, rig.Context.ParameterSelection.Items);
+    }
+
+    // 16: repeated/ordered picks preserve order and fold coarse/fine, exactly like the underlying
+    // ParameterSelection's own PSEL-1/PSEL-5 rules - proven through the real operator surface, not
+    // just the Core type directly.
+    [Fact]
+    public void SelectParameter_RepeatedPicks_PreserveOrderAndFoldCoarseFine()
+    {
+        var rig = BuildRig();
+        var fixture = Patch(rig, MovingHeadFull(), 1);
+        rig.Context.Selection.Add(fixture);
+
+        rig.Surface.PressToken(CommandTokenKind.Position);
+        rig.Picker.SelectParameter(ChannelType.Pan);
+        rig.Surface.PressToken(CommandTokenKind.Position);
+        rig.Picker.SelectParameter(ChannelType.Tilt);
+        rig.Surface.PressToken(CommandTokenKind.Position);
+        rig.Picker.SelectParameter(ChannelType.Pan); // duplicate - no-op
+
+        Assert.Equal(new[] { ChannelType.Pan, ChannelType.Tilt }, rig.Context.ParameterSelection.Items);
+    }
+
     // 14: existing keyboard/command grammar behavior remains unchanged - family-level RELEASE
     // (without ever touching the picker) still resolves exactly as before this slice.
     [Fact]

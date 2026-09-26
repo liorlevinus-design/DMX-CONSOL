@@ -105,6 +105,14 @@ public sealed class ParameterPickerViewModel
         type.SemanticComponents().Any(component => fixture.FindChannel(component) is not null);
 
     /// <summary>The ONLY write path - routes into the exact same PressParameter any other entry
-    /// point (present or future) would call, never a duplicated dispatch.</summary>
-    public void SelectParameter(ChannelType type) => _commandSurface.PressParameter(type);
+    /// point (present or future) would call, never a duplicated dispatch. Also records the choice
+    /// into the shared, first-class Parameter Selection state (CLAUDE.md §16, PSEL-1/PSEL-5) -
+    /// "the operator chose this parameter" is exactly the semantic PSEL-4 requires, distinct from
+    /// any value-editing gesture. This writes directly into ConsoleContext.ParameterSelection, the
+    /// one shared instance, never a picker-local copy.</summary>
+    public void SelectParameter(ChannelType type)
+    {
+        _commandSurface.PressParameter(type);
+        _context.ParameterSelection.Select(type);
+    }
 }

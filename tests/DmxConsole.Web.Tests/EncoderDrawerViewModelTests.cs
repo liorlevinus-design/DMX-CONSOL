@@ -779,4 +779,26 @@ public class EncoderDrawerViewModelTests
         Assert.False(drawer.ShowsColorPicker());
         Assert.True(drawer.ColorPickerIsPartial());
     }
+
+    /// <summary>CLAUDE.md §16 (PSEL-4) - the shared Parameter Selection is a distinct, explicitly-
+    /// written state. This slice does not wire the Encoder Drawer to it at all (Parameter Picker
+    /// is the chosen operator-facing surface), so category/page changes here must have ZERO effect
+    /// on ConsoleContext.ParameterSelection - trivially true by construction, verified anyway per
+    /// the slice's explicit requirement.</summary>
+    [Fact]
+    public void CategoryAndPageChanges_HaveNoEffectOnSharedParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
+        context.Patch.Add(movingHead);
+        context.Selection.Add(movingHead);
+        context.ParameterSelection.Select(ChannelType.ColorRed);
+
+        drawer.SelectCategory(AttributeClass.Position);
+        drawer.SelectCategory(AttributeClass.Color);
+        drawer.RevalidateActiveCategory();
+        drawer.NextPage();
+
+        Assert.Equal(new[] { ChannelType.ColorRed }, context.ParameterSelection.Items);
+    }
 }
