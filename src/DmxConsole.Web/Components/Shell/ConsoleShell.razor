@@ -81,6 +81,19 @@
     // comment for the re-clamp behavior this feeds.
     private DotNetObjectReference<ConsoleShell>? _selfRef;
 
+    // Prerendering bug fix: with Blazor Server prerendering enabled, a component instance can be
+    // statically rendered and then disposed (e.g. the static-render pass is torn down before the
+    // interactive circuit connects, or a fast navigation away) WITHOUT OnAfterRenderAsync ever
+    // actually running for that instance - OnAfterRenderAsync only runs on the real interactive
+    // render, never during static prerendering. If DisposeAsync unconditionally called
+    // dmxPaneResize.unwatchViewportResize, it would attempt JS interop on an instance that never
+    // had a live JS runtime to interop with, throwing "JavaScript interop calls cannot be issued
+    // at this time... component is being statically rendered." This flag is set true only once the
+    // watchViewportResize call below actually completes, so DisposeAsync can tell "registration
+    // never happened" apart from "registration happened, now needs unregistering" instead of
+    // guessing from firstRender/_selfRef alone.
+    private bool _viewportWatchRegistered;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
@@ -89,6 +102,7 @@
         var size = await JS.InvokeAsync<ViewportSize>("dmxPaneResize.getViewportSize");
         FloatingWindows.SetViewportSize(size.Width, size.Height);
         await JS.InvokeVoidAsync("dmxPaneResize.watchViewportResize", _selfRef);
+        _viewportWatchRegistered = true;
     }
 
     [JSInvokable]
@@ -105,15 +119,26 @@
     // into an already-disposed reference and throws in the browser console. Must be
     // IAsyncDisposable (not plain IDisposable.Dispose): unregistering is a JS interop call, and
     // Blazor's synchronous Dispose() cannot reliably await one.
+    //
+    // Only attempt the unregister call if OnAfterRenderAsync actually registered it
+    // (_viewportWatchRegistered). A statically-prerendered instance that gets disposed before its
+    // interactive OnAfterRenderAsync ever ran has no JS runtime to interop with at all - calling
+    // JS here in that case throws InvalidOperationException ("JavaScript interop calls cannot be
+    // issued at this time... component is being statically rendered"), not JSDisconnectedException,
+    // so the existing catch below does not cover it. The flag sidesteps the problem entirely rather
+    // than trying to catch/swallow that exception.
     public async ValueTask DisposeAsync()
     {
-        try
+        if (_viewportWatchRegistered)
         {
-            await JS.InvokeVoidAsync("dmxPaneResize.unwatchViewportResize");
-        }
-        catch (JSDisconnectedException)
-        {
-            // Circuit already gone - nothing to unregister JS-side.
+            try
+            {
+                await JS.InvokeVoidAsync("dmxPaneResize.unwatchViewportResize");
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit already gone - nothing to unregister JS-side.
+            }
         }
 
         _selfRef?.Dispose();
