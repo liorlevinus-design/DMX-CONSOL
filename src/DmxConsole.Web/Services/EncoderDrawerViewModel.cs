@@ -230,20 +230,34 @@ public partial class EncoderDrawerViewModel : ObservableObject
         && fixture.FindChannel(ChannelType.ColorGreen) is not null
         && fixture.FindChannel(ChannelType.ColorBlue) is not null;
 
+    /// <summary>Logical parameters only (PSEL-5, docs/COMMAND_SURFACE_KEY_SPEC.md §23.30): a
+    /// coarse/fine pair (Pan+PanFine, Tilt+TiltFine) folds to ONE entry - the "coarse"
+    /// representative from ChannelTypeExtensions.SemanticComponents, the exact same canonical
+    /// folding mechanism RELEASE (ReleaseParameterCommand) and the Parameter Picker
+    /// (ParameterPickerViewModel.Options) already use, so the Encoder Drawer never disagrees with
+    /// either about what counts as one operator-facing parameter. A normal (non-paired) channel
+    /// type folds to itself and so is unaffected.</summary>
     private List<ChannelType> ChannelTypesForActiveCategory()
     {
         if (ActiveCategory is not { } category) return new List<ChannelType>();
         return Context.Selection.Items
             .SelectMany(f => f.Mode.Channels)
             .Where(c => c.Type.ToAttributeClass() == category)
-            .Select(c => c.Type).Distinct().OrderBy(t => t).ToList();
+            .Select(c => c.Type.SemanticComponents()[0])
+            .Distinct().OrderBy(t => t).ToList();
     }
 
     private EncoderSlot BuildSlot(ChannelType type)
     {
+        // type is always a logical parameter's primary/coarse representative (see
+        // ChannelTypesForActiveCategory). A fixture is matched via ANY of that parameter's
+        // SemanticComponents - not just the primary type - so a profile that (unusually) only has
+        // the fine half without the coarse half is still picked up, same support rule
+        // ParameterPickerViewModel.FixtureSupportsParameter already uses for RELEASE/the picker.
+        var components = type.SemanticComponents();
         var allSelected = Context.Selection.Items;
         var perFixture = allSelected
-            .Select(f => (Fixture: f, Channel: f.FindChannel(type)))
+            .Select(f => (Fixture: f, Channel: components.Select(f.FindChannel).FirstOrDefault(c => c is not null)))
             .Where(x => x.Channel is not null)
             .ToList();
 

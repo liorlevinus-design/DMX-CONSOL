@@ -59,4 +59,37 @@ public class AttributeClassTests
             new[] { AttributeClass.Intensity, AttributeClass.Position, AttributeClass.Color, AttributeClass.Beam, AttributeClass.Image, AttributeClass.Shape },
             ChannelTypeExtensions.SelectableFamilies);
     }
+
+    /// <summary>PSEL-5 (CLAUDE.md §16) - logical parameter folding. Pan+PanFine is one semantic
+    /// PAN, Tilt+TiltFine is one semantic TILT; this is the ONE canonical folding mechanism that
+    /// RELEASE (ReleaseParameterCommand), the Parameter Picker (ParameterPickerViewModel.Options)
+    /// and the Encoder Drawer (EncoderDrawerViewModel.ChannelTypesForActiveCategory) all reuse.</summary>
+    [Theory]
+    [InlineData(ChannelType.Pan, ChannelType.Pan, ChannelType.PanFine)]
+    [InlineData(ChannelType.PanFine, ChannelType.Pan, ChannelType.PanFine)]
+    [InlineData(ChannelType.Tilt, ChannelType.Tilt, ChannelType.TiltFine)]
+    [InlineData(ChannelType.TiltFine, ChannelType.Tilt, ChannelType.TiltFine)]
+    public void SemanticComponents_CoarseFinePair_FoldsToBothComponentsWithCoarseFirst(
+        ChannelType queried, ChannelType expectedPrimary, ChannelType expectedSecondary)
+    {
+        var components = queried.SemanticComponents();
+
+        Assert.Equal(new[] { expectedPrimary, expectedSecondary }, components);
+    }
+
+    /// <summary>Every non-paired ChannelType (a normal 8-bit parameter, e.g. Dimmer/Gobo/ColorRed)
+    /// is its own single-member parameter - folding must never merge or drop unrelated types.</summary>
+    [Theory]
+    [InlineData(ChannelType.Dimmer)]
+    [InlineData(ChannelType.ColorRed)]
+    [InlineData(ChannelType.ColorGreen)]
+    [InlineData(ChannelType.ColorBlue)]
+    [InlineData(ChannelType.Gobo)]
+    [InlineData(ChannelType.GoboRotation)]
+    [InlineData(ChannelType.Shutter)]
+    [InlineData(ChannelType.Generic)]
+    public void SemanticComponents_NonPairedType_IsItsOwnSingleMemberParameter(ChannelType type)
+    {
+        Assert.Equal(new[] { type }, type.SemanticComponents());
+    }
 }

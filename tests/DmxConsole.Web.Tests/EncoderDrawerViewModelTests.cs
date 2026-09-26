@@ -38,6 +38,51 @@ public class EncoderDrawerViewModelTests
         },
     };
 
+    /// <summary>Pan/PanFine + Tilt/TiltFine coarse/fine pairs, plus one non-paired parameter
+    /// (Gobo) - used to prove PSEL-5 logical parameter folding in the Encoder Drawer's own
+    /// enumeration (docs/COMMAND_SURFACE_KEY_SPEC.md §23.30).</summary>
+    private static FixtureProfile CoarseFineMovingHead() => new()
+    {
+        Id = "test-coarse-fine-moving-head",
+        Manufacturer = "Test",
+        Model = "CoarseFineMovingHead",
+        Modes = new[]
+        {
+            new FixtureMode
+            {
+                Name = "5ch",
+                Channels = new[]
+                {
+                    new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 0 },
+                    new FixtureChannel { Name = "Pan Fine", Type = ChannelType.PanFine, Offset = 1 },
+                    new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 2 },
+                    new FixtureChannel { Name = "Tilt Fine", Type = ChannelType.TiltFine, Offset = 3 },
+                    new FixtureChannel { Name = "Gobo", Type = ChannelType.Gobo, Offset = 4 },
+                },
+            },
+        },
+    };
+
+    /// <summary>A moving head with Pan/Tilt but no fine channels at all - the "coarse only" case.</summary>
+    private static FixtureProfile CoarseOnlyMovingHead(string id = "test-coarse-only-moving-head") => new()
+    {
+        Id = id,
+        Manufacturer = "Test",
+        Model = "CoarseOnlyMovingHead",
+        Modes = new[]
+        {
+            new FixtureMode
+            {
+                Name = "2ch",
+                Channels = new[]
+                {
+                    new FixtureChannel { Name = "Pan", Type = ChannelType.Pan, Offset = 0 },
+                    new FixtureChannel { Name = "Tilt", Type = ChannelType.Tilt, Offset = 1 },
+                },
+            },
+        },
+    };
+
     private static FixtureProfile Dimmer1() => new()
     {
         Id = "test-dimmer",
@@ -587,6 +632,130 @@ public class EncoderDrawerViewModelTests
         Assert.True(drawer.SlotFor(ChannelType.Pan).MixedRange);
         Assert.False(drawer.SlotFor(ChannelType.Tilt).MixedRange);
         Assert.True(drawer.PositionPadHasMixedRange());
+    }
+
+    // ---------- PSEL-5 logical parameter folding (CLAUDE.md §16, KEY_SPEC §23.30) ----------
+
+    /// <summary>Pan + Pan Fine must fold to ONE logical PAN slot, not two - the Encoder Drawer's
+    /// own enumeration must never let the operator see a raw coarse/fine byte pair as separately
+    /// selectable parameters.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_PanAndPanFine_FoldToOneLogicalPan()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Contains(ChannelType.Pan, types);
+        Assert.DoesNotContain(ChannelType.PanFine, types);
+        Assert.Equal(1, types.Count(t => t == ChannelType.Pan));
+    }
+
+    /// <summary>Tilt + Tilt Fine must fold to ONE logical TILT slot, same as Pan above.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_TiltAndTiltFine_FoldToOneLogicalTilt()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Contains(ChannelType.Tilt, types);
+        Assert.DoesNotContain(ChannelType.TiltFine, types);
+        Assert.Equal(1, types.Count(t => t == ChannelType.Tilt));
+    }
+
+    /// <summary>Folding must produce exactly Pan + Tilt (2 entries) for a fixture with Pan,
+    /// PanFine, Tilt, TiltFine - never all four raw channel types.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_CoarseFinePairs_ProduceExactlyTwoPositionEntries()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Equal(new[] { ChannelType.Pan, ChannelType.Tilt }, types.OrderBy(t => t));
+    }
+
+    /// <summary>A normal 8-bit, non-paired parameter (Gobo) on the same fixture as the coarse/fine
+    /// pairs remains visible exactly once, unaffected by the Position-family folding above.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_NonPairedParameter_RemainsVisibleExactlyOnce()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Image);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Equal(new[] { ChannelType.Gobo }, types);
+    }
+
+    /// <summary>A fixture with PAN but no PAN FINE still exposes PAN exactly once - no crash, no
+    /// duplicate, no missing entry.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_PanWithoutPanFine_ExposesPanExactlyOnce()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseOnlyMovingHead(), CoarseOnlyMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Equal(new[] { ChannelType.Pan, ChannelType.Tilt }, types.OrderBy(t => t));
+    }
+
+    /// <summary>Multiple selected fixtures - one with coarse/fine Pan/Tilt, one with coarse-only
+    /// Pan/Tilt - must not create duplicate logical PAN/TILT entries.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_MultipleFixtures_DoNotDuplicateSharedLogicalParameter()
+    {
+        var (context, _, _, drawer) = Build();
+        var coarseFine = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        var coarseOnly = new PatchedFixture(CoarseOnlyMovingHead("test-coarse-only-2"), CoarseOnlyMovingHead("test-coarse-only-2").Modes[0], 1, 1);
+        context.Patch.Add(coarseFine);
+        context.Patch.Add(coarseOnly);
+        context.Selection.Add(coarseFine);
+        context.Selection.Add(coarseOnly);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Equal(new[] { ChannelType.Pan, ChannelType.Tilt }, types.OrderBy(t => t));
+    }
+
+    /// <summary>A parameter present on only some selected fixtures (Gobo, only on the moving head)
+    /// must still be listed (Partial) - never lost by the folding logic.</summary>
+    [Fact]
+    public void ChannelTypesForCategory_ParameterOnlyOnSomeFixtures_IsNotLost()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1); // has Gobo
+        var dimmerOnly = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 1, 10); // no Gobo
+        context.Patch.Add(movingHead);
+        context.Patch.Add(dimmerOnly);
+        context.Selection.Add(movingHead);
+        context.Selection.Add(dimmerOnly);
+        drawer.SelectCategory(AttributeClass.Image);
+
+        var slot = drawer.SlotsForCurrentPage().Single(s => s.Type == ChannelType.Gobo);
+
+        Assert.True(slot.Partial);
     }
 
     [Fact]
