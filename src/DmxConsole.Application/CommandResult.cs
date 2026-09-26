@@ -59,6 +59,13 @@ public enum ConsoleActionType
     AdjustIntensity,
     SetAttributeValue,
 
+    /// <summary>Parameter-scoped AT (CLAUDE.md §16, PSEL-1/PSEL-2/PSEL-3): writes one or more
+    /// logical parameters (PAN, RED, ...) across Current Fixture Selection x Current Parameter
+    /// Selection, resolved via <see cref="DmxConsole.Core.Selection.ParameterTargetResolver"/>.
+    /// One CommandResult regardless of how many (fixture, parameter) pairs were touched - a fixed
+    /// value, a distributed fan, and a multi-parameter write are all this single action type.</summary>
+    SetParameterValues,
+
     /// <summary>CAPTURE ALL (docs/COMMAND_SURFACE_KEY_SPEC.md §8): reads the current effective
     /// live output for every actively-owned channel across the whole patch and writes it into
     /// the Programmer as a new Editor value - an undoable editing command (IConsoleCommand), not

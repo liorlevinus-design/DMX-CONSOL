@@ -218,7 +218,7 @@ public sealed class CommandComposer
             return new CommandComposition
             {
                 Tokens = _tokens.ToList(), PreviewText = preview,
-                ExpectedNext = new[] { CommandTokenKind.Release },
+                ExpectedNext = new[] { CommandTokenKind.Release, CommandTokenKind.At, CommandTokenKind.Plus },
             };
         }
 
@@ -232,6 +232,39 @@ public sealed class CommandComposer
                 Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
                 ReadyOperation = new ReleaseParameterCommand(targets, channelType),
             };
+        }
+
+        // PARAMETER-FIRST AT (PSEL-3, PSEL-1): "<Parameter> [+ <Parameter>]* AT <value>
+        // [THRU <value>]* [ENTER]" - e.g. "RED AT 40", "PAN + TILT AT 25". A lone Parameter (or
+        // Parameter+Release) is already handled by the two checks above, so this only ever fires
+        // once AT genuinely follows the parameter list - it can never intercept "RED RELEASE".
+        // Delegates to ResolveParameterAt/BuildParameterAtCommand, the SAME resolution+
+        // interpolation path the ParameterSelection-driven bare-AT fallback in Resolve() uses -
+        // never a second, parallel parameter-AT engine.
+        if (_tokens[0].Kind == CommandTokenKind.Parameter)
+        {
+            var parameters = new List<ChannelType>();
+            int j = 0;
+            while (j < _tokens.Count && _tokens[j].Kind == CommandTokenKind.Parameter)
+            {
+                parameters.Add((ChannelType)_tokens[j].SemanticPayload!);
+                j++;
+                if (j + 1 < _tokens.Count && _tokens[j].Kind == CommandTokenKind.Plus && _tokens[j + 1].Kind == CommandTokenKind.Parameter)
+                {
+                    j++; // consume Plus - loop continues onto the next Parameter token
+                    continue;
+                }
+                break;
+            }
+
+            if (j < _tokens.Count && _tokens[j].Kind == CommandTokenKind.At)
+                return ResolveParameterAt(parameters, j, preview, finalize);
+
+            if (j < _tokens.Count && _tokens[j].Kind == CommandTokenKind.Plus)
+                return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Parameter } };
+
+            if (j == _tokens.Count && j > 1)
+                return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.At, CommandTokenKind.Plus } };
         }
 
         // COLOR PRESET 5 [ENTER] (§4) - family-qualified Preset recall against the current
@@ -269,6 +302,17 @@ public sealed class CommandComposer
         // no selection-building commands are needed, targets = whatever is currently selected.
         if (_tokens[0].Kind == CommandTokenKind.Store)
             return ResolveStore(preview, finalize, storeIndex: 0, precedingCommands: new List<IConsoleCommand>(), targets: _context.Selection.Items.ToList());
+
+        // Bare AT (PSEL-3/PSEL-4) - "AT <value> [THRU <value>]* [ENTER]" with no Fixture/Group/
+        // Parameter clause typed on THIS line at all: resolved directly against the CURRENT
+        // Fixture Selection, mirroring bare STORE immediately above. This is the entry point for
+        // "the operator already armed a Parameter Selection via the Encoder Drawer and just types
+        // AT 40 ENTER" (empty ParameterSelection here falls through to the exact same legacy
+        // Intensity-only AT semantics as always - see ResolveBareAt's own doc comment). The
+        // AT-RECALL two-token shape ("AT .") is a distinct, unrelated grammar handled earlier in
+        // Build() and never reaches here.
+        if (_tokens[0].Kind == CommandTokenKind.At)
+            return ResolveBareAt(preview, finalize);
 
         var head = _tokens[0];
         ObjectType objectType;
@@ -580,12 +624,26 @@ public sealed class CommandComposer
         var (commands, targets, buildError) = BuildSelectionCommands(objectType, clauses);
         if (buildError is not null) return Incomplete(preview, buildError);
 
+        bool isParameterScopedAt = atControlPoints is not null && _context.ParameterSelection.Count > 0;
+
         if (atControlPoints is not null)
         {
             if (targets.Count == 0)
                 return Incomplete(preview, "No fixtures resolved to apply At to.");
 
-            if (atControlPoints.Count == 1)
+            if (isParameterScopedAt)
+            {
+                // ParameterSelection-driven "bare AT" (PSEL-3/PSEL-4): no Parameter token appears
+                // on THIS command line at all - the operator already armed a Parameter Selection
+                // (typically via the Encoder Drawer, Slice 3) and just typed "AT 40 ENTER". Empty
+                // ParameterSelection is the hard backward-compatibility boundary: whenever it's
+                // empty, this whole branch is skipped and legacy Intensity-only AT below runs
+                // completely unchanged.
+                var (parameterCommand, parameterError) = BuildParameterAtCommand(targets, _context.ParameterSelection.Items.ToList(), atControlPoints, preview);
+                if (parameterError is not null) return Incomplete(preview, parameterError);
+                commands.Add(parameterCommand!);
+            }
+            else if (atControlPoints.Count == 1)
             {
                 // Single-value AT - unchanged from before the value-distribution slice: one
                 // AdjustIntensityCommand for every target, same value.
@@ -629,10 +687,165 @@ public sealed class CommandComposer
                 ? (int?)lastNumberedClause.Number : null,
             // Only a single scalar AT value is recallable (AT RECALL replays one percentage) - a
             // multi-point distribution has no single "the value" to remember, so it's left null
-            // rather than misrepresenting the path as one number.
-            AppliedAtPercent = atControlPoints is { Count: 1 } single ? single[0] : null,
+            // rather than misrepresenting the path as one number. AT RECALL replays an
+            // AdjustIntensityCommand specifically (see the At-Recall branch above), so a
+            // parameter-scoped AT never populates this either - it has its own command shape.
+            AppliedAtPercent = !isParameterScopedAt && atControlPoints is { Count: 1 } single ? single[0] : null,
             ReadyOperation = operation,
         };
+    }
+
+    /// <summary>
+    /// Bare AT (PSEL-3/PSEL-4) - "AT &lt;value&gt; [THRU &lt;value&gt;]* [ENTER]" with no object/
+    /// parameter clause on this line, mirroring bare STORE's own "resolve against whatever is
+    /// already selected" shape. When the current Parameter Selection is empty this is byte-for-
+    /// byte the legacy Intensity-only AT (hard backward-compatibility requirement) - only when
+    /// ParameterSelection is non-empty does it route into BuildParameterAtCommand, the SAME
+    /// resolution the explicit "&lt;Parameter&gt; AT ..." grammar (ResolveParameterAt) uses.
+    /// </summary>
+    private CommandComposition ResolveBareAt(string preview, bool finalize)
+    {
+        int i = 1;
+        if (i >= _tokens.Count || _tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a number after At.", CommandTokenKind.Number);
+
+        var controlPoints = new List<double> { _tokens[i].NumericValue!.Value };
+        i++;
+
+        while (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Thru)
+        {
+            if (i + 1 >= _tokens.Count || _tokens[i + 1].Kind != CommandTokenKind.Number)
+                return Incomplete(preview, "Expected a number after Thru.", CommandTokenKind.Number);
+
+            controlPoints.Add(_tokens[i + 1].NumericValue!.Value);
+            i += 2;
+        }
+
+        if (i < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the At value.", CommandTokenKind.Enter);
+
+        if (!finalize)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Thru, CommandTokenKind.Enter } };
+
+        var targets = _context.Selection.Items.ToList();
+        if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
+
+        bool parameterScoped = _context.ParameterSelection.Count > 0;
+        IConsoleCommand operation;
+
+        if (parameterScoped)
+        {
+            var (command, error) = BuildParameterAtCommand(targets, _context.ParameterSelection.Items.ToList(), controlPoints, preview);
+            if (error is not null) return Incomplete(preview, error);
+            operation = command!;
+        }
+        else if (controlPoints.Count == 1)
+        {
+            operation = new AdjustIntensityCommand(targets, AdjustOperation.Absolute, controlPoints[0]);
+        }
+        else
+        {
+            var commands = new List<IConsoleCommand>();
+            for (int index = 0; index < targets.Count; index++)
+            {
+                double t = targets.Count == 1 ? 0.0 : (double)index / (targets.Count - 1);
+                double value = InterpolateAlongPath(controlPoints, t);
+                commands.Add(new AdjustIntensityCommand(new List<PatchedFixture> { targets[index] }, AdjustOperation.Absolute, value));
+            }
+            operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
+        }
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+            AppliedAtPercent = !parameterScoped && controlPoints.Count == 1 ? controlPoints[0] : null,
+            ReadyOperation = operation,
+        };
+    }
+
+    /// <summary>
+    /// PARAMETER-FIRST AT (PSEL-3): "&lt;Parameter&gt; [+ &lt;Parameter&gt;]* AT &lt;value&gt;
+    /// [THRU &lt;value&gt;]* [ENTER]" - resolved against the CURRENT Fixture Selection (there is no
+    /// object-clause here; parameter-scoped AT never builds a new Fixture Selection, exactly like
+    /// family RELEASE/HOME above). `atTokenIndex` points at the AT token itself. Parses the same
+    /// value/THRU control-point shape single-value/distributed fixture-first AT already parses
+    /// (see the At branch inside Build()'s object-clause loop) - a small, unavoidable duplicate of
+    /// the PARSING only; the actual interpolation MATH is not duplicated (BuildParameterAtCommand
+    /// calls the exact same <see cref="InterpolateAlongPath"/> used everywhere else).
+    /// </summary>
+    private CommandComposition ResolveParameterAt(List<ChannelType> parameters, int atTokenIndex, string preview, bool finalize)
+    {
+        int i = atTokenIndex + 1;
+        if (i >= _tokens.Count || _tokens[i].Kind != CommandTokenKind.Number)
+            return Incomplete(preview, "Expected a number after At.", CommandTokenKind.Number);
+
+        var controlPoints = new List<double> { _tokens[i].NumericValue!.Value };
+        i++;
+
+        while (i < _tokens.Count && _tokens[i].Kind == CommandTokenKind.Thru)
+        {
+            if (i + 1 >= _tokens.Count || _tokens[i + 1].Kind != CommandTokenKind.Number)
+                return Incomplete(preview, "Expected a number after Thru.", CommandTokenKind.Number);
+
+            controlPoints.Add(_tokens[i + 1].NumericValue!.Value);
+            i += 2;
+        }
+
+        if (i < _tokens.Count)
+            return Incomplete(preview, "Nothing may follow the At value.", CommandTokenKind.Enter);
+
+        if (!finalize)
+            return new CommandComposition { Tokens = _tokens.ToList(), PreviewText = preview, ExpectedNext = new[] { CommandTokenKind.Thru, CommandTokenKind.Enter } };
+
+        var targets = _context.Selection.Items.ToList();
+        if (targets.Count == 0) return Incomplete(preview, "Select at least one fixture first.");
+
+        var (command, error) = BuildParameterAtCommand(targets, parameters, controlPoints, preview);
+        if (error is not null) return Incomplete(preview, error);
+
+        return new CommandComposition
+        {
+            Tokens = _tokens.ToList(), PreviewText = preview, IsComplete = true, EndsSelectionCycle = true,
+            ReadyOperation = command,
+        };
+    }
+
+    /// <summary>
+    /// The one shared build step behind BOTH parameter-AT entry points - explicit
+    /// "&lt;Parameter&gt; AT ..." grammar (ResolveParameterAt) and the ParameterSelection-driven
+    /// bare "AT ..." fallback (Resolve()) - so there is exactly one place that turns
+    /// (ordered targets, ordered parameters, control points) into a
+    /// <see cref="SetParameterValuesCommand"/>, never two divergent parameter-AT engines.
+    ///
+    /// The critical rule (CLAUDE.md §16/PSEL-2, this slice's own spec): the distributed value is
+    /// computed ONCE per fixture POSITION in `targets` (never per flattened (fixture, parameter)
+    /// slot), then that single value is fanned out to every parameter compatible with that
+    /// fixture. A fixture with zero compatible parameters still consumes its position in the
+    /// distribution path - it simply contributes no write - so the remaining fixtures' values are
+    /// never renumbered/compacted because of a skip.
+    /// </summary>
+    private (IConsoleCommand? Command, string? Error) BuildParameterAtCommand(
+        List<PatchedFixture> targets, IReadOnlyList<ChannelType> parameters, List<double> controlPoints, string preview)
+    {
+        var resolved = ParameterTargetResolver.Resolve(targets, parameters);
+        if (resolved.Targets.Count == 0)
+            return (null, "No selected fixtures support the selected parameter(s).");
+
+        var valueTargets = new List<SetParameterValuesCommand.ParameterValueTarget>();
+        for (int index = 0; index < targets.Count; index++)
+        {
+            var fixture = targets[index];
+            double t = targets.Count == 1 ? 0.0 : (double)index / (targets.Count - 1);
+            double displayValue = InterpolateAlongPath(controlPoints, t);
+
+            foreach (var target in resolved.Targets.Where(rt => rt.Fixture.Id == fixture.Id))
+            {
+                byte value = target.Channel.FromDisplayValue(displayValue);
+                valueTargets.Add(new SetParameterValuesCommand.ParameterValueTarget(fixture, target.Channel, value));
+            }
+        }
+
+        return (new SetParameterValuesCommand(valueTargets, resolved.Skipped), null);
     }
 
     /// <summary>Value-distribution slice (§7): linear interpolation across one or more control
