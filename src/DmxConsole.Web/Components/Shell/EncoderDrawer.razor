@@ -111,7 +111,14 @@ else
                     @if (slot.Type is { } type)
                     {
                         <section class="encoder-slot @(slot.IsProgrammerTouched ? "is-touched" : "")" aria-label="@slot.Label encoder">
-                            <div class="encoder-slot-header">
+                            @* The whole header row (not just the label text) is the tappable target for
+                               parameter selection - a text-only click area was well under the project's
+                               44px touch-target minimum (Blazor Conventions in CLAUDE.md). Selected-state
+                               styling moves to the row too, so the highlight reads as "this row is
+                               selected" rather than just highlighting a small chip of text. *@
+                            <div class="encoder-slot-header @(Drawer.IsParameterSelected(type) ? "selected" : "")"
+                                 title="@(Drawer.IsParameterSelected(type) ? "Selected - click to deselect" : "Click to select this parameter")"
+                                 @onclick="() => Drawer.PressParameterLabel(type)">
                                 <span class="encoder-slot-number">E@(Array.IndexOf(Drawer.SlotsForCurrentPage().ToArray(), slot) + 1)</span>
                                 <span class="encoder-name">@slot.Label</span>
                                 @if (slot.IsProgrammerTouched)

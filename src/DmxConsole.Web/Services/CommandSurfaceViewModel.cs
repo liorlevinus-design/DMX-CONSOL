@@ -737,6 +737,47 @@ public sealed class CommandSurfaceViewModel
     /// A successful release is a programming action - closes the SelectionCycle, exactly like
     /// family-qualified RELEASE grammar already does.
     /// </summary>
+    /// <summary>
+    /// The Encoder Drawer's RELEASE + parameter-label shortcut (PSEL slice 3): while
+    /// <see cref="ReleaseArmed"/> is true (a bare RELEASE press already armed the contextual
+    /// panel), pressing a parameter's label/button in the Encoder Drawer releases that ONE
+    /// logical parameter - via the exact same canonical <see cref="ReleaseParameterCommand"/> the
+    /// command-line "&lt;Parameter&gt; RELEASE ENTER" grammar already uses (no second RELEASE
+    /// state machine, no duplicated SelectChannels-style filtering) - scoped strictly to the
+    /// CURRENT Fixture Selection (never a global scan of every fixture holding that parameter in
+    /// the Programmer). A no-op if RELEASE isn't armed, so an ordinary (non-armed) parameter-label
+    /// press never accidentally releases anything - the caller (EncoderDrawerViewModel) is
+    /// expected to check <see cref="ReleaseArmed"/> itself before falling back to this, but this
+    /// guard makes the method safe either way. Immediate execution, no ENTER required for this
+    /// shortcut specifically - the existing command-line "&lt;Parameter&gt; RELEASE ENTER" path is
+    /// untouched and still requires its own ENTER via PressToken/CommandComposer.
+    /// </summary>
+    public void ReleaseParameterForCurrentSelection(ChannelType type)
+    {
+        if (!ReleaseArmed) return;
+
+        ReleaseArmed = false;
+        _armedReleaseFamilies.Clear();
+        DispatchError = null;
+
+        var targets = _context.Selection.Items.ToList();
+        if (targets.Count == 0)
+        {
+            DispatchError = "Select at least one fixture first.";
+            Changed?.Invoke();
+            return;
+        }
+
+        var result = _dispatcher.Dispatch(new ReleaseParameterCommand(targets, type));
+        DispatchError = result.Success ? null : (result.Error ?? "Release failed.");
+        if (result.Success)
+        {
+            _context.SelectionCycle.MarkExecutionCompleted();
+            _selectionContextEcho = null; // a programming execution returns the Task line to true idle (§A)
+        }
+        Changed?.Invoke();
+    }
+
     private void ConfirmArmedRelease(bool viaSecondRelease)
     {
         ReleaseArmed = false;

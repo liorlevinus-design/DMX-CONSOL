@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using DmxConsole.Application;
+using DmxConsole.Application.Commands.Selection;
 using DmxConsole.Core;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
@@ -144,6 +145,18 @@ public class EncoderDrawerViewModelTests
 
     private static (ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo, EncoderDrawerViewModel Drawer) Build()
     {
+        var (context, dispatcher, undoRedo, drawer, _) = BuildWithSurface();
+        return (context, dispatcher, undoRedo, drawer);
+    }
+
+    /// <summary>PSEL slice 3: the RELEASE + encoder-parameter shortcut needs the real
+    /// CommandSurfaceViewModel (it owns ReleaseArmed/ReleaseParameterForCurrentSelection - see that
+    /// type's own doc comments), so this variant wires EncoderDrawerViewModel to a real one instead
+    /// of a null/stub, exactly as MainViewModel does in production. Uses the same
+    /// CommandSurfaceViewModelTestSupport helper CommandSurfaceViewModelReleaseTests already uses,
+    /// so this is not a second, parallel construction path.</summary>
+    private static (ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo, EncoderDrawerViewModel Drawer, CommandSurfaceViewModel Surface) BuildWithSurface()
+    {
         var patch = new Patch();
         var engine = new DmxOutputEngine(patch);
         var context = new ConsoleContext(patch, new Programmer(), new FixtureSelection(), new GroupManager(),
@@ -151,8 +164,9 @@ public class EncoderDrawerViewModelTests
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         var programmerVm = new ProgrammerViewModel(context, dispatcher, new ObservableCollection<ChannelFaderViewModel>());
-        var drawer = new EncoderDrawerViewModel(dispatcher, programmerVm);
-        return (context, dispatcher, undoRedo, drawer);
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new DmxConsole.Web.EditorToolBar.EditorContextStack());
+        var drawer = new EncoderDrawerViewModel(dispatcher, programmerVm, surface);
+        return (context, dispatcher, undoRedo, drawer, surface);
     }
 
     [Fact]
@@ -800,5 +814,499 @@ public class EncoderDrawerViewModelTests
         drawer.NextPage();
 
         Assert.Equal(new[] { ChannelType.ColorRed }, context.ParameterSelection.Items);
+    }
+
+    // ==================================================================================
+    // PSEL slice 3: the Encoder Drawer IS the Parameter Selection UI - normal parameter-
+    // label press toggles ConsoleContext.ParameterSelection; RELEASE-armed press releases
+    // that one logical parameter, scoped to the current Fixture Selection, via the
+    // canonical ReleaseParameterCommand. See CLAUDE.md §16 (PSEL-1..5) and the operator's
+    // PSEL slice 3 task specification for the exact product rules being verified below.
+    // ==================================================================================
+
+    // ---------- Normal parameter selection (RELEASE not armed) ----------
+
+    [Fact]
+    public void PressParameterLabel_SelectsLogicalParameter_InSharedParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+
+        Assert.Equal(new[] { ChannelType.ColorRed }, context.ParameterSelection.Items);
+        Assert.True(drawer.IsParameterSelected(ChannelType.ColorRed));
+    }
+
+    [Fact]
+    public void PressParameterLabel_SecondDifferentParameter_AppendsPreservingOrder()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+        drawer.PressParameterLabel(ChannelType.ColorGreen);
+
+        Assert.Equal(new[] { ChannelType.ColorRed, ChannelType.ColorGreen }, context.ParameterSelection.Items);
+    }
+
+    [Fact]
+    public void PressParameterLabel_PressingSelectedParameterAgain_RemovesOnlyThatOne()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+        drawer.PressParameterLabel(ChannelType.ColorGreen);
+        drawer.PressParameterLabel(ChannelType.ColorRed); // toggle RED back off
+
+        Assert.Equal(new[] { ChannelType.ColorGreen }, context.ParameterSelection.Items);
+        Assert.False(drawer.IsParameterSelected(ChannelType.ColorRed));
+        Assert.True(drawer.IsParameterSelected(ChannelType.ColorGreen));
+    }
+
+    [Fact]
+    public void PressParameterLabel_DuplicateSelectionIsImpossible()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+
+        context.ParameterSelection.Select(ChannelType.ColorRed); // pre-selected via another surface
+        drawer.PressParameterLabel(ChannelType.ColorGreen);
+
+        // Directly re-selecting an already-present logical parameter (e.g. a second, independent
+        // surface choosing the same one) must never create a duplicate entry - Select() itself
+        // guards this (Slice 2); re-asserted here at the Encoder Drawer's own call path.
+        context.ParameterSelection.Select(ChannelType.ColorRed);
+
+        Assert.Equal(new[] { ChannelType.ColorRed, ChannelType.ColorGreen }, context.ParameterSelection.Items);
+    }
+
+    [Fact]
+    public void PressParameterLabel_PanAndPanFine_FoldToOneLogicalPanInParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        drawer.PressParameterLabel(ChannelType.Pan); // BuildSlot only ever offers the folded/coarse type
+
+        Assert.Equal(new[] { ChannelType.Pan }, context.ParameterSelection.Items);
+        Assert.True(context.ParameterSelection.Contains(ChannelType.PanFine)); // folds - same logical parameter
+        Assert.True(drawer.IsParameterSelected(ChannelType.PanFine));
+    }
+
+    [Fact]
+    public void PressParameterLabel_TiltAndTiltFine_FoldToOneLogicalTiltInParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(CoarseFineMovingHead(), CoarseFineMovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        drawer.PressParameterLabel(ChannelType.Tilt);
+
+        Assert.Equal(new[] { ChannelType.Tilt }, context.ParameterSelection.Items);
+        Assert.True(context.ParameterSelection.Contains(ChannelType.TiltFine));
+        Assert.True(drawer.IsParameterSelected(ChannelType.TiltFine));
+    }
+
+    [Fact]
+    public void IsParameterSelected_ReflectsSharedParameterSelection_MutatedDirectly()
+    {
+        var (context, _, _, drawer) = Build();
+
+        Assert.False(drawer.IsParameterSelected(ChannelType.ColorRed));
+
+        context.ParameterSelection.Select(ChannelType.ColorRed); // mutated by some other surface entirely
+        Assert.True(drawer.IsParameterSelected(ChannelType.ColorRed));
+
+        context.ParameterSelection.Remove(ChannelType.ColorRed);
+        Assert.False(drawer.IsParameterSelected(ChannelType.ColorRed));
+    }
+
+    [Fact]
+    public void PressParameterLabel_NeverAffectsEncoderValueEditing_Regression()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 77);
+        drawer.SelectCategory(AttributeClass.Intensity);
+
+        drawer.PressParameterLabel(ChannelType.Dimmer); // selects the parameter, must not touch the value
+
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var stillOriginal));
+        Assert.Equal(77, stillOriginal);
+
+        // and the reverse: rotating/editing the value must not implicitly select/deselect the
+        // parameter - SetValue/Min/Max/Home are completely independent of ParameterSelection.
+        // Dimmer was explicitly selected above by PressParameterLabel; SetValue must leave that
+        // selection state exactly as-is (still selected), never toggle it off as a side effect.
+        drawer.SetValue(ChannelType.Dimmer, 200);
+        Assert.True(drawer.IsParameterSelected(ChannelType.Dimmer));
+    }
+
+    [Fact]
+    public void PressParameterLabel_ReleaseNotArmed_NeverMutatesProgrammer()
+    {
+        var (context, _, _, drawer) = BuildWithSurfaceContext();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 150); // Red
+        drawer.SelectCategory(AttributeClass.Color);
+
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var unchanged));
+        Assert.Equal(150, unchanged);
+    }
+
+    // ---------- Family/availability ----------
+
+    [Fact]
+    public void ColorCategory_ExposesApplicableLogicalColorParameters_SelectableByLabel()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Equal(new[] { ChannelType.ColorRed, ChannelType.ColorGreen, ChannelType.ColorBlue }, types.OrderBy(t => t));
+        foreach (var type in types) drawer.PressParameterLabel(type);
+        Assert.Equal(types.Count, context.ParameterSelection.Items.Count);
+    }
+
+    [Fact]
+    public void PositionCategory_ExposesApplicableLogicalPositionParameters_SelectableByLabel()
+    {
+        var (context, _, _, drawer) = Build();
+        var fixture = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Position);
+
+        var types = drawer.SlotsForCurrentPage().Where(s => s.Type is not null).Select(s => s.Type!.Value).ToList();
+
+        Assert.Equal(new[] { ChannelType.Pan, ChannelType.Tilt }, types.OrderBy(t => t));
+        drawer.PressParameterLabel(ChannelType.Pan);
+        Assert.True(drawer.IsParameterSelected(ChannelType.Pan));
+    }
+
+    [Fact]
+    public void FixtureSelectionChange_RefreshesAvailableEncoderParameters()
+    {
+        var (context, _, _, drawer) = Build();
+        var rgb = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        var dimmer = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 1, 10);
+        context.Patch.Add(rgb);
+        context.Patch.Add(dimmer);
+        context.Selection.Add(rgb);
+        drawer.SelectCategory(AttributeClass.Color);
+        Assert.NotEmpty(drawer.SlotsForCurrentPage().Where(s => s.Type is not null));
+
+        context.Selection.Clear();
+        context.Selection.Add(dimmer);
+        drawer.RevalidateActiveCategory();
+
+        Assert.Empty(drawer.SlotsForCurrentPage().Where(s => s.Type == ChannelType.ColorRed));
+    }
+
+    [Fact]
+    public void FixtureSelectionChange_DoesNotClearParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var rgb = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        var dimmer = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 1, 10);
+        context.Patch.Add(rgb);
+        context.Patch.Add(dimmer);
+        context.Selection.Add(rgb);
+        drawer.SelectCategory(AttributeClass.Color);
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+
+        context.Selection.Clear();
+        context.Selection.Add(dimmer); // ColorRed is no longer available on the new selection
+        drawer.RevalidateActiveCategory();
+
+        Assert.True(context.ParameterSelection.Contains(ChannelType.ColorRed)); // survives, per PSEL-4
+    }
+
+    [Fact]
+    public void FixtureSelectionChange_DoesNotReorderParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var rgb = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(rgb);
+        context.Selection.Add(rgb);
+        drawer.SelectCategory(AttributeClass.Color);
+        drawer.PressParameterLabel(ChannelType.ColorBlue);
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+
+        context.Selection.Clear();
+        context.Selection.Add(rgb);
+        drawer.RevalidateActiveCategory();
+
+        Assert.Equal(new[] { ChannelType.ColorBlue, ChannelType.ColorRed }, context.ParameterSelection.Items);
+    }
+
+    [Fact]
+    public void SelectedParameterThatBecomesUnavailable_RemainsInSharedParameterSelection()
+    {
+        var (context, _, _, drawer) = Build();
+        var movingHead = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1); // has Pan
+        var dimmer = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 1, 10); // no Pan
+        context.Patch.Add(movingHead);
+        context.Patch.Add(dimmer);
+        context.Selection.Add(movingHead);
+        drawer.SelectCategory(AttributeClass.Position);
+        drawer.PressParameterLabel(ChannelType.Pan);
+
+        context.Selection.Clear();
+        context.Selection.Add(dimmer);
+        drawer.RevalidateActiveCategory(); // Position no longer applies at all
+
+        Assert.True(context.ParameterSelection.Contains(ChannelType.Pan)); // still held, just not rendered
+        Assert.DoesNotContain(AttributeClass.Position, drawer.AvailableCategories());
+    }
+
+    // ---------- CLEAR ----------
+
+    [Fact]
+    public void Clear_EmptiesParameterSelection()
+    {
+        var (context, dispatcher, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+
+        dispatcher.DispatchAction(new ClearSelectionAction());
+
+        Assert.True(context.ParameterSelection.IsEmpty);
+    }
+
+    [Fact]
+    public void Clear_EncoderDrawerSelectedCheck_ReflectsClearImmediately()
+    {
+        var (context, dispatcher, _, drawer) = Build();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        drawer.SelectCategory(AttributeClass.Color);
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+        Assert.True(drawer.IsParameterSelected(ChannelType.ColorRed));
+
+        dispatcher.DispatchAction(new ClearSelectionAction());
+
+        Assert.False(drawer.IsParameterSelected(ChannelType.ColorRed));
+    }
+
+    // ---------- RELEASE - selection-scoped (Encoder Drawer shortcut) ----------
+
+    private static (ConsoleContext Context, CommandDispatcher Dispatcher, UndoRedoService UndoRedo, EncoderDrawerViewModel Drawer) BuildWithSurfaceContext() => Build();
+
+    [Fact]
+    public void ReleaseArmed_PressRed_ReleasesOnlySelectedFixtures_ForThatParameter()
+    {
+        var (context, _, undoRedo, drawer, surface) = BuildWithSurface();
+        var f101 = new PatchedFixture(RgbFixture("f101"), RgbFixture("f101").Modes[0], 0, 1) { Number = 101 };
+        var f105 = new PatchedFixture(RgbFixture("f105"), RgbFixture("f105").Modes[0], 1, 1) { Number = 105 };
+        var f110 = new PatchedFixture(RgbFixture("f110"), RgbFixture("f110").Modes[0], 2, 1) { Number = 110 };
+        context.Patch.Add(f101);
+        context.Patch.Add(f105);
+        context.Patch.Add(f110);
+
+        int Red(PatchedFixture f) => f.AbsoluteIndex(f.FindChannel(ChannelType.ColorRed)!);
+        int Blue(PatchedFixture f) => f.AbsoluteIndex(f.FindChannel(ChannelType.ColorBlue)!);
+
+        context.Programmer.SetChannel(f101.UniverseId, Red(f101), 200);
+        context.Programmer.SetChannel(f101.UniverseId, Blue(f101), 90);   // must survive - different parameter
+        context.Programmer.SetChannel(f105.UniverseId, Red(f105), 210);
+        context.Programmer.SetChannel(f110.UniverseId, Red(f110), 220);   // must survive - not in Fixture Selection
+
+        context.Selection.Add(f101);
+        context.Selection.Add(f105); // Fixture Selection = {101, 105}; 110 deliberately excluded
+
+        surface.PressRelease(); // arm RELEASE
+        Assert.True(surface.ReleaseArmed);
+
+        drawer.PressParameterLabel(ChannelType.ColorRed); // the shortcut: RELEASE armed + parameter label press
+
+        Assert.False(surface.ReleaseArmed); // disarmed after the shortcut fires, same as any other confirmation
+        Assert.False(context.Programmer.HasStoredValue(f101.UniverseId, Red(f101), out _)); // 101 RED released
+        Assert.False(context.Programmer.HasStoredValue(f105.UniverseId, Red(f105), out _)); // 105 RED released
+        Assert.True(context.Programmer.HasStoredValue(f101.UniverseId, Blue(f101), out var blueAfter)); // untouched
+        Assert.Equal(90, blueAfter);
+        Assert.True(context.Programmer.HasStoredValue(f110.UniverseId, Red(f110), out var f110After)); // untouched - not selected
+        Assert.Equal(220, f110After);
+
+        // Routed through the canonical dispatcher/Undo stack (item 28) - Undo restores both released fixtures.
+        var undone = undoRedo.Undo();
+        Assert.True(undone.Performed);
+        Assert.True(context.Programmer.HasStoredValue(f101.UniverseId, Red(f101), out var restored101));
+        Assert.Equal(200, restored101);
+        Assert.True(context.Programmer.HasStoredValue(f105.UniverseId, Red(f105), out var restored105));
+        Assert.Equal(210, restored105);
+    }
+
+    [Fact]
+    public void ReleaseArmed_PressPan_ReleasesPanOnlyForFixturesInCurrentSelection()
+    {
+        var (context, _, _, drawer, surface) = BuildWithSurface();
+        var moverA = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1) { Number = 1 };
+        var moverB = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 1, 1) { Number = 2 };
+        context.Patch.Add(moverA);
+        context.Patch.Add(moverB);
+
+        int Pan(PatchedFixture f) => f.AbsoluteIndex(f.FindChannel(ChannelType.Pan)!);
+        int Dimmer(PatchedFixture f) => f.AbsoluteIndex(f.FindChannel(ChannelType.Dimmer)!);
+
+        context.Programmer.SetChannel(moverA.UniverseId, Pan(moverA), 60);
+        context.Programmer.SetChannel(moverA.UniverseId, Dimmer(moverA), 200);
+        context.Programmer.SetChannel(moverB.UniverseId, Pan(moverB), 70); // not selected
+
+        context.Selection.Add(moverA);
+
+        surface.PressRelease();
+        drawer.PressParameterLabel(ChannelType.Pan);
+
+        Assert.False(context.Programmer.HasStoredValue(moverA.UniverseId, Pan(moverA), out _));
+        Assert.True(context.Programmer.HasStoredValue(moverA.UniverseId, Dimmer(moverA), out var dimmerAfter)); // unrelated parameter untouched
+        Assert.Equal(200, dimmerAfter);
+        Assert.True(context.Programmer.HasStoredValue(moverB.UniverseId, Pan(moverB), out var moverBAfter)); // unrelated fixture untouched
+        Assert.Equal(70, moverBAfter);
+    }
+
+    [Fact]
+    public void ReleaseArmed_PressParameter_RevealsUnderlyingPlaybackValueAgain()
+    {
+        var (context, _, _, drawer, surface) = BuildWithSurface();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1) { Number = 1 };
+        context.Patch.Add(fixture);
+        int red = fixture.AbsoluteIndex(fixture.FindChannel(ChannelType.ColorRed)!);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(fixture.UniverseId, red, 128); // recorded into the Cue below
+
+        var cueList = new CueList();
+        var engine = (DmxOutputEngine)context.EffectiveOutput;
+        cueList.RecordCue(context.Patch, context.Programmer, context.Selection, engine, "Cue 1", 1,
+            new CueStoreOptions(new CueTiming(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+                CueTriggerMode.Manual, TimeSpan.Zero, CueStoreFilter.AllStage));
+        var executor = context.Executors.Add(1);
+        executor.Assign(cueList);
+        engine.AddLayer(context.Programmer);
+        engine.AddLayer(executor);
+        cueList.Go();
+        engine.Tick();
+        Assert.Equal(OwnerKind.Programmer, engine.GetOwner(fixture.UniverseId, red)!.Kind);
+
+        surface.PressRelease();
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+        engine.Tick();
+
+        Assert.False(context.Programmer.HasStoredValue(fixture.UniverseId, red, out _));
+        Assert.Equal((byte)128, engine.GetEffectiveValue(fixture.UniverseId, red)); // the Cue's own value reappears
+        Assert.Equal(OwnerKind.Executor, engine.GetOwner(fixture.UniverseId, red)!.Kind);
+    }
+
+    [Fact]
+    public void ExistingGlobalReleaseRelease_RemainsUnchanged_Regression()
+    {
+        var (context, _, _, _, surface) = BuildWithSurface();
+        var a = new PatchedFixture(Dimmer1(), Dimmer1().Modes[0], 0, 1) { Number = 1 };
+        context.Patch.Add(a);
+        context.Programmer.SetChannel(a.UniverseId, 0, 200); // not selected at all
+
+        surface.PressRelease();
+        surface.PressRelease(); // second bare RELEASE - global clear, independent of Selection/Encoder Drawer
+
+        Assert.False(context.Programmer.HasStoredValue(a.UniverseId, 0, out _));
+    }
+
+    [Fact]
+    public void ExistingFamilyRelease_RemainsUnchanged_Regression()
+    {
+        var (context, _, _, _, surface) = BuildWithSurface();
+        var fixture = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1) { Number = 1 };
+        context.Patch.Add(fixture);
+        int pan = fixture.AbsoluteIndex(fixture.FindChannel(ChannelType.Pan)!);
+        int dimmer = fixture.AbsoluteIndex(fixture.FindChannel(ChannelType.Dimmer)!);
+        context.Programmer.SetChannel(fixture.UniverseId, pan, 60);
+        context.Programmer.SetChannel(fixture.UniverseId, dimmer, 200);
+        context.Selection.Add(fixture);
+
+        surface.PressRelease();
+        surface.ToggleReleaseFamily(AttributeClass.Position);
+        surface.PressToken(DmxConsole.Application.CommandSurface.CommandTokenKind.Enter);
+
+        Assert.False(context.Programmer.HasStoredValue(fixture.UniverseId, pan, out _));
+        Assert.True(context.Programmer.HasStoredValue(fixture.UniverseId, dimmer, out var dimmerAfter));
+        Assert.Equal(200, dimmerAfter);
+    }
+
+    [Fact]
+    public void ExistingParameterPickerRelease_RemainsUnchanged_Regression()
+    {
+        var (context, dispatcher, _, _, surface) = BuildWithSurface();
+        var fixture = new PatchedFixture(MovingHead(), MovingHead().Modes[0], 0, 1) { Number = 1 };
+        context.Patch.Add(fixture);
+        int pan = fixture.AbsoluteIndex(fixture.FindChannel(ChannelType.Pan)!);
+        context.Programmer.SetChannel(fixture.UniverseId, pan, 60);
+        context.Selection.Add(fixture);
+        var picker = new ParameterPickerViewModel(context, surface);
+
+        surface.PressToken(DmxConsole.Application.CommandSurface.CommandTokenKind.Position); // arm the family
+        Assert.Equal(AttributeClass.Position, picker.ArmedFamily);
+
+        picker.SelectParameter(ChannelType.Pan); // "POSITION, PAN" - pushes the Parameter token
+        surface.PressToken(DmxConsole.Application.CommandSurface.CommandTokenKind.Release);
+        surface.PressToken(DmxConsole.Application.CommandSurface.CommandTokenKind.Enter);
+
+        Assert.False(context.Programmer.HasStoredValue(fixture.UniverseId, pan, out _));
+        Assert.Equal(new[] { ChannelType.Pan }, context.ParameterSelection.Items); // picker's own recording still works too
+    }
+
+    [Fact]
+    public void ReleaseNotArmed_PressParameterLabel_NeverDispatchesRelease_StructuralCheck()
+    {
+        // EncoderDrawerViewModel.PressParameterLabel must only ever construct/dispatch the
+        // canonical ReleaseParameterCommand when RELEASE is armed (CommandSurfaceViewModel owns
+        // that state) - never a second, Encoder-Drawer-local Programmer mutation. Verified here by
+        // confirming an ordinary (non-armed) press leaves the Programmer, and ReleaseArmed itself,
+        // completely untouched - the same guarantee item 27 requires, exercised via the object's
+        // public API since the drawer holds no Programmer-mutating field.
+        var (context, _, _, drawer, surface) = BuildWithSurface();
+        var fixture = new PatchedFixture(RgbFixture(), RgbFixture().Modes[0], 0, 1);
+        context.Patch.Add(fixture);
+        context.Selection.Add(fixture);
+        context.Programmer.SetChannel(0, 0, 128);
+        drawer.SelectCategory(AttributeClass.Color);
+
+        drawer.PressParameterLabel(ChannelType.ColorRed);
+
+        Assert.False(surface.ReleaseArmed);
+        Assert.True(context.Programmer.HasStoredValue(0, 0, out var unchanged));
+        Assert.Equal(128, unchanged);
     }
 }

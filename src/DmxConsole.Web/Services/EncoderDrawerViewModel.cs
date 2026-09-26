@@ -48,6 +48,7 @@ public partial class EncoderDrawerViewModel : ObservableObject
 
     private readonly CommandDispatcher _dispatcher;
     private readonly ProgrammerViewModel _programmerVm;
+    private readonly CommandSurfaceViewModel _commandSurface;
     private ConsoleContext Context => _programmerVm.Context;
 
     /// <summary>At most one gesture may be live at a time across the whole drawer (knob, value
@@ -66,10 +67,11 @@ public partial class EncoderDrawerViewModel : ObservableObject
     [ObservableProperty] private AttributeClass? _activeCategory;
     [ObservableProperty] private int _page;
 
-    public EncoderDrawerViewModel(CommandDispatcher dispatcher, ProgrammerViewModel programmerVm)
+    public EncoderDrawerViewModel(CommandDispatcher dispatcher, ProgrammerViewModel programmerVm, CommandSurfaceViewModel commandSurface)
     {
         _dispatcher = dispatcher;
         _programmerVm = programmerVm;
+        _commandSurface = commandSurface;
     }
 
     public void Open() => IsOpen = true;
@@ -304,6 +306,44 @@ public partial class EncoderDrawerViewModel : ObservableObject
     public static string ParameterLabel(ChannelType value) => value.ToString().Replace("Color", "").Replace("Rotation", " Rot");
 
     public void SetValue(ChannelType type, byte value) => _programmerVm.SetEncoderValue(type, value);
+
+    /// <summary>Live read of the shared ConsoleContext.ParameterSelection (PSEL slice 3) - never a
+    /// UI-local selection cache. The Encoder Drawer IS the Parameter Selection UI (no separate
+    /// panel/rail): each slot's parameter label/button reflects this directly, via the same
+    /// PropertyChanged/StateHasChanged + ValuesChanged re-render idiom every other live-state read
+    /// in this drawer already uses.</summary>
+    public bool IsParameterSelected(ChannelType type) => Context.ParameterSelection.Contains(type);
+
+    /// <summary>The encoder slot's parameter label/button press - a fully independent interaction
+    /// from rotating/editing the encoder's value (SetValue/TrySetDisplayValue/Home/Min/Max above
+    /// are completely untouched by this). Two distinct behaviors, chosen by whether RELEASE is
+    /// currently armed on the Command Surface (CommandSurfaceViewModel.ReleaseArmed) - never a
+    /// second, Encoder-Drawer-owned RELEASE state machine:
+    ///
+    /// - RELEASE armed: releases this ONE logical parameter from the Programmer, scoped to the
+    ///   current Fixture Selection, via the canonical ReleaseParameterCommand
+    ///   (CommandSurfaceViewModel.ReleaseParameterForCurrentSelection - the exact same command the
+    ///   command-line "&lt;Parameter&gt; RELEASE ENTER" path dispatches). This mutates the
+    ///   Programmer, so RefreshAllFaders is called here, same as every other Programmer-mutating
+    ///   call in this ViewModel (Home/CommitGesture).
+    /// - RELEASE not armed: toggles this logical parameter in the shared ParameterSelection only
+    ///   (PSEL-1: ordered, no duplicates - Select/Remove already guarantee this). Never touches the
+    ///   Programmer, Fixture Selection, or CommandComposer/grammar.
+    /// </summary>
+    public void PressParameterLabel(ChannelType type)
+    {
+        if (_commandSurface.ReleaseArmed)
+        {
+            _commandSurface.ReleaseParameterForCurrentSelection(type);
+            _programmerVm.RefreshAllFaders();
+            ValuesChanged?.Invoke();
+            return;
+        }
+
+        if (Context.ParameterSelection.Contains(type)) Context.ParameterSelection.Remove(type);
+        else Context.ParameterSelection.Select(type);
+        ValuesChanged?.Invoke();
+    }
 
     // ---------- Gesture transaction (knob drag, wheel, value strip, Position pad, Color Picker) ----------
 

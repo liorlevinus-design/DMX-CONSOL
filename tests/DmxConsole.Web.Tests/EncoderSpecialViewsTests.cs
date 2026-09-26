@@ -71,7 +71,8 @@ public class EncoderSpecialViewsTests
         var undoRedo = new UndoRedoService(context);
         var dispatcher = new CommandDispatcher(context, undoRedo);
         var programmerVm = new ProgrammerViewModel(context, dispatcher, new ObservableCollection<ChannelFaderViewModel>());
-        var drawer = new EncoderDrawerViewModel(dispatcher, programmerVm);
+        var surface = CommandSurfaceViewModelTestSupport.BuildCommandSurfaceViewModel(context, dispatcher, new DmxConsole.Web.EditorToolBar.EditorContextStack());
+        var drawer = new EncoderDrawerViewModel(dispatcher, programmerVm, surface);
         return (context, drawer);
     }
 

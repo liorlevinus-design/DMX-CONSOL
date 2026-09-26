@@ -143,7 +143,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         GroupsVm = new GroupsViewModel(consoleContext, dispatcher);
         CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext, GroupsVm, CueListVm, SyncFadersWithPatch);
         EditorToolBarVm = new EditorToolBarViewModel(EditorContext, SoftKeyRegistryBuilder.Build(), this, CueListVm, GroupsVm, SelectionVm);
-        EncoderDrawerVm = new EncoderDrawerViewModel(dispatcher, ProgrammerVm);
+        EncoderDrawerVm = new EncoderDrawerViewModel(dispatcher, ProgrammerVm, CommandSurfaceVm);
         ParameterPickerVm = new ParameterPickerViewModel(consoleContext, CommandSurfaceVm);
 
         _artNetSender = new ArtNetSender();

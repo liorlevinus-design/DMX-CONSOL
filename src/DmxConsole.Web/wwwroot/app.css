@@ -442,7 +442,7 @@ html, body {
     min-width: 0;
     min-height: 238px;
     display: grid;
-    grid-template-rows: 30px minmax(82px, 1fr) 28px auto auto;
+    grid-template-rows: 44px minmax(82px, 1fr) 28px auto auto;
     gap: 6px;
     align-items: center;
     padding: 0 8px 8px;
@@ -453,9 +453,27 @@ html, body {
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
 }
 .encoder-slot.is-touched { border-top-color: #e0a030; }
-.encoder-slot-header { display: grid; grid-template-columns: 24px 1fr 12px; align-items: center; gap: 6px; border-bottom: 1px solid #343d45; }
+/* Header row height is driven by .encoder-slot's grid-template-rows (44px, the touch-target
+   minimum from CLAUDE.md's Blazor Conventions). .encoder-slot itself sets align-items: center,
+   which would otherwise shrink every grid child (including this one) down to its own content
+   height instead of filling the 44px track. align-self: stretch below overrides that parent
+   default for this one grid item (per the CSS Grid spec, align-self on an item always wins over
+   the container's align-items for that item), so the header genuinely fills the 44px track and
+   its clickable box is >=44px tall, not just its text. Do not remove this without re-verifying
+   the actual rendered height. */
+.encoder-slot-header { display: grid; grid-template-columns: 24px 1fr 12px; align-items: center; align-self: stretch; gap: 6px; padding: 0 4px; border-bottom: 1px solid #343d45; cursor: pointer; border-radius: 2px; }
 .encoder-slot-number { color: #77838d; font: 700 9px/1 "Consolas", monospace; letter-spacing: .08em; }
 .encoder-name { color: #e7edf2; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .045em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* PSEL slice 3: the Encoder Drawer IS the Parameter Selection UI - a parameter's own header row is
+   the (only) selectable control, reusing the same var(--accent) selected-state convention already
+   applied elsewhere (.fixture-num.selected, .fader.selected, .channels-row.selected) rather than a
+   new visual language. The whole row (not just the label text) carries the click handler and the
+   selected highlight, so the >=44px tappable area and the visual "this is selected" state are the
+   same element - see EncoderDrawer.razor. */
+.encoder-slot-header.selected { background: var(--accent); }
+.encoder-slot-header.selected .encoder-name,
+.encoder-slot-header.selected .encoder-slot-number,
+.encoder-slot-header.selected .encoder-touched-badge { color: #fff; }
 .encoder-touched-badge { color: #e0a030; font-size: 10px; }
 .encoder-slot-control { display: grid; grid-template-columns: 24px minmax(76px, 1fr); place-items: center; gap: 5px; min-height: 96px; }
 .encoder-value-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
