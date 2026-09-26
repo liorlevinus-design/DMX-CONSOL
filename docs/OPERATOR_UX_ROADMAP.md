@@ -298,10 +298,47 @@ Internal Fixture Profile Model
       -> 2D Plot Foundation
         -> Spatial Database
           -> Venue Adaptation
+          -> Lighting Plot Import Assistant
 ```
 
 GDTF/OFL importers feed the Fixture Profile layer only (stage 1) and must never become the runtime
 spatial model — see `docs/SPATIAL_PLOT_ARCHITECTURE.md` §7.
+
+### 11b. Lighting Plot Import Assistant (future major workstream, not implemented)
+
+A future workstream that sits at the end of the foundational dependency chain above:
+
+```
+Fixture Profile -> PATCH -> Spatial Database / 2D Plot -> Lighting Plot Import Assistant
+```
+
+It lets an operator import a lighting plot (vector PDF, scanned/raster PDF, or image) and produce a
+reviewed draft of PATCH data and Spatial Database data from it, instead of manually re-keying a rig
+from a paper or PDF plot. It is additive to the chain in §11a above, not a reprioritization of it or
+of any other current roadmap item: nothing in this subsection changes what work happens next: it
+only records where this workstream belongs once its prerequisites (a stable PATCH Data Model and a
+stable Spatial Database, per §11a) are in place.
+
+Full architectural detail — the canonical
+`PDF/Image -> Plot Import Analyzer -> Intermediate Import Model -> Review/Correction Workspace ->
+Confirmed Fixture Mapping -> PATCH + Spatial Database` flow, the Intermediate Import Model, the
+provenance/confidence requirements, the Patch Draft/Spatial Draft split, the Review Workspace, the
+phased delivery plan, and the explicit out-of-scope list — lives in
+`docs/SPATIAL_PLOT_ARCHITECTURE.md` §9. That document is authoritative for this area; this
+subsection only summarizes it so it is visible from the roadmap alongside §11a.
+
+Key points carried over from that document, restated briefly here:
+
+- The importer never mutates PATCH or the Spatial Database directly from a source document — every
+  import goes through review and an explicit commit.
+- The importer detects and proposes; it never silently invents missing technical data (scale,
+  DMX address, fixture identity) or commits an uncertain interpretation without review.
+- Every imported datum keeps enough provenance to trace it back to its source document/page/region.
+- PATCH and the Spatial Database stay separate domains linked by shared fixture identity even inside
+  the importer, per the separation of responsibility in `docs/SPATIAL_PLOT_ARCHITECTURE.md` §4.
+- Delivery is phased (manual assisted import first; symbol detection, metadata recognition, full
+  draft generation, and revision compare are later phases) — see
+  `docs/SPATIAL_PLOT_ARCHITECTURE.md` §9.17.
 
 ## 12. Encoder Drawer follow-up
 
