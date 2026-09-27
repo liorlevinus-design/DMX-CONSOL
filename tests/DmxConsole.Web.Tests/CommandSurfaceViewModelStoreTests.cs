@@ -45,8 +45,9 @@ public class CommandSurfaceViewModelStoreTests
         var cueList = new CueList();
         context.PrimaryCueList = cueList; // Store-grammar slice: "STORE CUE n" grammar's target
         var executor = new Executor(-1);
-        var cueListVm = new CueListViewModel(patch, context.Programmer, context.Selection, engine, cueList, dispatcher, executor);
-        var surface = new CommandSurfaceViewModel(context, dispatcher, editorContext, groupsVm, cueListVm, () => { });
+        var programmerVm = new ProgrammerViewModel(context, dispatcher, new System.Collections.ObjectModel.ObservableCollection<ChannelFaderViewModel>());
+        var cueListVm = new CueListViewModel(patch, context.Programmer, context.Selection, engine, cueList, dispatcher, executor, programmerVm);
+        var surface = new CommandSurfaceViewModel(context, dispatcher, editorContext, groupsVm, cueListVm, () => { }, programmerVm);
         return (context, dispatcher, editorContext, groupsVm, cueListVm, surface, fixture);
     }
 

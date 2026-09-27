@@ -1,7 +1,10 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DmxConsole.Application;
+using DmxConsole.Application.Commands;
+using DmxConsole.Application.Commands.Cues;
 using DmxConsole.Application.Commands.Playback;
+using DmxConsole.Application.Commands.Programmer;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
 using DmxConsole.Core.Selection;
@@ -14,8 +17,11 @@ namespace DmxConsole.Web.Services;
 /// discrete actions, not continuously while a fade runs, so a timer fills the gap).
 /// Go/Back/Stop dispatch through the Application layer (Step F) - never a direct
 /// CueList.Go()/Back()/Stop() call from the UI - so every frontend (Touch/CLI/NL/MIDI) goes
-/// through the same door. RecordCue/RemoveCue/GoToCue stay direct CueList calls - Cue *editing*
-/// as real Commands is future work, out of scope for Step F.
+/// through the same door. Store/Update also dispatch through the Application layer now (N1 slice,
+/// CLAUDE.md §5) - via StoreCueCommand/UpdateCueCommand wrapped with ClearProgrammerCommand in one
+/// CompositeCommand, never a direct CueList.RecordCue/UpdateCue call - so the Store/Update +
+/// Programmer-clear is one atomic, undoable transaction. RemoveCue/GoToCue remain direct CueList
+/// calls - out of scope for this slice (see CLAUDE.md's N1 audit).
 /// </summary>
 public partial class CueListViewModel : ObservableObject, IDisposable
 {
@@ -25,6 +31,7 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     private readonly IEffectiveOutputReader _effectiveOutput;
     private readonly CommandDispatcher _dispatcher;
     private readonly Executor _executor;
+    private readonly ProgrammerViewModel _programmerVm;
     private readonly Timer _pollTimer;
 
     public CueList CueList { get; }
@@ -55,7 +62,8 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     [ObservableProperty] private string _statusMessage = string.Empty;
 
     public CueListViewModel(Patch patch, Programmer programmer, FixtureSelection selection,
-        IEffectiveOutputReader effectiveOutput, CueList cueList, CommandDispatcher dispatcher, Executor executor)
+        IEffectiveOutputReader effectiveOutput, CueList cueList, CommandDispatcher dispatcher, Executor executor,
+        ProgrammerViewModel programmerVm)
     {
         _patch = patch;
         _programmer = programmer;
@@ -63,6 +71,7 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         _effectiveOutput = effectiveOutput;
         _dispatcher = dispatcher;
         _executor = executor;
+        _programmerVm = programmerVm;
         CueList = cueList;
         CueList.Changed += OnCueListChanged;
 
@@ -132,8 +141,21 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         }
 
         var name = string.IsNullOrWhiteSpace(NewCueName) ? $"Cue {NewCueNumber:0.##}" : NewCueName;
-        CueList.RecordCue(_patch, _programmer, _selection, _effectiveOutput, name, NewCueNumber, BuildStoreOptions(filter));
+        var storeCommand = new StoreCueCommand(CueList, name, NewCueNumber, BuildStoreOptions(filter));
 
+        // N1 (CLAUDE.md §5): the Store and the Programmer clear are one atomic, undoable
+        // transaction - never a bare StoreCueCommand dispatch. If the Store fails (shouldn't
+        // happen here, since FindByNumber above already checked), CompositeCommand's rollback
+        // guarantees the Programmer clear never runs either.
+        var result = _dispatcher.Dispatch(new CompositeCommand(new IConsoleCommand[] { storeCommand, new ClearProgrammerCommand() }));
+
+        if (!result.Success)
+        {
+            StatusMessage = result.Error ?? "Failed to store Cue.";
+            return;
+        }
+
+        _programmerVm.RefreshAllFaders(); // Blazor convention: a Programmer-mutating dispatch must refresh fader display
         StatusMessage = $"Stored Cue {NewCueNumber:0.##} ({filter}).";
         NewCueNumber = Math.Floor(NewCueNumber) + 1;
         NewCueName = string.Empty;
@@ -142,7 +164,10 @@ public partial class CueListViewModel : ObservableObject, IDisposable
     /// <summary>Update requires an already-existing Cue at NewCueNumber - an explicit "no such
     /// cue" error if there isn't one, never silently creating it instead (that's what Store is
     /// for). Replaces the target Cue's captured levels/name/timing in place via
-    /// CueList.UpdateCue - its Number and list position are unchanged.</summary>
+    /// <see cref="UpdateCueCommand"/> (overwrite: false) - its Number and list position are
+    /// unchanged. N1 (CLAUDE.md §5): dispatched together with a ClearProgrammerCommand as one
+    /// atomic, undoable CompositeCommand - never a bare UpdateCueCommand, never a direct
+    /// CueList.UpdateCue call.</summary>
     [RelayCommand]
     private void UpdateCue()
     {
@@ -154,8 +179,16 @@ public partial class CueListViewModel : ObservableObject, IDisposable
         }
 
         var name = string.IsNullOrWhiteSpace(NewCueName) ? existing.Name : NewCueName;
-        CueList.UpdateCue(existing, _patch, _programmer, _selection, _effectiveOutput, name, BuildStoreOptions(StoreFilter));
+        var updateCommand = new UpdateCueCommand(CueList, existing, name, BuildStoreOptions(StoreFilter));
+        var result = _dispatcher.Dispatch(new CompositeCommand(new IConsoleCommand[] { updateCommand, new ClearProgrammerCommand() }));
 
+        if (!result.Success)
+        {
+            StatusMessage = result.Error ?? "Failed to update Cue.";
+            return;
+        }
+
+        _programmerVm.RefreshAllFaders(); // Blazor convention: a Programmer-mutating dispatch must refresh fader display
         StatusMessage = $"Updated Cue {NewCueNumber:0.##}.";
     }
 

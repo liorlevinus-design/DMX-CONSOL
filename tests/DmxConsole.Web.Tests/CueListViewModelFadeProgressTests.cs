@@ -44,7 +44,8 @@ public class CueListViewModelFadeProgressTests
         var dispatcher = new CommandDispatcher(context, new UndoRedoService(context));
         var cueList = new CueList();
         var executor = new Executor(-1);
-        var vm = new CueListViewModel(patch, context.Programmer, context.Selection, engine, cueList, dispatcher, executor);
+        var programmerVm = new ProgrammerViewModel(context, dispatcher, new System.Collections.ObjectModel.ObservableCollection<ChannelFaderViewModel>());
+        var vm = new CueListViewModel(patch, context.Programmer, context.Selection, engine, cueList, dispatcher, executor, programmerVm);
         return (vm, cueList, patch, context.Programmer);
     }
 

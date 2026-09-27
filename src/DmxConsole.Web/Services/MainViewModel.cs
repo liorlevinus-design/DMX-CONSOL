@@ -134,14 +134,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _dispatcher = new CommandDispatcher(consoleContext, _undoRedo);
         var dispatcher = _dispatcher;
 
-        CueListVm = new CueListViewModel(Patch, Programmer, consoleContext.Selection, Engine, cueList, dispatcher, mainExecutor);
+        // ProgrammerVm must exist before CueListVm - N1 (CLAUDE.md §5) needs CueListViewModel to
+        // call ProgrammerVm.RefreshAllFaders() after a Store/Update dispatch that clears the
+        // Programmer (same Blazor convention PresetViewModel already follows below).
+        ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
+        CueListVm = new CueListViewModel(Patch, Programmer, consoleContext.Selection, Engine, cueList, dispatcher, mainExecutor, ProgrammerVm);
         EffectsVm = new EffectsViewModel(Patch, effects, dispatcher);
         SelectionVm = new SelectionViewModel(consoleContext, dispatcher);
-        ProgrammerVm = new ProgrammerViewModel(consoleContext, dispatcher, Faders);
         PresetVm = new PresetViewModel(consoleContext, dispatcher, ProgrammerVm);
         ExecutorVm = new ExecutorViewModel(consoleContext, dispatcher, cueList);
         GroupsVm = new GroupsViewModel(consoleContext, dispatcher);
-        CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext, GroupsVm, CueListVm, SyncFadersWithPatch);
+        CommandSurfaceVm = new CommandSurfaceViewModel(consoleContext, dispatcher, EditorContext, GroupsVm, CueListVm, SyncFadersWithPatch, ProgrammerVm);
         EditorToolBarVm = new EditorToolBarViewModel(EditorContext, SoftKeyRegistryBuilder.Build(), this, CueListVm, GroupsVm, SelectionVm);
         EncoderDrawerVm = new EncoderDrawerViewModel(dispatcher, ProgrammerVm, CommandSurfaceVm);
         ParameterPickerVm = new ParameterPickerViewModel(consoleContext, CommandSurfaceVm);

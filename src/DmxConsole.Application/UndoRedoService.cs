@@ -12,6 +12,11 @@ public sealed class UndoRedoService
     public bool CanUndo => _undoStack.Count > 0;
     public bool CanRedo => _redoStack.Count > 0;
 
+    /// <summary>Exact Undo-stack depth - lets a test (or a caller) prove a multi-step transaction
+    /// (e.g. a CompositeCommand of [Cue mutation, Programmer clear]) pushed exactly ONE entry,
+    /// never one per sub-command.</summary>
+    public int UndoCount => _undoStack.Count;
+
     /// <summary>Records a command that has already been executed successfully. Invalidates the redo history.</summary>
     public void Push(IConsoleCommand command)
     {

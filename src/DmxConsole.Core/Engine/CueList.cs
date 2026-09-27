@@ -248,19 +248,32 @@ public sealed class CueList : IOutputLayer, IPlaybackSource, ISequencedPlayback,
     public Cue? UpdateCue(Cue existing, Patch patch, Programmer programmer, Selection.FixtureSelection selection,
         IEffectiveOutputReader effectiveOutput, string name, CueStoreOptions options)
     {
-        Cue updated;
+        var updated = BuildCue(patch, programmer, selection, effectiveOutput, name, existing.Number, options, presetOverrides: null);
+        return ReplaceCue(existing, updated) ? updated : null;
+    }
+
+    /// <summary>Low-level swap: replaces whichever Cue object currently occupies <paramref
+    /// name="replaceThis"/>'s slot in the list with <paramref name="replacement"/>, preserving
+    /// list position and updating the live playback pointer if <paramref name="replaceThis"/>
+    /// happens to be the currently active Cue (so playback never goes stale referencing a
+    /// replaced object). This is the same primitive <see cref="UpdateCue"/> uses internally, and
+    /// is also exactly what UpdateCueCommand's Undo needs: since UpdateCue never mutates its input
+    /// Cue (only ever swaps it out for a freshly-built one), putting the ORIGINAL object back is
+    /// just this same swap run in the other direction. Returns false (no mutation) if <paramref
+    /// name="replaceThis"/> is no longer in this list.</summary>
+    public bool ReplaceCue(Cue replaceThis, Cue replacement)
+    {
         lock (_lock)
         {
-            int index = Cues.IndexOf(existing);
-            if (index < 0) return null;
+            int index = Cues.IndexOf(replaceThis);
+            if (index < 0) return false;
 
-            updated = BuildCue(patch, programmer, selection, effectiveOutput, name, existing.Number, options, presetOverrides: null);
-            Cues[index] = updated;
-            if (ReferenceEquals(_currentCue, existing)) _currentCue = updated;
+            Cues[index] = replacement;
+            if (ReferenceEquals(_currentCue, replaceThis)) _currentCue = replacement;
         }
 
         Changed?.Invoke();
-        return updated;
+        return true;
     }
 
     /// <summary>Toggles an already-recorded Cue's FOLLOW ON / MANUAL trigger mode in place - no-op

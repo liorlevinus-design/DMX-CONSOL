@@ -24,8 +24,9 @@ internal static class CommandSurfaceViewModelTestSupport
         var groupsVm = new GroupsViewModel(context, dispatcher);
         var cueList = new CueList();
         var executor = new Executor(-1);
+        var programmerVm = new ProgrammerViewModel(context, dispatcher, new System.Collections.ObjectModel.ObservableCollection<ChannelFaderViewModel>());
         var cueListVm = new CueListViewModel(context.Patch, context.Programmer, context.Selection,
-            context.EffectiveOutput, cueList, dispatcher, executor);
-        return new CommandSurfaceViewModel(context, dispatcher, editorContext, groupsVm, cueListVm, onPatchApplied: () => { });
+            context.EffectiveOutput, cueList, dispatcher, executor, programmerVm);
+        return new CommandSurfaceViewModel(context, dispatcher, editorContext, groupsVm, cueListVm, onPatchApplied: () => { }, programmerVm);
     }
 }

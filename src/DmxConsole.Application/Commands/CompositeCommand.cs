@@ -12,7 +12,7 @@ namespace DmxConsole.Application.Commands;
 /// ever left applied, and CommandDispatcher never pushes a failed batch onto the undo
 /// stack. Redo re-executes every sub-command in order, exactly like a fresh Dispatch.
 /// </summary>
-public sealed class CompositeCommand : IConsoleCommand, IReplayableCommand
+public sealed class CompositeCommand : IConsoleCommand, IReplayableCommand, IHasUndoRisk
 {
     private readonly IReadOnlyList<IConsoleCommand> _commands;
 
@@ -72,6 +72,34 @@ public sealed class CompositeCommand : IConsoleCommand, IReplayableCommand
     public void Undo(ConsoleContext context)
     {
         for (int i = _commands.Count - 1; i >= 0; i--) _commands[i].Undo(context);
+    }
+
+    /// <summary>
+    /// Aggregates Undo risk from every child that implements <see cref="IHasUndoRisk"/> - without
+    /// this, UndoRedoService.PeekUndo's fallback (<see cref="UndoProposal.SingleSafe"/> for any
+    /// command that isn't itself IHasUndoRisk) would silently downgrade a composite containing a
+    /// genuinely Destructive child (e.g. [StoreCueCommand, ClearProgrammerCommand] - StoreCueCommand
+    /// alone always proposes Destructive) to Safe, violating CLAUDE.md §14's "Destructive Undo
+    /// requires an explicit confirmed option id from PeekUndo". If ANY child proposes a Destructive
+    /// option, the whole composite does too - reusing the "delete" id every Destructive
+    /// UndoOption in this codebase already uses, so a confirmed id from an earlier PeekUndo() still
+    /// matches when Undo() re-derives this same proposal. No child today ever proposes more than
+    /// one Destructive option, so combining every child's description is enough - never silent.
+    /// </summary>
+    public UndoProposal PrepareUndo()
+    {
+        var destructiveDescriptions = _commands
+            .OfType<IHasUndoRisk>()
+            .Select(c => c.PrepareUndo())
+            .SelectMany(p => p.Options)
+            .Where(o => o.Risk == UndoRisk.Destructive)
+            .Select(o => o.Description)
+            .ToList();
+
+        if (destructiveDescriptions.Count == 0) return UndoProposal.SingleSafe("Undo this action");
+
+        var description = string.Join(" and ", destructiveDescriptions);
+        return new UndoProposal(description, new[] { new UndoOption("delete", description, UndoRisk.Destructive) });
     }
 
     private static string? CombineWarnings(IReadOnlyList<CommandResult> results)

@@ -1334,7 +1334,13 @@ public sealed class CommandComposer
     /// own "already exists - Update it instead" behavior, via StoreCueCommand). Timing/Trigger/
     /// StoreFilter are not yet part of this grammar (Store-grammar slice, §2's explicit scope) -
     /// CueStoreOptions.Default (the same shared default the Core layer itself defines) is used;
-    /// inventing per-attribute timing/trigger/filter grammar here was explicitly out of scope.</summary>
+    /// inventing per-attribute timing/trigger/filter grammar here was explicitly out of scope.
+    ///
+    /// N1 (CLAUDE.md §5): a successful STORE CUE also clears the entire Programmer, atomically and
+    /// undoably with the Store itself - so the ReadyOperation is always a CompositeCommand of
+    /// [StoreCueCommand, ClearProgrammerCommand] (plus any preceding selection commands), never
+    /// the bare StoreCueCommand alone. If StoreCueCommand fails (Cue already exists),
+    /// CompositeCommand's own rollback guarantees the Programmer clear never runs either.</summary>
     private CommandComposition ResolveStoreCue(string preview, bool finalize, int i, List<IConsoleCommand> precedingCommands, List<PatchedFixture> targets)
     {
         if (i >= _tokens.Count)
@@ -1355,8 +1361,8 @@ public sealed class CommandComposer
             return Incomplete(preview, "No Cue List available to store into.");
 
         var storeCommand = new StoreCueCommand(cueList, $"Cue {FormatNumber(number)}", number, CueStoreOptions.Default);
-        var commands = new List<IConsoleCommand>(precedingCommands) { storeCommand };
-        IConsoleCommand operation = commands.Count == 1 ? commands[0] : new CompositeCommand(commands);
+        var commands = new List<IConsoleCommand>(precedingCommands) { storeCommand, new ClearProgrammerCommand() };
+        IConsoleCommand operation = new CompositeCommand(commands);
 
         return new CommandComposition
         {

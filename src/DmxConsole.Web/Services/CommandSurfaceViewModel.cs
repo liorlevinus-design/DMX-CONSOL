@@ -29,6 +29,7 @@ public sealed class CommandSurfaceViewModel
     private readonly GroupsViewModel _groupsVm;
     private readonly CueListViewModel _cueListVm;
     private readonly Action _onPatchApplied;
+    private readonly ProgrammerViewModel _programmerVm;
     private CommandComposer _composer;
     private string _pendingDigits = string.Empty;
     private bool _mirrorsExistingSelection;
@@ -291,7 +292,7 @@ public sealed class CommandSurfaceViewModel
     /// Surface gesture, and so Razor stays a thin proxy with zero routing logic of its own.
     /// </summary>
     public CommandSurfaceViewModel(ConsoleContext context, CommandDispatcher dispatcher, EditorContextStack editorContext,
-        GroupsViewModel groupsVm, CueListViewModel cueListVm, Action onPatchApplied)
+        GroupsViewModel groupsVm, CueListViewModel cueListVm, Action onPatchApplied, ProgrammerViewModel programmerVm)
     {
         _context = context;
         _dispatcher = dispatcher;
@@ -299,6 +300,7 @@ public sealed class CommandSurfaceViewModel
         _groupsVm = groupsVm;
         _cueListVm = cueListVm;
         _onPatchApplied = onPatchApplied;
+        _programmerVm = programmerVm;
         _composer = new CommandComposer(context);
         _macroRecorder = new MacroRecorder(dispatcher, context.Macros);
         _macroPlayer = new MacroPlaybackService(dispatcher, context.Macros, _macroRecorder);
@@ -1178,6 +1180,11 @@ public sealed class CommandSurfaceViewModel
 
             if (result.Success)
             {
+                // Blazor convention (CLAUDE.md): any dispatch that can change Programmer values
+                // must refresh the fader display, or the UI silently goes stale - e.g. STORE CUE
+                // now clears the Programmer (N1) but that never flows to FaderBank on its own.
+                _programmerVm.RefreshAllFaders();
+
                 // Selection History rule: LastSelection is now updated centrally by
                 // CommandDispatcher.Dispatch itself (driven by SelectionCommandBase.
                 // ProducesSelectionSnapshot) - no manual RememberSelection call needed here.

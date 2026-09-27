@@ -34,6 +34,26 @@ public enum ConsoleActionType
     /// both the Cues panel and the Command Surface's STORE grammar dispatch through.</summary>
     StoreCue,
 
+    /// <summary>UPDATE for an already-recorded Cue (CLAUDE.md §5 C7) - replaces the target Cue's
+    /// content in place via <see cref="DmxConsole.Application.Commands.Cues.UpdateCueCommand"/>
+    /// (overwrite: false). The shared Application operation the Cues panel's "Update" button and
+    /// the Command Surface's UPDATE key dispatch through - never a direct CueList call.</summary>
+    UpdateCue,
+
+    /// <summary>OVERWRITE for an already-recorded Cue (CLAUDE.md §5 C7) - same shared
+    /// <see cref="DmxConsole.Application.Commands.Cues.UpdateCueCommand"/> as <see cref="UpdateCue"/>,
+    /// with overwrite: true. A distinct, dispatchable ActionType (never collapsed into UpdateCue)
+    /// per CLAUDE.md's "exactly three [Store conflict] options, never renamed" rule, even though
+    /// today's full-snapshot Cue recording makes the two outcomes identical in practice - see
+    /// UpdateCueCommand's own doc comment.</summary>
+    OverwriteCue,
+
+    /// <summary>N1 (CLAUDE.md §5): undoably clears the ENTIRE Programmer (values + knockout +
+    /// timing) via <see cref="DmxConsole.Application.Commands.Programmer.ClearProgrammerCommand"/>
+    /// - always dispatched as the second half of a [Cue-mutation, ClearProgrammer] CompositeCommand
+    /// after a successful Cue STORE/UPDATE/OVERWRITE, never standalone from a live console key.</summary>
+    ClearProgrammer,
+
     /// <summary>CUE &lt;n&gt; [THRU &lt;n&gt;] TIME &lt;value&gt;[/&lt;value&gt;] grammar - sets an
     /// already-recorded Cue's flat In/Out fade timing (CueTiming.TimeIn/TimeOut). Never touches
     /// TriggerMode/WaitTime (Cue Trigger Semantics stay untouched by this grammar) and never

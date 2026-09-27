@@ -1,4 +1,5 @@
 using DmxConsole.Application.CommandSurface;
+using DmxConsole.Application.Commands;
 using DmxConsole.Core;
 using DmxConsole.Core.Engine;
 using DmxConsole.Core.Fixtures;
@@ -197,7 +198,14 @@ public class CommandComposerStoreTests
         var final = composer.Push(CommandToken.Simple(CommandTokenKind.Enter));
 
         Assert.True(final.IsComplete);
-        Assert.IsType<Application.Commands.Cues.StoreCueCommand>(final.ReadyOperation);
+
+        // N1 (CLAUDE.md §5): STORE CUE's ReadyOperation is now always a CompositeCommand of
+        // [StoreCueCommand, ClearProgrammerCommand] - never the bare StoreCueCommand - so the
+        // Programmer clear rides along atomically with the Store as one Undo entry.
+        var composite = Assert.IsType<CompositeCommand>(final.ReadyOperation);
+        Assert.Contains(composite.Commands, c => c is Application.Commands.Cues.StoreCueCommand);
+        Assert.Contains(composite.Commands, c => c is Application.Commands.Programmer.ClearProgrammerCommand);
+
         var result = dispatcher.Dispatch(final.ReadyOperation!);
         Assert.True(result.Success);
         Assert.NotNull(context.PrimaryCueList!.FindByNumber(5));
@@ -446,7 +454,19 @@ public class CommandComposerStoreTests
         Assert.NotNull(context.Presets.FindByNumber(AttributeClass.Position, 9));
         Assert.NotNull(context.Presets.FindByNumber(AttributeClass.Color, 9));
 
-        undoRedo.Undo(); // one Undo() call must revert BOTH Presets - proof it's one transaction
+        // Both Presets were newly created, so this composite's Undo is Destructive (CLAUDE.md
+        // §14: "Destructive Undo requires an explicit confirmed option id from PeekUndo") -
+        // CompositeCommand aggregates that risk from its StorePresetCommand children (see its own
+        // PrepareUndo doc comment), so a bare Undo() without confirmation must be blocked first.
+        var proposal = undoRedo.PeekUndo()!;
+        var destructiveId = proposal.Options.Single(o => o.Risk == UndoRisk.Destructive).Id;
+
+        var blocked = undoRedo.Undo(); // no confirmation - must NOT mutate anything
+        Assert.False(blocked.Performed);
+        Assert.NotNull(context.Presets.FindByNumber(AttributeClass.Position, 9));
+        Assert.NotNull(context.Presets.FindByNumber(AttributeClass.Color, 9));
+
+        undoRedo.Undo(destructiveId); // one confirmed Undo() call must revert BOTH Presets - proof it's one transaction
         Assert.Null(context.Presets.FindByNumber(AttributeClass.Position, 9));
         Assert.Null(context.Presets.FindByNumber(AttributeClass.Color, 9));
     }

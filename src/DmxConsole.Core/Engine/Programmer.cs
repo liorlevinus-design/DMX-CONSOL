@@ -96,6 +96,19 @@ public sealed class Programmer : IOutputLayer
     public IReadOnlyDictionary<(int Universe, int Channel), byte> Snapshot() =>
         new Dictionary<(int, int), byte>(_values);
 
+    /// <summary>Admin-facing snapshot of every currently knocked-out channel - parallel to
+    /// <see cref="Snapshot"/> (values) and <see cref="TimingSnapshot"/> (timing). Exists so a
+    /// Command that needs to undoably clear the WHOLE Programmer (<see cref="ClearAll"/>) can
+    /// capture all three independent axes before clearing, and restore them exactly on Undo -
+    /// see DmxConsole.Application.Commands.Programmer.ClearProgrammerCommand.</summary>
+    public IReadOnlySet<(int Universe, int Channel)> KnockoutSnapshot() =>
+        new HashSet<(int, int)>(_knockedOut.Keys);
+
+    /// <summary>Admin-facing snapshot of every channel's current timing override(s) - parallel to
+    /// <see cref="Snapshot"/> and <see cref="KnockoutSnapshot"/>. See that method's doc comment.</summary>
+    public IReadOnlyDictionary<(int Universe, int Channel), (TimeSpan? TimeIn, TimeSpan? TimeOut)> TimingSnapshot() =>
+        new Dictionary<(int, int), (TimeSpan?, TimeSpan?)>(_timing);
+
     /// <summary>Sets this channel's TimeIn override, preserving whatever TimeOut override (if any)
     /// already exists on it - "TIME IN 5" must never clobber a previously-set TIME OUT on the same
     /// target, and vice versa (each side is written independently).</summary>

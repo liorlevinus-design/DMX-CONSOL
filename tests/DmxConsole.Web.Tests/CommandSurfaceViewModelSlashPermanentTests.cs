@@ -60,9 +60,10 @@ public class CommandSurfaceViewModelSlashPermanentTests
         // exactly the kind of "stale/different instance" mistake worth guarding against here).
         var groupsVm = new GroupsViewModel(context, dispatcher);
         var executor = new Executor(-1);
+        var programmerVm = new ProgrammerViewModel(context, dispatcher, new System.Collections.ObjectModel.ObservableCollection<ChannelFaderViewModel>());
         var cueListVm = new CueListViewModel(context.Patch, context.Programmer, context.Selection,
-            context.EffectiveOutput, cueList, dispatcher, executor);
-        var surface = new CommandSurfaceViewModel(context, dispatcher, new EditorContextStack(), groupsVm, cueListVm, onPatchApplied: () => { });
+            context.EffectiveOutput, cueList, dispatcher, executor, programmerVm);
+        var surface = new CommandSurfaceViewModel(context, dispatcher, new EditorContextStack(), groupsVm, cueListVm, onPatchApplied: () => { }, programmerVm);
 
         return (context, dispatcher, surface, cueList, cueListVm);
     }
